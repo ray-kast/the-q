@@ -1,0 +1,18 @@
+[package]
+name = "the-q"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/ray-kast/the-q/"
+
+[dependencies]
+anyhow = "1.0.68"
+async-trait = "0.1.60"
+clap = { version = "4.0.32", features = ["env", "cargo", "derive"] }
+dotenv = "0.15.0"
+futures-util = "0.3.25"
+serenity = { version = "0.11.5", features = ["voice_model"] }
+tokio = { version = "1.23.0", features = ["parking_lot", "full", "tracing"] }
+tracing = "0.1.37"
+tracing-log = "0.1.3"
+tracing-subscriber = { version = "0.3.16", features = ["fmt", "env-filter"] }
