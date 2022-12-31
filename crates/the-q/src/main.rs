@@ -10,14 +10,15 @@
 pub(crate) mod client;
 mod entry;
 
-pub mod prelude {
-    pub use std::sync::Arc;
+pub(crate) mod prelude {
+    pub use std::{future::Future, sync::Arc};
 
-    pub use anyhow::{anyhow, bail, ensure, Context, Error};
+    pub use anyhow::{anyhow, bail, ensure, Context as _, Error};
     pub use async_trait::async_trait;
     pub use futures_util::{FutureExt, StreamExt};
     pub use tracing::{
-        debug, debug_span, error, error_span, info, info_span, trace, trace_span, warn, warn_span,
+        debug, debug_span, error, error_span, info, info_span, instrument, trace, trace_span, warn,
+        warn_span,
     };
     pub use tracing_subscriber::prelude::*;
 

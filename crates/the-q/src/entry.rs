@@ -149,7 +149,7 @@ async fn run(opts: Opts) -> Result {
     };
 
     if shutdown {
-        client.shard_manager.lock_owned().await.shutdown_all().await;
+        client.shard_manager.lock().await.shutdown_all().await;
     }
 
     ret
