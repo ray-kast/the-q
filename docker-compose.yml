@@ -1,0 +1,13 @@
+version: '3.6'
+
+services:
+  bot:
+    build:
+      context: .
+      target: bot
+    volumes:
+      - type: bind
+        source: ./.env.local
+        target: /opt/the-q/.env.local
+        read_only: true
+    restart: unless-stopped

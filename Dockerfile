@@ -58,6 +58,6 @@ RUN apt-get update -y && \
 COPY .env .env.prod ./
 
 # Core bot image
-FROM base AS the-q
+FROM base AS bot
 COPY --from=build /build/target/docker/the-q bin/
 CMD ["bin/the-q"]
