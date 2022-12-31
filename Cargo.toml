@@ -2,5 +2,13 @@
 members = ["crates/*"]
 resolver = "2"
 
-[profile.release]
+[profile.debug-opt]
+inherits = "release"
+debug = 2
+debug-assertions = true
+incremental = true
+
+[profile.docker]
+inherits = "release"
 lto = "thin"
+strip = "symbols"
