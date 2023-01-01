@@ -3,6 +3,7 @@ use songbird::SerenityInit;
 
 use crate::prelude::*;
 
+mod commands;
 mod handler;
 
 pub async fn build(token: impl AsRef<str>) -> Result<Client> {
