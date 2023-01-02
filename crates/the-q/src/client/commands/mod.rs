@@ -10,6 +10,7 @@ pub(self) mod prelude {
         model::{
             application::{
                 command::{CommandOptionType, CommandType},
+                component::InputTextStyle,
                 interaction::{
                     application_command::ApplicationCommandInteraction, InteractionResponseType,
                 },

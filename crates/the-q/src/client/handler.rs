@@ -46,7 +46,7 @@ impl serenity::client::EventHandler for Handler {
                         bail!("Unrecognized command {c:?}")
                     },
                 },
-                i if cfg!(debug_assertions) => warn!("Unknown interaction {i:?}"),
+                i if cfg!(debug_assertions) => warn!("Unknown interaction {i:?}"), // TODO
                 _ => (),
             }
 
