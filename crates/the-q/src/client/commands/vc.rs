@@ -1,11 +1,16 @@
 use super::prelude::*;
 
 #[derive(Debug)]
-pub struct QCommand;
+pub struct VcCommand;
 
 #[async_trait]
-impl CommandHandler for QCommand {
-    fn register(&self, cmd: &mut CreateApplicationCommand) { cmd.name("q").description(";)"); }
+impl CommandHandler for VcCommand {
+    fn register(&self, opts: &CommandOpts, cmd: &mut CreateApplicationCommand) -> Option<GuildId> {
+        cmd.name(&opts.command_base)
+            .description(";)")
+            .kind(CommandType::ChatInput);
+        None
+    }
 
     async fn respond(&self, ctx: &Context, cmd: ApplicationCommandInteraction) -> Result {
         let Some(gid) = cmd.guild_id else {
@@ -54,6 +59,7 @@ impl CommandHandler for QCommand {
         })
         .await
         .context("Failed to respond to interaction")?;
+
         Ok(())
     }
 }

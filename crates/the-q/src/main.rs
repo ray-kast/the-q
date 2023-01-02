@@ -11,7 +11,14 @@ pub(crate) mod client;
 mod entry;
 
 pub(crate) mod prelude {
-    pub use std::{future::Future, sync::Arc};
+    pub use std::{
+        borrow::{
+            Borrow, Cow,
+            Cow::{Borrowed, Owned},
+        },
+        future::Future,
+        sync::Arc,
+    };
 
     pub use anyhow::{anyhow, bail, ensure, Context as _, Error};
     pub use async_trait::async_trait;

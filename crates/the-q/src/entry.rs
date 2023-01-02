@@ -3,14 +3,14 @@ use futures_util::stream::FuturesUnordered;
 use crate::prelude::*;
 
 #[derive(Debug, clap::Parser)]
+#[command(version, author, about)]
 struct Opts {
-    /// The Discord API token to use
-    #[arg(long, env)]
-    discord_token: String,
-
     /// Hint for the number of threads to use
     #[arg(short = 'j', long, env)]
     threads: Option<usize>,
+
+    #[command(flatten)]
+    client: crate::client::ClientOpts,
 }
 
 #[allow(clippy::inline_always)]
@@ -49,6 +49,7 @@ pub fn main() {
     .expect("Failed to set default tracing subscriber");
 
     let opts: Opts = clap::Parser::parse();
+    debug!("{opts:#?}");
 
     let rt = {
         let mut builder = tokio::runtime::Builder::new_multi_thread();
@@ -82,12 +83,9 @@ enum StopType<S> {
 #[allow(clippy::inline_always)]
 #[inline(always)]
 async fn run(opts: Opts) -> Result {
-    let Opts {
-        threads: _,
-        discord_token,
-    } = opts;
+    let Opts { threads: _, client } = opts;
 
-    let mut client = crate::client::build(discord_token).await?;
+    let mut client = crate::client::build(client).await?;
 
     let signal;
 

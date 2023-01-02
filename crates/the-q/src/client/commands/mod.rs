@@ -1,21 +1,42 @@
-mod q;
+// For debug printing every mod <x> should export <X>Command
+#![allow(clippy::module_name_repetitions)]
+
+mod test;
+mod vc;
 
 pub(self) mod prelude {
     pub use serenity::{
-        builder::CreateApplicationCommand,
-        model::application::interaction::{
-            application_command::ApplicationCommandInteraction, InteractionResponseType,
+        builder::{CreateApplicationCommand, CreateApplicationCommandOption},
+        model::{
+            application::{
+                command::{CommandOptionType, CommandType},
+                interaction::{
+                    application_command::ApplicationCommandInteraction, InteractionResponseType,
+                },
+            },
+            id::GuildId,
         },
         prelude::*,
     };
 
-    pub use super::CommandHandler;
+    pub(super) use super::{CommandHandler, CommandOpts};
     pub use crate::prelude::*;
+}
+
+#[derive(Debug, clap::Args)]
+pub struct CommandOpts {
+    /// Base command name to prefix all slash commands with
+    #[arg(long, env, default_value = "q")]
+    command_base: String,
 }
 
 #[async_trait::async_trait]
 pub trait CommandHandler: std::fmt::Debug + Send + Sync {
-    fn register(&self, cmd: &mut serenity::builder::CreateApplicationCommand);
+    fn register(
+        &self,
+        opts: &CommandOpts,
+        cmd: &mut prelude::CreateApplicationCommand,
+    ) -> Option<prelude::GuildId>;
 
     async fn respond(
         &self,
@@ -24,4 +45,6 @@ pub trait CommandHandler: std::fmt::Debug + Send + Sync {
     ) -> prelude::Result;
 }
 
-pub fn list() -> [Box<dyn CommandHandler>; 1] { [Box::new(q::QCommand)] }
+pub fn list() -> [Box<dyn CommandHandler>; 2] {
+    [Box::new(vc::VcCommand), Box::new(test::TestCommand)]
+}
