@@ -26,7 +26,8 @@ impl CommandHandler for VcCommand {
         let Some(voice_chan) = guild
             .voice_states
             .get(&cmd.user.id)
-            .and_then(|s| s.channel_id) else {
+            .and_then(|s| s.channel_id)
+        else {
             cmd.create_interaction_response(&ctx.http, |res| {
                 res.kind(InteractionResponseType::ChannelMessageWithSource)
                     .interaction_response_data(|msg| {

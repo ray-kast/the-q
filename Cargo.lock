@@ -1619,7 +1619,6 @@ dependencies = [
  "songbird",
  "tokio",
  "tracing",
- "tracing-log",
  "tracing-subscriber",
 ]
 

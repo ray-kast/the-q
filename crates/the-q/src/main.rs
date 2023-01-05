@@ -9,6 +9,7 @@
 
 pub(crate) mod client;
 mod entry;
+pub(crate) mod util;
 
 pub(crate) mod prelude {
     pub use std::{
@@ -17,6 +18,7 @@ pub(crate) mod prelude {
             Cow::{Borrowed, Owned},
         },
         future::Future,
+        mem,
         sync::Arc,
     };
 

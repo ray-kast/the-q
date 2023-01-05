@@ -1,10 +1,15 @@
 use futures_util::stream::FuturesUnordered;
+use tracing_subscriber::EnvFilter;
 
 use crate::prelude::*;
 
 #[derive(Debug, clap::Parser)]
 #[command(version, author, about)]
 struct Opts {
+    /// Log filter, using env_logger-like syntax
+    #[arg(long, env = "RUST_LOG")]
+    log_filter: Option<String>,
+
     /// Hint for the number of threads to use
     #[arg(short = 'j', long, env)]
     threads: Option<usize>,
@@ -13,9 +18,25 @@ struct Opts {
     client: crate::client::ClientOpts,
 }
 
+macro_rules! init_error {
+    ($($args:tt)*) => ({
+        ::tracing::error!($($args)*);
+        ::std::process::exit(1);
+    })
+}
+
+fn fmt_layer<S>() -> tracing_subscriber::fmt::Layer<S> {
+    // configure log format here
+    tracing_subscriber::fmt::layer()
+}
+
 #[allow(clippy::inline_always)]
 #[inline(always)]
 pub fn main() {
+    let tmp_logger =
+        tracing::subscriber::set_default(tracing_subscriber::registry().with(fmt_layer()));
+    let span = error_span!("boot").entered();
+
     [
         ".env.local",
         if cfg!(debug_assertions) {
@@ -32,24 +53,26 @@ pub fn main() {
             Ok(())
         },
         Err(dotenv::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e),
+        Err(e) => Err(e).with_context(|| format!("Failed to load {p:?}")),
     })
-    .expect("Failed to load .env files");
-
-    tracing_log::LogTracer::init().expect("Failed to initialize LogTracer");
-    tracing::subscriber::set_global_default(
-        tracing_subscriber::Registry::default()
-            .with(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .or_else(|_| tracing_subscriber::EnvFilter::try_new("info"))
-                    .unwrap(),
-            )
-            .with(tracing_subscriber::fmt::layer()),
-    )
-    .expect("Failed to set default tracing subscriber");
+    .unwrap_or_else(|e| init_error!("Loading .env files failed: {e:?}"));
 
     let opts: Opts = clap::Parser::parse();
-    debug!("{opts:#?}");
+    mem::drop(span);
+    let span = error_span!("boot", ?opts).entered();
+
+    let log_filter = opts.log_filter.as_deref().unwrap_or("info");
+
+    tracing_subscriber::registry()
+        .with(
+            EnvFilter::try_new(log_filter)
+                .unwrap_or_else(|e| init_error!("Invalid log filter {log_filter:?}: {e}")),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .try_init()
+        .unwrap_or_else(|e| init_error!("Failed to initialize logger: {e}"));
+
+    mem::drop((span, tmp_logger));
 
     let rt = {
         let mut builder = tokio::runtime::Builder::new_multi_thread();
@@ -63,7 +86,7 @@ pub fn main() {
         builder
             .enable_all()
             .build()
-            .expect("Failed to initialize async runtime")
+            .unwrap_or_else(|e| init_error!("Failed to initialize async runtime: {e}"))
     };
 
     std::process::exit(match rt.block_on(run(opts)) {
@@ -82,11 +105,15 @@ enum StopType<S> {
 
 #[allow(clippy::inline_always)]
 #[inline(always)]
+#[instrument(level = "error", skip(opts))]
 async fn run(opts: Opts) -> Result {
-    let Opts { threads: _, client } = opts;
+    let Opts {
+        log_filter: _,
+        threads: _,
+        client,
+    } = opts;
 
     let mut client = crate::client::build(client).await?;
-
     let signal;
 
     #[cfg(unix)]

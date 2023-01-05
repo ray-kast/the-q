@@ -1,7 +1,7 @@
 use serenity::{model::gateway::GatewayIntents, Client};
 use songbird::SerenityInit;
 
-use crate::prelude::*;
+use crate::{prelude::*, util::DebugShim};
 
 mod commands;
 mod handler;
@@ -11,7 +11,7 @@ mod handler;
 pub struct ClientOpts {
     /// The Discord API token to use
     #[arg(long, env)]
-    discord_token: String,
+    discord_token: DebugShim<String>,
 
     #[command(flatten)]
     commands: commands::CommandOpts,
@@ -26,7 +26,7 @@ pub async fn build(opts: ClientOpts) -> Result<Client> {
     let intents = GatewayIntents::non_privileged(); // TODO
     let handler = handler::Handler::new_rc(commands);
 
-    Client::builder(discord_token, intents)
+    Client::builder(discord_token.0, intents)
         .event_handler_arc(handler)
         .register_songbird()
         .await

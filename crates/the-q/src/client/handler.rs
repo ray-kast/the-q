@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use dashmap::DashMap;
 use serenity::{
     model::{
-        application::{command::Command, interaction::Interaction},
+        application::{
+            command::Command,
+            interaction::{Interaction, InteractionResponseType},
+        },
         gateway::Ready,
         id::CommandId,
     },
@@ -40,14 +43,36 @@ impl serenity::client::EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, int: Interaction) {
         handler("interaction_create", async move {
             match int {
+                Interaction::Ping(_) => (),
                 Interaction::ApplicationCommand(c) => match self.commands.get(&c.data.id) {
                     Some(cmd) => cmd.respond(&ctx, c).await?,
                     None => {
                         bail!("Unrecognized command {c:?}")
                     },
                 },
-                i if cfg!(debug_assertions) => warn!("Unknown interaction {i:?}"), // TODO
-                _ => (),
+                Interaction::MessageComponent(m) => m
+                    .create_interaction_response(&ctx.http, |r| {
+                        r.kind(InteractionResponseType::UpdateMessage)
+                            .interaction_response_data(|d| d)
+                    })
+                    .await
+                    .context("Failed to respond to message component")?,
+                Interaction::Autocomplete(a) => a
+                    .create_autocomplete_response(&ctx.http, |r| {
+                        r.add_string_choice("fucc", "fucc")
+                    })
+                    .await
+                    .context("Failed to fulfill autocomplete")?,
+                Interaction::ModalSubmit(m) => {
+                    m.create_interaction_response(&ctx.http, |r| {
+                        r.kind(InteractionResponseType::ChannelMessageWithSource)
+                            .interaction_response_data(|d| {
+                                d.ephemeral(true).content("Success (probably)!")
+                            })
+                    })
+                    .await
+                    .context("Failed to respond to modal")?;
+                },
             }
 
             Ok(())
