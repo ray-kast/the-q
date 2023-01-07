@@ -44,7 +44,7 @@ impl serenity::client::EventHandler for Handler {
                     })
                     .map(|r| r.context("Failed to respond to message component")),
                 )
-                .await
+                .await;
             },
             Interaction::Autocomplete(a) => {
                 handler(
@@ -54,7 +54,7 @@ impl serenity::client::EventHandler for Handler {
                     })
                     .map(|r| r.context("Failed to fulfill autocomplete")),
                 )
-                .await
+                .await;
             },
             Interaction::ModalSubmit(m) => {
                 handler(
@@ -67,7 +67,7 @@ impl serenity::client::EventHandler for Handler {
                     })
                     .map(|r| r.context("Failed to respond to modal")),
                 )
-                .await
+                .await;
             },
         }
     }

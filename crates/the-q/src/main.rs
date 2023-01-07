@@ -1,3 +1,5 @@
+//! Entry point for the-q
+
 #![deny(
     clippy::disallowed_methods,
     clippy::suspicious,
@@ -5,7 +7,8 @@
     missing_debug_implementations,
     missing_copy_implementations
 )]
-#![warn(clippy::pedantic, clippy::cargo, missing_docs)]
+#![warn(clippy::pedantic, missing_docs)]
+#![allow(unused, dead_code)] // TODO
 
 pub(crate) mod client;
 mod entry;
@@ -17,9 +20,12 @@ pub(crate) mod prelude {
             Borrow, Cow,
             Cow::{Borrowed, Owned},
         },
+        collections::{BTreeMap, BTreeSet, HashMap, HashSet},
         fmt,
         future::Future,
+        hash::Hash,
         mem,
+        str::FromStr,
         sync::Arc,
     };
 

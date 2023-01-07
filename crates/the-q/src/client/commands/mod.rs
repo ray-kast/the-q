@@ -1,10 +1,12 @@
 // For debug printing every mod <x> should export <X>Command
 #![allow(clippy::module_name_repetitions)]
 
+mod say;
 mod test;
 mod vc;
 
 pub(self) mod prelude {
+    // TODO: minimize these
     pub use serenity::{
         builder::{CreateApplicationCommand, CreateApplicationCommandOption},
         model::{
@@ -20,13 +22,19 @@ pub(self) mod prelude {
         prelude::*,
     };
 
-    pub(super) use super::super::command::{
+    pub use super::super::command::{
         handler,
-        handler::{Error, Handler, Response, Result},
+        handler::{Error, Handler, Message, Response, Result},
+        visitor,
+        visitor::Visitor,
     };
     pub use crate::prelude::*;
 }
 
 pub fn list() -> Vec<Box<dyn prelude::Handler>> {
-    vec![Box::new(vc::VcCommand), Box::new(test::TestCommand)]
+    vec![
+        Box::new(say::SayCommand),
+        Box::new(test::TestCommand),
+        Box::new(vc::VcCommand),
+    ]
 }

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use serenity::{
     client::Context,
     model::{
@@ -15,7 +13,7 @@ use serenity::{
     utils::MessageBuilder,
 };
 
-use super::handler;
+use super::{handler, visitor};
 use crate::prelude::*;
 
 #[inline]
@@ -140,6 +138,8 @@ impl Registry {
                 .map(|c| c.id);
             let map = serde_json::Value::from(serenity::json::hashmap_to_json_map(builder.0));
 
+            // TODO: skip HTTP request for identical commands
+
             // Shoutout to serenity for not having non-builder command methods
             let res = match (id, scope) {
                 (None, None) => {
@@ -215,81 +215,107 @@ impl Registry {
         Ok(())
     }
 
-    pub async fn handle(&self, ctx: &Context, aci: ApplicationCommandInteraction) {
-        fn fatal<E: std::error::Error + Send + Sync + 'static>(res: Result<(), E>) {
-            match res {
-                Ok(()) => (),
-                Err(e) => error!(%e, "Fatal error handling interaction"),
-            }
-        }
+    #[instrument(
+        level = "error",
+        name = "handle_aci",
+        err,
+        skip(self, ctx, aci),
+        fields(
+            // TODO: don't do stringification if logs don't happen
+            name = aci_name(&aci),
+            id = aci_id(&aci),
+        ),
+    )]
+    async fn try_handle(
+        &self,
+        ctx: &Context,
+        aci: ApplicationCommandInteraction,
+    ) -> Result<(), serenity::Error> {
+        let state = self.0.read().await;
+        let Some(cmds) = state.init() else {
+            warn!("Rejecting command due to uninitialized registry");
 
-        // TODO: don't do stringification if logs don't happen
-        let span = error_span!("handle_aci", name = aci_name(&aci), id = aci_id(&aci));
-        async move {
-            let state = self.0.read().await;
-            let Some(cmds) = state.init() else {
-                warn!("Rejecting command due to uninitialized registry");
-
-                fatal(
-                    aci.create_interaction_response(&ctx.http, |res| {
-                        res.kind(InteractionResponseType::ChannelMessageWithSource)
-                            .interaction_response_data(|msg| {
-                                msg.content("Still starting!  Please try again later.")
-                                    .ephemeral(true)
-                            })
-                    })
-                    .await,
-                );
-
-                return;
-            };
-
-            let Some(handler) = cmds.get(&aci.data.id) else {
-                warn!("Rejecting unknown command");
-
-                fatal(
-                    aci.create_interaction_response(&ctx.http, |res| {
-                        res.kind(InteractionResponseType::ChannelMessageWithSource)
-                            .interaction_response_data(|msg| {
-                                msg.content("Unknown command - this may be a bug.")
-                                    .ephemeral(true)
-                            })
-                    })
-                    .await,
-                );
-
-                return;
-            };
-
-            debug!(?handler, "Handling command");
-
-            // TODO: don't let the handler have the ACI
-            match handler.respond(ctx, &aci).await {
-                Ok(handler::Response::Message | handler::Response::Modal) => (),
-                Err(handler::Error::Responded(err)) => {
-                    debug!(err);
-                },
-                Err(handler::Error::NoResponse(err)) => {
-                    error!(?err, "Unexpected error handling command");
-                    fatal(
-                        aci.create_interaction_response(&ctx.http, |res| {
-                            res.kind(InteractionResponseType::ChannelMessageWithSource)
-                                .interaction_response_data(|msg| {
-                                    msg.content(
-                                        MessageBuilder::new()
-                                            .push("Unexpected error: ")
-                                            .push_mono_safe(err)
-                                            .build(),
-                                    )
-                                    .ephemeral(true)
-                                })
+            return aci
+                .create_interaction_response(&ctx.http, |res| {
+                    res.kind(InteractionResponseType::ChannelMessageWithSource)
+                        .interaction_response_data(|msg| {
+                            msg.content("Still starting!  Please try again later.")
+                                .ephemeral(true)
                         })
-                        .await,
-                    );
-                },
-            }
+                })
+                .await;
+        };
+
+        let Some(handler) = cmds.get(&aci.data.id) else {
+            warn!("Rejecting unknown command");
+
+            return aci
+                .create_interaction_response(&ctx.http, |res| {
+                    res.kind(InteractionResponseType::ChannelMessageWithSource)
+                        .interaction_response_data(|msg| {
+                            msg.content("Unknown command - this may be a bug.")
+                                .ephemeral(true)
+                        })
+                })
+                .await;
+        };
+
+        debug!(?handler, "Handling command");
+
+        let vis = visitor::Visitor::new(&aci);
+
+        match handler.respond(ctx, vis).await {
+            Ok(handler::Response::Message(msg)) => {
+                aci.create_interaction_response(&ctx.http, |res| {
+                    res.kind(InteractionResponseType::ChannelMessageWithSource)
+                        .interaction_response_data(|c| msg.apply(c))
+                })
+                .await
+            },
+            Ok(handler::Response::Modal) => todo!(),
+            Err(handler::Error::Parse(err)) => {
+                warn!(?err, "Unexpected error parsing command");
+                aci.create_interaction_response(&ctx.http, |res| {
+                    res.kind(InteractionResponseType::ChannelMessageWithSource)
+                        .interaction_response_data(|msg| {
+                            msg.content(
+                                MessageBuilder::new()
+                                    .push("Unexpected error parsing command: ")
+                                    .push_mono_safe(err),
+                            )
+                        })
+                })
+                .await
+            },
+            Err(handler::Error::Response(err, msg)) => {
+                debug!(err);
+                aci.create_interaction_response(&ctx.http, |res| {
+                    res.kind(InteractionResponseType::ChannelMessageWithSource)
+                        .interaction_response_data(|c| msg.apply(c))
+                })
+                .await
+            },
+            Err(handler::Error::Other(err)) => {
+                error!(?err, "Unexpected error handling command");
+                aci.create_interaction_response(&ctx.http, |res| {
+                    res.kind(InteractionResponseType::ChannelMessageWithSource)
+                        .interaction_response_data(|msg| {
+                            msg.content(
+                                MessageBuilder::new()
+                                    .push("Unexpected error: ")
+                                    .push_mono_safe(err)
+                                    .build(),
+                            )
+                            .ephemeral(true)
+                        })
+                })
+                .await
+            },
         }
-        .instrument(span)
-        .await;
+    }
+
+    #[inline]
+    pub async fn handle(&self, ctx: &Context, aci: ApplicationCommandInteraction) {
+        self.try_handle(ctx, aci).await.ok();
     }
 }

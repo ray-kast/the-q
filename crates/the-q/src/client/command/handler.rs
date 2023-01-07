@@ -1,11 +1,11 @@
 use serenity::{
-    builder::CreateApplicationCommand,
+    builder::{CreateApplicationCommand, CreateInteractionResponseData},
     client::Context,
-    model::{
-        application::interaction::application_command::ApplicationCommandInteraction, id::GuildId,
-    },
+    model::id::GuildId,
+    utils::MessageBuilder,
 };
 
+use super::visitor;
 use crate::prelude::*;
 
 // TODO: can argument/config parsing be (easily) included in the Handler trait?
@@ -17,24 +17,63 @@ pub struct Opts {
     pub command_base: String,
 }
 
+#[derive(Debug)]
+pub struct Message {
+    content: String,
+    ephemeral: bool,
+}
+
+impl Message {
+    pub(super) fn apply<'a, 'b>(
+        self,
+        msg: &'b mut CreateInteractionResponseData<'a>,
+    ) -> &'b mut CreateInteractionResponseData<'a> {
+        let Self { content, ephemeral } = self;
+        msg.content(content).ephemeral(ephemeral)
+    }
+
+    #[inline]
+    pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
+        let mut mb = MessageBuilder::new();
+        f(&mut mb);
+        Self {
+            content: mb.build(),
+            ephemeral: false,
+        }
+    }
+
+    #[inline]
+    pub fn plain(c: impl Into<serenity::utils::Content>) -> Self {
+        Self::rich(|mb| mb.push_safe(c))
+    }
+
+    pub fn ephemeral(self, ephemeral: bool) -> Self { Self { ephemeral, ..self } }
+}
+
+#[derive(Debug)]
 pub enum Response {
-    Message,
+    Message(Message),
     Modal,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Error parsing command: {0}")]
+    Parse(#[from] visitor::Error),
     #[error("Bot responded with error: {0}")]
-    Responded(&'static str),
+    Response(&'static str, Message),
     #[error("Unexpected error: {0}")]
-    NoResponse(#[from] anyhow::Error),
+    Other(#[from] anyhow::Error),
 }
 
 pub type Result = std::result::Result<Response, Error>;
 
 #[async_trait]
 pub trait Handler: fmt::Debug + Send + Sync {
+    // TODO: returning an optional GuildId is the stupidest way to handle scope
     fn register(&self, opts: &Opts, cmd: &mut CreateApplicationCommand) -> Option<GuildId>;
 
-    async fn respond(&self, ctx: &Context, cmd: &ApplicationCommandInteraction) -> Result;
+    // TODO: remove async and force the use of Deferred?
+    // TODO: '_?
+    async fn respond<'a>(&self, ctx: &Context, visitor: visitor::Visitor<'a>) -> Result;
 }
