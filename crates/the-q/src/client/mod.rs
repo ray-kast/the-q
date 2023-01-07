@@ -3,6 +3,7 @@ use songbird::SerenityInit;
 
 use crate::{prelude::*, util::DebugShim};
 
+mod command;
 mod commands;
 mod handler;
 
@@ -14,7 +15,7 @@ pub struct ClientOpts {
     discord_token: DebugShim<String>,
 
     #[command(flatten)]
-    commands: commands::CommandOpts,
+    commands: command::handler::Opts,
 }
 
 pub async fn build(opts: ClientOpts) -> Result<Client> {

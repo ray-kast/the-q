@@ -17,6 +17,7 @@ pub(crate) mod prelude {
             Borrow, Cow,
             Cow::{Borrowed, Owned},
         },
+        fmt,
         future::Future,
         mem,
         sync::Arc,
@@ -27,7 +28,7 @@ pub(crate) mod prelude {
     pub use futures_util::{FutureExt, StreamExt};
     pub use tracing::{
         debug, debug_span, error, error_span, info, info_span, instrument, trace, trace_span, warn,
-        warn_span,
+        warn_span, Instrument,
     };
     pub use tracing_subscriber::prelude::*;
 
