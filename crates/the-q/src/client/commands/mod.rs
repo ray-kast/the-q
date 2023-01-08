@@ -1,6 +1,7 @@
 // For debug printing every mod <x> should export <X>Command
 #![allow(clippy::module_name_repetitions)]
 
+mod explode;
 mod say;
 mod test;
 mod vc;
@@ -33,6 +34,7 @@ pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler>> {
     use prelude::Arc;
 
     vec![
+        Arc::new(explode::ExplodeCommand),
         Arc::new(say::SayCommand),
         Arc::new(test::TestCommand),
         Arc::new(vc::VcCommand),

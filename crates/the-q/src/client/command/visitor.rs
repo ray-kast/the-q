@@ -5,9 +5,10 @@ use serenity::model::{
         command::{CommandOptionType, CommandType},
         interaction::application_command::{
             ApplicationCommandInteraction, CommandDataOption, CommandDataOptionValue,
+            CommandDataResolved,
         },
     },
-    channel::{Attachment, PartialChannel},
+    channel::{Attachment, Message, PartialChannel},
     guild::{PartialMember, Role},
     id::GuildId,
     user::User,
@@ -17,9 +18,15 @@ use crate::prelude::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    // Option visitor errors
+    // Top-level command type errors
     #[error("Attempted to read options for a non-slash command")]
     NotChatInput,
+    #[error("Attempted to read target user for a non-user command")]
+    NotUser,
+    #[error("Attempted to read target message for a non-message command")]
+    NotMessage,
+
+    // Option visitor errors
     #[error("Command option {0:?} not provided or already visited")]
     MissingOption(String),
     #[error("No value for required command option {0:?}")]
@@ -103,11 +110,7 @@ macro_rules! resolve_opt {
     ($name:expr, $opt:expr, $ty:pat => $val:expr, $desc:literal) => {{
         let val = match &$opt.resolved {
             Some($ty) => Ok(Some($val)),
-            Some(v) => Err(Error::BadOptionValueType(
-                $name.to_owned(),
-                $desc,
-                v.describe(),
-            )),
+            Some(v) => Err(Error::BadOptionValueType($name.into(), $desc, v.describe())),
             None => Ok(None),
         };
         val.map(|v| OptionVisitor($name, v))
@@ -125,7 +128,7 @@ macro_rules! visit_basic {
         $vis fn $name(&mut self, name: &'a str) -> Result<OptionVisitor<$ty>> {
             let opt = self.visit_opt(name)?;
             // TODO: is this necessary?
-            ensure_opt_type!(name.to_owned(), opt, CommandOptionType::$var, $desc);
+            ensure_opt_type!(name.into(), opt, CommandOptionType::$var, $desc);
             resolve_opt!(name, opt, CommandDataOptionValue::$var($($val),*) => $expr, $desc)
         }
 
@@ -195,14 +198,14 @@ impl<'a> Visitor<'a> {
     fn visit_opt(&mut self, name: &'a str) -> Result<&'a CommandDataOption> {
         self.visit_opts()?
             .remove(&name)
-            .ok_or_else(|| Error::MissingOption(name.to_owned()))
+            .ok_or_else(|| Error::MissingOption(name.into()))
     }
 
     pub fn visit_subcommand<T: FromStr>(&mut self, name: &'a str) -> Result<OptionVisitor<T>>
     where T::Err: std::error::Error + Send + Sync + 'static {
         let opt = self.visit_opt(name)?;
         ensure_opt_type!(
-            name.to_owned(),
+            name.into(),
             opt,
             CommandOptionType::SubCommand | CommandOptionType::SubCommandGroup,
             "a subcommand"
@@ -212,13 +215,17 @@ impl<'a> Visitor<'a> {
 
         val.map(|v| v.parse())
             .transpose()
-            .map_err(|e: T::Err| Error::OptionParse(name.to_owned(), e.into()))
+            .map_err(|e: T::Err| Error::OptionParse(name.into(), e.into()))
     }
 
     #[inline]
     pub fn guild(&self) -> GuildVisitor { GuildVisitor(self.aci.guild_id) }
 
     pub fn user(&self) -> &'a User { &self.aci.user }
+
+    pub fn target(&self) -> TargetVisitor<'a> {
+        TargetVisitor(self.aci.data.kind, &self.aci.data.resolved)
+    }
 
     pub(super) fn finish(self) -> Result<()> {
         let Self { aci, state } = self;
@@ -233,9 +240,7 @@ impl<'a> Visitor<'a> {
             },
             VisitorState::SlashCommand(m) => {
                 if !m.is_empty() {
-                    return Err(Error::Trailing(
-                        m.into_keys().map(ToOwned::to_owned).collect(),
-                    ));
+                    return Err(Error::Trailing(m.into_keys().map(Into::into).collect()));
                 }
             },
         };
@@ -255,7 +260,7 @@ impl<'a, T> OptionVisitor<'a, T> {
 
     pub fn required(self) -> Result<T> {
         self.1
-            .ok_or_else(|| Error::MissingOptionValue(self.0.to_owned()))
+            .ok_or_else(|| Error::MissingOptionValue(self.0.into()))
     }
 }
 
@@ -276,5 +281,45 @@ impl GuildVisitor {
 
     pub fn require_dm(self) -> Result<()> {
         self.0.is_none().then_some(()).ok_or(Error::DmRequired)
+    }
+}
+
+pub struct TargetVisitor<'a>(CommandType, &'a CommandDataResolved);
+
+impl<'a> TargetVisitor<'a> {
+    fn pull_single<K, V>(map: &'a HashMap<K, V>, name: &'static str) -> Result<(&'a K, &'a V)> {
+        let mut it = map.iter();
+
+        let pair = it
+            .next()
+            .ok_or_else(|| Error::MissingOptionValue(name.into()))?;
+
+        it.next()
+            .is_none()
+            .then_some(pair)
+            .ok_or_else(|| Error::Trailing(vec![name.into()]))
+    }
+
+    pub fn user(self) -> Result<&'a User> {
+        // TODO: should probably get member data wherever user/guild data is exposed
+        let (_uid, user) = Self::pull_single(
+            (self.0 == CommandType::User)
+                .then_some(&self.1.users)
+                .ok_or(Error::NotUser)?,
+            "user",
+        )?;
+
+        Ok(user)
+    }
+
+    pub fn message(self) -> Result<&'a Message> {
+        let (_mid, msg) = Self::pull_single(
+            (self.0 == CommandType::Message)
+                .then_some(&self.1.messages)
+                .ok_or(Error::NotMessage)?,
+            "message",
+        )?;
+
+        Ok(msg)
     }
 }

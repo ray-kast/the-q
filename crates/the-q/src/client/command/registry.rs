@@ -10,7 +10,6 @@ use serenity::{
         },
         id::CommandId,
     },
-    utils::MessageBuilder,
 };
 
 use super::{handler, response, visitor};
@@ -109,7 +108,7 @@ impl Registry {
 
         for cmd in list {
             let mut builder = serenity::builder::CreateApplicationCommand::default();
-            let scope = cmd.register(&opts, &mut builder);
+            let scope = cmd.register(opts, &mut builder);
             let builder = builder;
 
             let name = builder
@@ -187,7 +186,7 @@ impl Registry {
     }
 
     #[inline]
-    fn handle_defer(kind: &'static str, f: impl Future<Output = Result<()>> + Send + 'static) {
+    fn handle_defer(kind: &'static str, f: impl Future<Output = Result> + Send + 'static) {
         let span = error_span!("handle_defer", kind);
         tokio::task::spawn(
             async move {
@@ -198,6 +197,25 @@ impl Registry {
             }
             .instrument(span),
         );
+    }
+
+    async fn upsert_response(
+        ctx: &Context,
+        aci: &ApplicationCommandInteraction,
+        create_opts: Option<response::MessageOpts>,
+        body: response::MessageBody,
+    ) -> Result {
+        if let Some(opts) = create_opts {
+            let msg = response::Message::from_parts(body, opts);
+            aci.create_interaction_response(&ctx.http, |res| msg.build_response(res))
+                .await
+                .context("Failed to create deferred response message")
+        } else {
+            aci.edit_original_interaction_response(&ctx.http, |res| body.build_edit_response(res))
+                .await
+                .context("Failed to edit in deferred response message")
+                .map(|_| ())
+        }
     }
 
     pub fn new(opts: handler::Opts, list: Vec<Handler>) -> Self {
@@ -270,36 +288,39 @@ impl Registry {
                     .await
             },
             Ok(handler::Response::DeferMessage(opts, task)) => {
-                let should_edit = if task.is_finished() {
-                    false
+                let create_opts = if task.is_finished() {
+                    Some(opts)
                 } else {
                     aci.create_interaction_response(&ctx.http, |res| {
                         res.kind(InteractionResponseType::DeferredChannelMessageWithSource)
                             .interaction_response_data(|data| opts.build_response_data(data))
                     })
                     .await?;
-                    true
+                    None
                 };
 
                 let ctx = ctx.clone();
                 Self::handle_defer("Response::DeferMessage", async move {
-                    let body = task
-                        .await
-                        .context("Failed to join deferred task")?
-                        .unwrap_or_else(|_| todo!());
+                    let res = task.await.context("Failed to join deferred task")?;
 
-                    if should_edit {
-                        aci.edit_original_interaction_response(&ctx.http, |res| {
-                            body.build_edit_response(res)
-                        })
-                        .await
-                        .context("Failed to edit in deferred response message")
-                        .map(|_| ())
-                    } else {
-                        let msg = response::Message::from_parts(body, opts);
-                        aci.create_interaction_response(&ctx.http, |res| msg.build_response(res))
+                    match res {
+                        Ok(body) => Self::upsert_response(&ctx, &aci, create_opts, body).await,
+                        Err(handler::DeferError::Response(err, body)) => {
+                            debug!(err, "Command responded to user with error");
+                            Self::upsert_response(&ctx, &aci, create_opts, body).await
+                        },
+                        Err(handler::DeferError::Other(err)) => {
+                            error!(?err, "Unexpected error handling command");
+                            Self::upsert_response(
+                                &ctx,
+                                &aci,
+                                create_opts,
+                                response::MessageBody::rich(|b| {
+                                    b.push("Unexpected error: ").push_mono_safe(err)
+                                }),
+                            )
                             .await
-                            .context("Failed to create deferred response message")
+                        },
                     }
                 });
                 Ok(())
@@ -371,15 +392,9 @@ impl Registry {
             Err(handler::Error::Other(err)) => {
                 error!(?err, "Unexpected error handling command");
                 aci.create_interaction_response(&ctx.http, |res| {
-                    res.kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|msg| {
-                            msg.content(
-                                MessageBuilder::new()
-                                    .push("Unexpected error: ")
-                                    .push_mono_safe(err),
-                            )
-                            .ephemeral(true)
-                        })
+                    response::Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
+                        .ephemeral(true)
+                        .build_response(res)
                 })
                 .await
             },
