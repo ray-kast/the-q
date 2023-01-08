@@ -32,6 +32,10 @@ async fn handler(method: &'static str, f: impl Future<Output = Result>) {
 #[async_trait]
 impl serenity::client::EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, int: Interaction) {
+        // TODO: what's the minimum required response for each interaction type?
+        // TODO: handle multiple responses (create . edit*)
+        // TODO: handle followup messages
+        // TODO: handle response embeds and attachments
         match int {
             // Valid responses: none (pong is not for websockets)
             Interaction::Ping(_) => (),

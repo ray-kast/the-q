@@ -41,7 +41,7 @@ fn aci_name(aci: &ApplicationCommandInteraction) -> String {
                                 CommandDataOptionValue::Integer(i) => write!(s, "{i}"),
                                 CommandDataOptionValue::Boolean(b) => write!(s, "{b:?}"),
                                 CommandDataOptionValue::User(u, _) => {
-                                    write!(s, "u:@{}#{}", u.name, u.discriminator)
+                                    write!(s, "u:@{}#{:04}", u.name, u.discriminator)
                                 },
                                 CommandDataOptionValue::Channel(c) => {
                                     write!(s, "#{}", c.name.as_deref().unwrap_or("<???>"))
@@ -75,6 +75,15 @@ fn aci_name(aci: &ApplicationCommandInteraction) -> String {
 
 #[inline]
 fn aci_id(aci: &ApplicationCommandInteraction) -> String { format!("{}:{}", aci.id, aci.data.id) }
+
+fn aci_issuer(aci: &ApplicationCommandInteraction) -> String {
+    let src = if aci.guild_id.is_some() {
+        "guild"
+    } else {
+        "DM"
+    };
+    format!("@{}#{:04} in {src}", aci.user.name, aci.user.discriminator)
+}
 
 type Handler = Arc<dyn handler::Handler>;
 type HandlerMap = HashMap<CommandId, Handler>;
@@ -242,6 +251,7 @@ impl Registry {
             // TODO: don't do stringification if logs don't happen
             name = aci_name(&aci),
             id = aci_id(&aci),
+            issuer = aci_issuer(&aci),
         ),
     )]
     async fn try_handle(

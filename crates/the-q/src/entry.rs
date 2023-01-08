@@ -140,10 +140,9 @@ pub fn main() {
 
         let thread = std::thread::current();
         let location = inf.location().map_or_else(String::new, ToString::to_string);
-        let payload = inf.payload();
-        let msg = downcast(payload);
+        let payload = downcast(inf.payload());
 
-        error!(name = thread.name(), msg, %location, "Thread panicked!");
+        error!(name = thread.name(), payload, %location, "Thread panicked!");
     }));
 
     loki_task.map(|t| rt.spawn(t));
