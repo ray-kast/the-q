@@ -233,8 +233,6 @@ impl Registry {
         Ok(())
     }
 
-    pub async fn wipe(&self) { *self.map.write().await = None; }
-
     #[instrument(
         level = "error",
         name = "handle_aci",

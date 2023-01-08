@@ -1,7 +1,6 @@
 use serenity::{
     model::{
         application::interaction::{Interaction, InteractionResponseType},
-        event::ResumedEvent,
         gateway::Ready,
     },
     prelude::*,
@@ -34,8 +33,13 @@ async fn handler(method: &'static str, f: impl Future<Output = Result>) {
 impl serenity::client::EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, int: Interaction) {
         match int {
+            // Valid responses: none (pong is not for websockets)
             Interaction::Ping(_) => (),
+
+            // Valid responses: cmws, defer cmws, modal
             Interaction::ApplicationCommand(aci) => self.registry.handle(&ctx, aci).await,
+
+            // Valid responses: cmws, defer cmws, update, defer update, modal
             Interaction::MessageComponent(m) => {
                 handler(
                     "Interaction::MessageComponent",
@@ -46,6 +50,8 @@ impl serenity::client::EventHandler for Handler {
                 )
                 .await;
             },
+
+            // Valid responses: autocomplete
             Interaction::Autocomplete(a) => {
                 handler(
                     "Interaction::Autocomplete",
@@ -56,6 +62,8 @@ impl serenity::client::EventHandler for Handler {
                 )
                 .await;
             },
+
+            // Valid responses: cmws, defer cmws
             Interaction::ModalSubmit(m) => {
                 handler(
                     "Interaction::ModalSubmit",
@@ -69,15 +77,6 @@ impl serenity::client::EventHandler for Handler {
                 .await;
             },
         }
-    }
-
-    async fn resume(&self, _: Context, _: ResumedEvent) {
-        handler("resume", async move {
-            info!("Connection resumed - resetting command registry");
-            self.registry.wipe().await;
-            Ok(())
-        })
-        .await;
     }
 
     async fn ready(&self, ctx: Context, _: Ready) {
