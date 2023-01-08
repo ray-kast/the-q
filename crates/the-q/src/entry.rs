@@ -120,6 +120,32 @@ pub fn main() {
             .unwrap_or_else(|e| init_error!("Failed to initialize async runtime: {e}"))
     };
 
+    let def = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |inf| {
+        use std::any::Any;
+
+        fn downcast(payload: &dyn Any) -> &str {
+            if let Some(s) = payload.downcast_ref::<&'static str>() {
+                return s;
+            }
+
+            if let Some(s) = payload.downcast_ref::<String>() {
+                return s.as_str();
+            }
+
+            "Box<dyn Any>"
+        }
+
+        def(inf);
+
+        let thread = std::thread::current();
+        let location = inf.location().map_or_else(String::new, ToString::to_string);
+        let payload = inf.payload();
+        let msg = downcast(payload);
+
+        error!(name = thread.name(), msg, %location, "Thread panicked!");
+    }));
+
     loki_task.map(|t| rt.spawn(t));
 
     std::process::exit(match rt.block_on(run(opts)) {
