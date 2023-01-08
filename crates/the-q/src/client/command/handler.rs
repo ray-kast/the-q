@@ -1,12 +1,4 @@
-use serenity::{
-    builder::{
-        CreateApplicationCommand, CreateInteractionResponse, CreateInteractionResponseData,
-        EditInteractionResponse,
-    },
-    client::Context,
-    model::{application::interaction::InteractionResponseType, id::GuildId},
-    utils::MessageBuilder,
-};
+use serenity::{builder::CreateApplicationCommand, client::Context, model::id::GuildId};
 
 use super::{
     response::{Message, MessageBody, MessageOpts},

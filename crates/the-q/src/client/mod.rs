@@ -7,7 +7,6 @@ mod command;
 mod commands;
 mod handler;
 
-#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, clap::Args)]
 pub struct ClientOpts {
     /// The Discord API token to use

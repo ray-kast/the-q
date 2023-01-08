@@ -60,8 +60,8 @@ impl MessageBody {
             ping_users,
             ping_roles,
         } = self;
-        res.content(content).allowed_mentions(|f| {
-            f.replied_user(ping_replied)
+        res.content(content).allowed_mentions(|m| {
+            m.replied_user(ping_replied)
                 .users(ping_users)
                 .roles(ping_roles)
         })
@@ -175,6 +175,12 @@ impl Message {
         } = self;
 
         res.kind(InteractionResponseType::ChannelMessageWithSource)
-            .interaction_response_data(|d| opts.build_response_data(d.content(content)))
+            .interaction_response_data(|d| {
+                opts.build_response_data(d.content(content).allowed_mentions(|m| {
+                    m.replied_user(ping_replied)
+                        .users(ping_users)
+                        .roles(ping_roles)
+                }))
+            })
     }
 }

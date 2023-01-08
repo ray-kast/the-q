@@ -1,6 +1,3 @@
-// For debug printing every mod <x> should export <X>Command
-#![allow(clippy::module_name_repetitions)]
-
 mod explode;
 mod say;
 mod test;
@@ -9,12 +6,9 @@ mod vc;
 pub(self) mod prelude {
     // TODO: minimize these
     pub(super) use serenity::{
-        builder::{CreateApplicationCommand, CreateApplicationCommandOption},
+        builder::CreateApplicationCommand,
         model::{
-            application::{
-                command::{CommandOptionType, CommandType},
-                component::InputTextStyle,
-            },
+            application::command::{CommandOptionType, CommandType},
             id::GuildId,
         },
         prelude::*,

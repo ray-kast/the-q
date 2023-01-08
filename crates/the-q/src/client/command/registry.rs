@@ -334,10 +334,19 @@ impl Registry {
                 }
 
                 Self::handle_defer("Response::DeferUpdateMessage", async move {
-                    let _ = task.await.context("Failed to join deferred task")?;
+                    let res = task.await.context("Failed to join deferred task")?;
 
-                    todo!();
-                    Ok(())
+                    match res {
+                        Ok(()) => todo!(),
+                        Err(handler::DeferError::Response(err, ())) => {
+                            debug!(err, "Command responded to user with error");
+                            todo!()
+                        },
+                        Err(handler::DeferError::Other(err)) => {
+                            error!(?err, "Unexpected error handling command");
+                            todo!()
+                        },
+                    }
                 });
                 Ok(())
             },

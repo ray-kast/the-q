@@ -1,5 +1,3 @@
-#![allow(clippy::module_name_repetitions)]
-
 use serenity::model::{
     application::{
         command::{CommandOptionType, CommandType},
