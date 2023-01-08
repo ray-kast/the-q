@@ -1,13 +1,50 @@
 version: '3.6'
 
 services:
+  grafana:
+    image: grafana/grafana:9.3.2
+    environment:
+      - GF_PATHS_PROVISIONING=/grafana
+      - GF_SECURITY_ADMIN_USER=${GF_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_PASSWD}
+    ports:
+      - 3192:3000
+    volumes:
+      - type: bind
+        source: ./etc/grafana
+        target: /grafana
+        read_only: true
+      - type: volume
+        source: grafana-data
+        target: /var/lib/grafana
+
+  loki:
+    image: grafana/loki:2.7.1
+    command: -config.file=/etc/loki/local-config.yaml -print-config-stderr
+    volumes:
+      - type: bind
+        source: ./etc/loki-config.yml
+        target: /etc/loki/local-config.yaml
+        read_only: true
+      - type: volume
+        source: loki-data
+        target: /loki
+        read_only: false
+
   bot:
     build:
       context: .
       target: bot
+    environment:
+      - LOKI_ENDPOINT=http://loki:3100/
+      - RUST_LOG=info,the_q=debug
     volumes:
       - type: bind
         source: ./.env.local
         target: /opt/the-q/.env.local
         read_only: true
     restart: unless-stopped
+
+volumes:
+  grafana-data:
+  loki-data:

@@ -1,5 +1,5 @@
 use futures_util::stream::FuturesUnordered;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{layer::Layered, EnvFilter};
 
 use crate::prelude::*;
 
@@ -9,6 +9,10 @@ struct Opts {
     /// Log filter, using env_logger-like syntax
     #[arg(long, env = "RUST_LOG")]
     log_filter: Option<String>,
+
+    /// Grafana Loki endpoint to use
+    #[arg(long, env)]
+    loki_endpoint: Option<Url>,
 
     /// Hint for the number of threads to use
     #[arg(short = 'j', long, env)]
@@ -28,6 +32,27 @@ macro_rules! init_error {
 fn fmt_layer<S>() -> tracing_subscriber::fmt::Layer<S> {
     // configure log format here
     tracing_subscriber::fmt::layer()
+}
+
+#[instrument(name = "init_logger", skip(log_filter, f))]
+fn init_subscriber<
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+>(
+    log_filter: impl AsRef<str>,
+    f: impl FnOnce(Layered<EnvFilter, tracing_subscriber::Registry>) -> S,
+) where
+    Layered<tracing_subscriber::fmt::Layer<S>, S>: Into<tracing::Dispatch>,
+{
+    let log_filter = log_filter.as_ref();
+    let reg = tracing_subscriber::registry().with(
+        EnvFilter::try_new(log_filter)
+            .unwrap_or_else(|e| init_error!("Invalid log filter {log_filter:?}: {e}")),
+    );
+
+    f(reg)
+        .with(fmt_layer())
+        .try_init()
+        .unwrap_or_else(|e| init_error!("Failed to initialize logger: {e}"));
 }
 
 #[allow(clippy::inline_always)]
@@ -63,14 +88,20 @@ pub fn main() {
 
     let log_filter = opts.log_filter.as_deref().unwrap_or("info");
 
-    tracing_subscriber::registry()
-        .with(
-            EnvFilter::try_new(log_filter)
-                .unwrap_or_else(|e| init_error!("Invalid log filter {log_filter:?}: {e}")),
+    let loki_task = if let Some(endpoint) = &opts.loki_endpoint {
+        let (layer, task) = tracing_loki::layer(
+            endpoint.clone(),
+            [].into_iter().collect(),
+            [].into_iter().collect(),
         )
-        .with(tracing_subscriber::fmt::layer())
-        .try_init()
-        .unwrap_or_else(|e| init_error!("Failed to initialize logger: {e}"));
+        .unwrap_or_else(|err| init_error!(%err, "Failed to initialize Loki exporter"));
+
+        init_subscriber(log_filter, |r| r.with(layer));
+        Some(task)
+    } else {
+        init_subscriber(log_filter, |r| r);
+        None
+    };
 
     mem::drop((span, tmp_logger));
 
@@ -88,6 +119,8 @@ pub fn main() {
             .build()
             .unwrap_or_else(|e| init_error!("Failed to initialize async runtime: {e}"))
     };
+
+    loki_task.map(|t| rt.spawn(t));
 
     std::process::exit(match rt.block_on(run(opts)) {
         Ok(()) => 0,
@@ -109,6 +142,7 @@ enum StopType<S> {
 async fn run(opts: Opts) -> Result {
     let Opts {
         log_filter: _,
+        loki_endpoint: _,
         threads: _,
         client,
     } = opts;

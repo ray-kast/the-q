@@ -38,6 +38,7 @@ pub(crate) mod prelude {
         warn_span, Instrument,
     };
     pub use tracing_subscriber::prelude::*;
+    pub use url::Url;
 
     pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 }
