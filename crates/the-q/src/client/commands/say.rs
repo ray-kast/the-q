@@ -18,7 +18,7 @@ impl Handler for SayCommand {
         None
     }
 
-    async fn respond<'a>(&self, _: &Context, mut visitor: Visitor<'a>) -> Result {
+    async fn respond(&self, _: &Context, visitor: &mut Visitor) -> CommandResult {
         let msg = visitor.visit_string("message")?.required()?;
 
         Ok(Response::Message(Message::plain(msg)))

@@ -4,11 +4,12 @@ use serenity::model::{
     application::{
         command::{CommandOptionType, CommandType},
         interaction::application_command::{
-            ApplicationCommandInteraction, CommandData, CommandDataOption, CommandDataOptionValue,
+            ApplicationCommandInteraction, CommandDataOption, CommandDataOptionValue,
         },
     },
     channel::{Attachment, PartialChannel},
     guild::{PartialMember, Role},
+    id::GuildId,
     user::User,
 };
 
@@ -16,6 +17,7 @@ use crate::prelude::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    // Option visitor errors
     #[error("Attempted to read options for a non-slash command")]
     NotChatInput,
     #[error("Command option {0:?} not provided or already visited")]
@@ -28,6 +30,14 @@ pub enum Error {
     BadOptionValueType(String, &'static str, OptionValueType),
     #[error("Error parsing value for {0:?}: {1}")]
     OptionParse(String, Box<dyn std::error::Error + Send + Sync + 'static>),
+    #[error("Trailing arguments: {0:?}")]
+    Trailing(Vec<String>),
+
+    // Guild visitor errors
+    #[error("Guild-only command run inside DM")]
+    GuildRequired,
+    #[error("DM-only command run inside guild")]
+    DmRequired,
 }
 
 trait Describe {
@@ -76,7 +86,7 @@ enum VisitorState<'a> {
 }
 
 pub struct Visitor<'a> {
-    cmd: &'a CommandData,
+    aci: &'a ApplicationCommandInteraction,
     state: VisitorState<'a>,
 }
 
@@ -114,6 +124,7 @@ macro_rules! visit_basic {
     ) => {
         $vis fn $name(&mut self, name: &'a str) -> Result<OptionVisitor<$ty>> {
             let opt = self.visit_opt(name)?;
+            // TODO: is this necessary?
             ensure_opt_type!(name.to_owned(), opt, CommandOptionType::$var, $desc);
             resolve_opt!(name, opt, CommandDataOptionValue::$var($($val),*) => $expr, $desc)
         }
@@ -121,8 +132,6 @@ macro_rules! visit_basic {
         visit_basic! { $($tt)* }
     };
 }
-
-// TODO: add finish() or something to force complete traversal
 
 impl<'a> Visitor<'a> {
     visit_basic! {
@@ -155,7 +164,7 @@ impl<'a> Visitor<'a> {
 
     pub fn new(aci: &'a ApplicationCommandInteraction) -> Self {
         Self {
-            cmd: &aci.data,
+            aci,
             state: VisitorState::Init,
         }
     }
@@ -165,11 +174,17 @@ impl<'a> Visitor<'a> {
             return Ok(m);
         }
 
-        if !matches!(self.cmd.kind, CommandType::ChatInput) {
+        if !matches!(self.aci.data.kind, CommandType::ChatInput) {
             return Err(Error::NotChatInput);
         }
 
-        let map = self.cmd.options.iter().map(|o| (&*o.name, o)).collect();
+        let map = self
+            .aci
+            .data
+            .options
+            .iter()
+            .map(|o| (&*o.name, o))
+            .collect();
 
         self.state = VisitorState::SlashCommand(map);
         let VisitorState::SlashCommand(ref mut m) = self.state else { unreachable!(); };
@@ -199,6 +214,34 @@ impl<'a> Visitor<'a> {
             .transpose()
             .map_err(|e: T::Err| Error::OptionParse(name.to_owned(), e.into()))
     }
+
+    #[inline]
+    pub fn guild(&self) -> GuildVisitor { GuildVisitor(self.aci.guild_id) }
+
+    pub fn user(&self) -> &'a User { &self.aci.user }
+
+    pub(super) fn finish(self) -> Result<()> {
+        let Self { aci, state } = self;
+
+        match state {
+            VisitorState::Init => {
+                if aci.data.kind == CommandType::ChatInput && !aci.data.options.is_empty() {
+                    return Err(Error::Trailing(
+                        aci.data.options.iter().map(|o| o.name.clone()).collect(),
+                    ));
+                }
+            },
+            VisitorState::SlashCommand(m) => {
+                if !m.is_empty() {
+                    return Err(Error::Trailing(
+                        m.into_keys().map(ToOwned::to_owned).collect(),
+                    ));
+                }
+            },
+        };
+
+        Ok(())
+    }
 }
 
 pub struct OptionVisitor<'a, T>(&'a str, Option<T>);
@@ -219,5 +262,19 @@ impl<'a, T> OptionVisitor<'a, T> {
 impl<'a, T, E> OptionVisitor<'a, std::result::Result<T, E>> {
     fn transpose(self) -> std::result::Result<OptionVisitor<'a, T>, E> {
         Ok(OptionVisitor(self.0, self.1.transpose()?))
+    }
+}
+
+#[repr(transparent)]
+pub struct GuildVisitor(Option<GuildId>);
+
+impl GuildVisitor {
+    #[inline]
+    pub fn optional(self) -> Option<GuildId> { self.0 }
+
+    pub fn required(self) -> Result<GuildId> { self.0.ok_or(Error::GuildRequired) }
+
+    pub fn require_dm(self) -> Result<()> {
+        self.0.is_none().then_some(()).ok_or(Error::DmRequired)
     }
 }

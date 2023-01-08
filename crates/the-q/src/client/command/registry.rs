@@ -13,7 +13,7 @@ use serenity::{
     utils::MessageBuilder,
 };
 
-use super::{handler, visitor};
+use super::{handler, response, visitor};
 use crate::prelude::*;
 
 #[inline]
@@ -77,36 +77,24 @@ fn aci_name(aci: &ApplicationCommandInteraction) -> String {
 #[inline]
 fn aci_id(aci: &ApplicationCommandInteraction) -> String { format!("{}:{}", aci.id, aci.data.id) }
 
-type HandlerMap = HashMap<CommandId, Box<dyn handler::Handler>>;
+type Handler = Arc<dyn handler::Handler>;
+type HandlerMap = HashMap<CommandId, Handler>;
 
 #[derive(Debug)]
 struct RegistryInit {
     opts: handler::Opts,
-    list: Vec<Box<dyn handler::Handler>>,
+    list: Vec<Handler>,
 }
 
 #[derive(Debug)]
-enum RegistryState {
-    Uninit(RegistryInit),
-    Init(HandlerMap),
-    Poison,
+pub struct Registry {
+    init: RegistryInit,
+    map: tokio::sync::RwLock<Option<HandlerMap>>,
 }
-
-impl RegistryState {
-    fn init(&self) -> Option<&HandlerMap> {
-        match self {
-            Self::Uninit { .. } | Self::Poison => None,
-            Self::Init(m) => Some(m),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Registry(tokio::sync::RwLock<RegistryState>);
 
 impl Registry {
     #[instrument(level = "debug", skip(ctx))]
-    async fn patch_commands(ctx: &Context, init: RegistryInit) -> Result<HandlerMap> {
+    async fn patch_commands(ctx: &Context, init: &RegistryInit) -> Result<HandlerMap> {
         let RegistryInit { opts, list } = init;
         let mut handlers = HashMap::new();
 
@@ -177,7 +165,7 @@ impl Registry {
             assert_eq!(prev.is_some(), was_updated);
             assert!(prev.map_or(true, |v| matches!(v, Borrowed(_))));
 
-            assert!(handlers.insert(id, cmd).is_none());
+            assert!(handlers.insert(id, cmd.clone()).is_none());
         }
 
         for cmd in cmds {
@@ -198,22 +186,36 @@ impl Registry {
         Ok(handlers)
     }
 
-    pub fn new(opts: handler::Opts, list: Vec<Box<dyn handler::Handler>>) -> Self {
-        Self(RegistryState::Uninit(RegistryInit { opts, list }).into())
+    #[inline]
+    fn handle_defer(kind: &'static str, f: impl Future<Output = Result<()>> + Send + 'static) {
+        let span = error_span!("handle_defer", kind);
+        tokio::task::spawn(
+            async move {
+                match f.await {
+                    Ok(()) => (),
+                    Err(err) => error!(?err),
+                }
+            }
+            .instrument(span),
+        );
+    }
+
+    pub fn new(opts: handler::Opts, list: Vec<Handler>) -> Self {
+        Self {
+            init: RegistryInit { opts, list },
+            map: None.into(),
+        }
     }
 
     pub async fn init(&self, ctx: &Context) -> Result {
-        let mut state = self.0.write().await;
-        let RegistryState::Uninit(init) =
-            mem::replace(&mut *state, RegistryState::Poison)
-        else {
-            bail!("Command registry already initialized!");
-        };
+        let mut state = self.map.write().await;
 
-        *state = RegistryState::Init(Self::patch_commands(ctx, init).await?);
+        *state = Some(Self::patch_commands(ctx, &self.init).await?);
 
         Ok(())
     }
+
+    pub async fn wipe(&self) { *self.map.write().await = None; }
 
     #[instrument(
         level = "error",
@@ -231,69 +233,140 @@ impl Registry {
         ctx: &Context,
         aci: ApplicationCommandInteraction,
     ) -> Result<(), serenity::Error> {
-        let state = self.0.read().await;
-        let Some(cmds) = state.init() else {
+        let map = self.map.read().await;
+        let Some(ref map) = *map else {
             warn!("Rejecting command due to uninitialized registry");
 
             return aci
                 .create_interaction_response(&ctx.http, |res| {
-                    res.kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|msg| {
-                            msg.content("Still starting!  Please try again later.")
-                                .ephemeral(true)
-                        })
+                    response::Message::plain("Still starting!  Please try again later.")
+                        .ephemeral(true)
+                        .build_response(res)
                 })
                 .await;
         };
 
-        let Some(handler) = cmds.get(&aci.data.id) else {
+        let Some(handler) = map.get(&aci.data.id) else {
             warn!("Rejecting unknown command");
 
             return aci
                 .create_interaction_response(&ctx.http, |res| {
-                    res.kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|msg| {
-                            msg.content("Unknown command - this may be a bug.")
-                                .ephemeral(true)
-                        })
+                    response::Message::plain("Unknown command - this may be a bug.")
+                        .ephemeral(true)
+                        .build_response(res)
                 })
                 .await;
         };
 
         debug!(?handler, "Handling command");
 
-        let vis = visitor::Visitor::new(&aci);
+        let mut vis = visitor::Visitor::new(&aci);
+        let res = handler.respond(ctx, &mut vis).await;
+        let res = vis.finish().map_err(Into::into).and(res);
 
-        match handler.respond(ctx, vis).await {
+        match res {
             Ok(handler::Response::Message(msg)) => {
-                aci.create_interaction_response(&ctx.http, |res| {
-                    res.kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|c| msg.apply(c))
-                })
-                .await
+                aci.create_interaction_response(&ctx.http, |res| msg.build_response(res))
+                    .await
             },
-            Ok(handler::Response::Modal) => todo!(),
-            Err(handler::Error::Parse(err)) => {
-                warn!(?err, "Unexpected error parsing command");
-                aci.create_interaction_response(&ctx.http, |res| {
-                    res.kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|msg| {
-                            msg.content(
-                                MessageBuilder::new()
-                                    .push("Unexpected error parsing command: ")
-                                    .push_mono_safe(err),
-                            )
+            Ok(handler::Response::DeferMessage(opts, task)) => {
+                let should_edit = if task.is_finished() {
+                    false
+                } else {
+                    aci.create_interaction_response(&ctx.http, |res| {
+                        res.kind(InteractionResponseType::DeferredChannelMessageWithSource)
+                            .interaction_response_data(|data| opts.build_response_data(data))
+                    })
+                    .await?;
+                    true
+                };
+
+                let ctx = ctx.clone();
+                Self::handle_defer("Response::DeferMessage", async move {
+                    let body = task
+                        .await
+                        .context("Failed to join deferred task")?
+                        .unwrap_or_else(|_| todo!());
+
+                    if should_edit {
+                        aci.edit_original_interaction_response(&ctx.http, |res| {
+                            body.build_edit_response(res)
                         })
-                })
-                .await
+                        .await
+                        .context("Failed to edit in deferred response message")
+                        .map(|_| ())
+                    } else {
+                        let msg = response::Message::from_parts(body, opts);
+                        aci.create_interaction_response(&ctx.http, |res| msg.build_response(res))
+                            .await
+                            .context("Failed to create deferred response message")
+                    }
+                });
+                Ok(())
+            },
+            Ok(handler::Response::DeferUpdateMessage(task)) => {
+                if !task.is_finished() {
+                    aci.create_interaction_response(&ctx.http, |res| {
+                        res.kind(InteractionResponseType::DeferredUpdateMessage)
+                    })
+                    .await?;
+                }
+
+                Self::handle_defer("Response::DeferUpdateMessage", async move {
+                    let _ = task.await.context("Failed to join deferred task")?;
+
+                    todo!();
+                    Ok(())
+                });
+                Ok(())
+            },
+            Ok(
+                handler::Response::UpdateMessage
+                | handler::Response::Modal
+                | handler::Response::Autocomplete,
+            ) => todo!(),
+            Err(handler::Error::Parse(err)) => match err {
+                visitor::Error::GuildRequired => {
+                    debug!(%err, "Responding with guild error");
+                    aci.create_interaction_response(&ctx.http, |res| {
+                        response::Message::rich(|b| {
+                            b.push_bold("ERROR:")
+                                .push(" This command must be run inside a server.")
+                        })
+                        .ephemeral(true)
+                        .build_response(res)
+                    })
+                    .await
+                },
+                visitor::Error::DmRequired => {
+                    debug!(%err, "Responding with guild error");
+                    aci.create_interaction_response(&ctx.http, |res| {
+                        response::Message::rich(|b| {
+                            b.push_bold("ERROR:")
+                                .push(" This command cannot be run inside a server.")
+                        })
+                        .ephemeral(true)
+                        .build_response(res)
+                    })
+                    .await
+                },
+                err => {
+                    error!(%err, "Unexpected error parsing command");
+                    aci.create_interaction_response(&ctx.http, |res| {
+                        response::Message::rich(|b| {
+                            b.push("Unexpected error parsing command: ")
+                                .push_mono_safe(err)
+                        })
+                        .ephemeral(true)
+                        .build_response(res)
+                    })
+                    .await
+                },
             },
             Err(handler::Error::Response(err, msg)) => {
-                debug!(err);
-                aci.create_interaction_response(&ctx.http, |res| {
-                    res.kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|c| msg.apply(c))
-                })
-                .await
+                debug!(err, "Command responded to user with error");
+                aci.create_interaction_response(&ctx.http, |res| msg.build_response(res))
+                    .await
             },
             Err(handler::Error::Other(err)) => {
                 error!(?err, "Unexpected error handling command");
@@ -303,8 +376,7 @@ impl Registry {
                             msg.content(
                                 MessageBuilder::new()
                                     .push("Unexpected error: ")
-                                    .push_mono_safe(err)
-                                    .build(),
+                                    .push_mono_safe(err),
                             )
                             .ephemeral(true)
                         })

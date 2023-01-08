@@ -1,11 +1,17 @@
 use serenity::{
-    builder::{CreateApplicationCommand, CreateInteractionResponseData},
+    builder::{
+        CreateApplicationCommand, CreateInteractionResponse, CreateInteractionResponseData,
+        EditInteractionResponse,
+    },
     client::Context,
-    model::id::GuildId,
+    model::{application::interaction::InteractionResponseType, id::GuildId},
     utils::MessageBuilder,
 };
 
-use super::visitor;
+use super::{
+    response::{Message, MessageBody, MessageOpts},
+    visitor,
+};
 use crate::prelude::*;
 
 // TODO: can argument/config parsing be (easily) included in the Handler trait?
@@ -17,43 +23,18 @@ pub struct Opts {
     pub command_base: String,
 }
 
-#[derive(Debug)]
-pub struct Message {
-    content: String,
-    ephemeral: bool,
-}
-
-impl Message {
-    pub(super) fn apply<'a, 'b>(
-        self,
-        msg: &'b mut CreateInteractionResponseData<'a>,
-    ) -> &'b mut CreateInteractionResponseData<'a> {
-        let Self { content, ephemeral } = self;
-        msg.content(content).ephemeral(ephemeral)
-    }
-
-    #[inline]
-    pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
-        let mut mb = MessageBuilder::new();
-        f(&mut mb);
-        Self {
-            content: mb.build(),
-            ephemeral: false,
-        }
-    }
-
-    #[inline]
-    pub fn plain(c: impl Into<serenity::utils::Content>) -> Self {
-        Self::rich(|mb| mb.push_safe(c))
-    }
-
-    pub fn ephemeral(self, ephemeral: bool) -> Self { Self { ephemeral, ..self } }
-}
-
+// TODO: session types pls
 #[derive(Debug)]
 pub enum Response {
     Message(Message),
+    DeferMessage(
+        MessageOpts,
+        tokio::task::JoinHandle<DeferResult<MessageBody>>,
+    ),
+    UpdateMessage,
+    DeferUpdateMessage(tokio::task::JoinHandle<Result<(), DeferError<()>>>),
     Modal,
+    Autocomplete,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -66,14 +47,22 @@ pub enum Error {
     Other(#[from] anyhow::Error),
 }
 
-pub type Result = std::result::Result<Response, Error>;
+#[derive(Debug, thiserror::Error)]
+pub enum DeferError<T> {
+    #[error("Bot responded with error: {0}")]
+    Response(&'static str, T),
+    #[error("Unexpected error: {0}")]
+    Other(#[from] anyhow::Error),
+}
+
+pub type CommandResult = Result<Response, Error>;
+pub type DeferResult<T> = Result<T, DeferError<T>>;
 
 #[async_trait]
 pub trait Handler: fmt::Debug + Send + Sync {
     // TODO: returning an optional GuildId is the stupidest way to handle scope
     fn register(&self, opts: &Opts, cmd: &mut CreateApplicationCommand) -> Option<GuildId>;
 
-    // TODO: remove async and force the use of Deferred?
-    // TODO: '_?
-    async fn respond<'a>(&self, ctx: &Context, visitor: visitor::Visitor<'a>) -> Result;
+    // TODO: set timeout for non-deferred commands?
+    async fn respond(&self, ctx: &Context, visitor: &mut visitor::Visitor) -> CommandResult;
 }

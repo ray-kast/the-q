@@ -7,15 +7,12 @@ mod vc;
 
 pub(self) mod prelude {
     // TODO: minimize these
-    pub use serenity::{
+    pub(super) use serenity::{
         builder::{CreateApplicationCommand, CreateApplicationCommandOption},
         model::{
             application::{
                 command::{CommandOptionType, CommandType},
                 component::InputTextStyle,
-                interaction::{
-                    application_command::ApplicationCommandInteraction, InteractionResponseType,
-                },
             },
             id::GuildId,
         },
@@ -24,17 +21,20 @@ pub(self) mod prelude {
 
     pub use super::super::command::{
         handler,
-        handler::{Error, Handler, Message, Response, Result},
+        handler::{CommandResult, Error, Handler, Response},
+        response::{Message, MessageBody, MessageOpts},
         visitor,
         visitor::Visitor,
     };
     pub use crate::prelude::*;
 }
 
-pub fn list() -> Vec<Box<dyn prelude::Handler>> {
+pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler>> {
+    use prelude::Arc;
+
     vec![
-        Box::new(say::SayCommand),
-        Box::new(test::TestCommand),
-        Box::new(vc::VcCommand),
+        Arc::new(say::SayCommand),
+        Arc::new(test::TestCommand),
+        Arc::new(vc::VcCommand),
     ]
 }

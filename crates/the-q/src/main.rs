@@ -8,7 +8,7 @@
     missing_copy_implementations
 )]
 #![warn(clippy::pedantic, missing_docs)]
-#![allow(unused, dead_code)] // TODO
+#![allow(dead_code)] // TODO
 
 pub(crate) mod client;
 mod entry;

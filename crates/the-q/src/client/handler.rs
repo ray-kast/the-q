@@ -1,6 +1,7 @@
 use serenity::{
     model::{
         application::interaction::{Interaction, InteractionResponseType},
+        event::ResumedEvent,
         gateway::Ready,
     },
     prelude::*,
@@ -38,9 +39,8 @@ impl serenity::client::EventHandler for Handler {
             Interaction::MessageComponent(m) => {
                 handler(
                     "Interaction::MessageComponent",
-                    m.create_interaction_response(&ctx.http, |r| {
-                        r.kind(InteractionResponseType::UpdateMessage)
-                            .interaction_response_data(|d| d)
+                    m.create_interaction_response(&ctx.http, |res| {
+                        res.kind(InteractionResponseType::UpdateMessage)
                     })
                     .map(|r| r.context("Failed to respond to message component")),
                 )
@@ -49,8 +49,8 @@ impl serenity::client::EventHandler for Handler {
             Interaction::Autocomplete(a) => {
                 handler(
                     "Interaction::Autocomplete",
-                    a.create_autocomplete_response(&ctx.http, |r| {
-                        r.add_string_choice("fucc", "fucc")
+                    a.create_autocomplete_response(&ctx.http, |res| {
+                        res.add_string_choice("fucc", "fucc")
                     })
                     .map(|r| r.context("Failed to fulfill autocomplete")),
                 )
@@ -59,17 +59,25 @@ impl serenity::client::EventHandler for Handler {
             Interaction::ModalSubmit(m) => {
                 handler(
                     "Interaction::ModalSubmit",
-                    m.create_interaction_response(&ctx.http, |r| {
-                        r.kind(InteractionResponseType::ChannelMessageWithSource)
-                            .interaction_response_data(|d| {
-                                d.ephemeral(true).content("Success (probably)!")
-                            })
+                    m.create_interaction_response(&ctx.http, |res| {
+                        command::response::Message::plain("Success (probably)!")
+                            .ephemeral(true)
+                            .build_response(res)
                     })
                     .map(|r| r.context("Failed to respond to modal")),
                 )
                 .await;
             },
         }
+    }
+
+    async fn resume(&self, _: Context, _: ResumedEvent) {
+        handler("resume", async move {
+            info!("Connection resumed - resetting command registry");
+            self.registry.wipe().await;
+            Ok(())
+        })
+        .await;
     }
 
     async fn ready(&self, ctx: Context, _: Ready) {

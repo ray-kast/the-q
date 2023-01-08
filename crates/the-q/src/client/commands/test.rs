@@ -10,7 +10,7 @@ impl Handler for TestCommand {
         None
     }
 
-    async fn respond<'a>(&self, _: &Context, _: Visitor<'a>) -> Result {
+    async fn respond(&self, _: &Context, _: &mut Visitor) -> CommandResult {
         // TODO: modals
         // cmd.create_interaction_response(&ctx.http, |res| {
         //     res.kind(InteractionResponseType::Modal)

@@ -16,39 +16,48 @@ impl Handler for VcCommand {
         None
     }
 
-    async fn respond<'a>(&self, _: &Context, _: Visitor<'a>) -> Result {
-        // // TODO: GuildVisitor
-        // let Some(gid) = cmd.guild_id else {
-        //     return Ok(Response::Message(Message::plain("This command must be used in a server").ephemeral(true)));
-        // };
+    async fn respond(&self, ctx: &Context, visitor: &mut Visitor) -> CommandResult {
+        let gid = visitor.guild().required()?;
+        let user = visitor.user();
 
-        // let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;
+        let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;
 
-        // let Some(voice_chan) = guild
-        //     .voice_states
-        //     .get(&cmd.user.id)
-        //     .and_then(|s| s.channel_id)
-        // else {
-        //     return Ok(Response::Message(
-        //         Message::plain("Please connect to a voice channel first.").ephemeral(true),
-        //     ));
-        // };
+        let voice_chan = guild
+            .voice_states
+            .get(&user.id)
+            .and_then(|s| s.channel_id)
+            .ok_or_else(|| {
+                Message::plain("Please connect to a voice channel first.")
+                    .ephemeral(true)
+                    .into_err("Error getting user voice state")
+            })?;
 
-        // let sb = songbird::get(ctx)
-        //     .await
-        //     .context("Missing songbird context")?;
+        let ctx = ctx.clone();
+        let task = tokio::task::spawn(async move {
+            let sb = songbird::get(&ctx)
+                .await
+                .context("Missing songbird context")?;
 
-        // let (call, res) = sb.join(gid, voice_chan).await;
+            let (call, res) = sb.join(gid, voice_chan).await;
 
-        // res.context("Failed to join call")?;
+            res.context("Failed to join call").map_err(|e| {
+                warn!(?e, "Unable to join voice channel");
+                MessageBody::plain("Couldn't join that channel, sorry.")
+                    .into_err("Failed to join call (missing permissions?)")
+            })?;
 
-        // call.lock()
-        //     .await
-        //     .leave()
-        //     .await
-        //     .context("Failed to leave call")?;
+            call.lock()
+                .await
+                .leave()
+                .await
+                .context("Failed to leave call")?;
 
-        // Ok(Response::Message(Message::plain(";)")))
-        Err(anyhow!("todo").into())
+            Ok(MessageBody::plain(";)"))
+        });
+
+        Ok(Response::DeferMessage(
+            MessageOpts::default().ephemeral(true),
+            task,
+        ))
     }
 }
