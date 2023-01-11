@@ -1,4 +1,5 @@
 mod explode;
+mod point;
 mod say;
 mod test;
 mod vc;
@@ -29,6 +30,7 @@ pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler>> {
 
     vec![
         Arc::new(explode::ExplodeCommand),
+        Arc::new(point::PointCommand),
         Arc::new(say::SayCommand),
         Arc::new(test::TestCommand),
         Arc::new(vc::VcCommand),

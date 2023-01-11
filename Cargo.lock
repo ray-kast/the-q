@@ -359,6 +359,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "discord-pls"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "clap",
+ "dotenv",
+ "rand",
+ "serde",
+ "serde_json",
+ "serenity",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "discortp"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

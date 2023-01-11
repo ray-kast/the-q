@@ -37,13 +37,10 @@ impl serenity::client::EventHandler for Handler {
         // TODO: handle followup messages
         // TODO: handle response embeds and attachments
         match int {
-            // Valid responses: none (pong is not for websockets)
             Interaction::Ping(_) => (),
 
-            // Valid responses: cmws, defer cmws, modal
             Interaction::ApplicationCommand(aci) => self.registry.handle(&ctx, aci).await,
 
-            // Valid responses: cmws, defer cmws, update, defer update, modal
             Interaction::MessageComponent(m) => {
                 handler(
                     "Interaction::MessageComponent",
@@ -55,7 +52,6 @@ impl serenity::client::EventHandler for Handler {
                 .await;
             },
 
-            // Valid responses: autocomplete
             Interaction::Autocomplete(a) => {
                 handler(
                     "Interaction::Autocomplete",
@@ -67,7 +63,6 @@ impl serenity::client::EventHandler for Handler {
                 .await;
             },
 
-            // Valid responses: cmws, defer cmws
             Interaction::ModalSubmit(m) => {
                 handler(
                     "Interaction::ModalSubmit",
