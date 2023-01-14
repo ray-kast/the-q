@@ -34,7 +34,7 @@ COPY --from=skel /build/crates crates
 
 # Perform an initial fetch and build of the dependencies
 RUN cargo fetch --locked
-RUN cargo build --locked --profile=docker
+RUN cargo build --locked --profile=docker --bin the-q
 
 # Load source code - source-only changes will begin building at this point
 COPY scripts/install-skeleton.sh scripts/
@@ -44,7 +44,7 @@ COPY crates crates
 RUN scripts/install-skeleton.sh -t .
 
 # Now perform a full build of the workspace
-RUN cargo build --locked --profile=docker
+RUN cargo build --locked --profile=docker --bin the-q
 
 # Base image for any output containers, to save space with common layers
 FROM debian:bullseye-slim AS base
