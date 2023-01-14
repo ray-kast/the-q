@@ -1,22 +1,19 @@
 use serenity::{
-    model::{
-        application::interaction::{Interaction, InteractionResponseType},
-        gateway::Ready,
-    },
+    model::{application::interaction::Interaction, gateway::Ready},
     prelude::*,
 };
 
-use super::{command, commands};
+use super::{commands, interaction};
 use crate::prelude::*;
 
 pub struct Handler {
-    registry: command::Registry,
+    registry: interaction::Registry,
 }
 
 impl Handler {
-    pub fn new_rc(command_opts: command::handler::Opts) -> Arc<Self> {
+    pub fn new_rc(command_opts: interaction::handler::Opts) -> Arc<Self> {
         Arc::new(Self {
-            registry: command::Registry::new(command_opts, commands::list()),
+            registry: interaction::Registry::new(command_opts, commands::list()),
         })
     }
 }
@@ -32,46 +29,13 @@ async fn handler(method: &'static str, f: impl Future<Output = Result>) {
 #[async_trait]
 impl serenity::client::EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, int: Interaction) {
-        // TODO: handle response embeds and attachments
         match int {
             Interaction::Ping(_) => (),
 
-            Interaction::ApplicationCommand(aci) => self.registry.handle_aci(&ctx, aci).await,
-
-            Interaction::MessageComponent(m) => {
-                handler(
-                    "Interaction::MessageComponent",
-                    m.create_interaction_response(&ctx.http, |res| {
-                        res.kind(InteractionResponseType::UpdateMessage)
-                    })
-                    .map(|r| r.context("Failed to respond to message component")),
-                )
-                .await;
-            },
-
-            Interaction::Autocomplete(a) => {
-                handler(
-                    "Interaction::Autocomplete",
-                    a.create_autocomplete_response(&ctx.http, |res| {
-                        res.add_string_choice("fucc", "fucc")
-                    })
-                    .map(|r| r.context("Failed to fulfill autocomplete")),
-                )
-                .await;
-            },
-
-            Interaction::ModalSubmit(m) => {
-                handler(
-                    "Interaction::ModalSubmit",
-                    command::response::InitResponder::new(&ctx.http, &m)
-                        .create_message(
-                            command::response::Message::plain("Success (probably)!")
-                                .ephemeral(true),
-                        )
-                        .map(|r| r.map(|_| ()).context("Failed to respond to modal")),
-                )
-                .await;
-            },
+            Interaction::ApplicationCommand(aci) => self.registry.handle_command(&ctx, aci).await,
+            Interaction::MessageComponent(mc) => self.registry.handle_component(&ctx, mc).await,
+            Interaction::Autocomplete(ac) => self.registry.handle_autocomplete(&ctx, ac).await,
+            Interaction::ModalSubmit(ms) => self.registry.handle_modal(&ctx, ms).await,
         }
     }
 

@@ -15,7 +15,7 @@ pub(self) mod prelude {
         prelude::*,
     };
 
-    pub use super::super::command::{
+    pub use super::super::interaction::{
         handler,
         handler::{
             CommandError, CommandHandler as Handler, CommandResponder, CommandResult, IntoErr,

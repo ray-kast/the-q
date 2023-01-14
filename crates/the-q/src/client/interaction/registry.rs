@@ -1,32 +1,47 @@
+// !TODO: stop saying "Failed to"
+
+use std::fmt::Write;
+
 use serenity::{
     client::Context,
     model::{
         application::{
             command::{Command, CommandOptionType, CommandType},
-            interaction::application_command::{
-                ApplicationCommandInteraction, CommandDataOptionValue,
+            component::ComponentType,
+            interaction::{
+                application_command::{
+                    ApplicationCommandInteraction, CommandData, CommandDataOptionValue,
+                },
+                autocomplete::AutocompleteInteraction,
+                message_component::MessageComponentInteraction,
+                modal::ModalSubmitInteraction,
             },
         },
-        id::CommandId,
+        id::{CommandId, GuildId, InteractionId},
+        user::User,
     },
 };
 
 use super::{
     handler,
-    response::{self, Message},
+    response::{BorrowedResponder, BorrowingResponder, InitResponder, Message, MessageOpts},
     visitor,
 };
 use crate::prelude::*;
 
 #[inline]
-fn aci_name(aci: &ApplicationCommandInteraction) -> String {
-    match aci.data.kind {
+fn write_string(f: impl FnOnce(&mut String) -> fmt::Result) -> String {
+    let mut s = String::new();
+    f(&mut s).unwrap_or_else(|e| unreachable!("{e}"));
+    s
+}
+
+fn command_name(w: &mut impl Write, data: &CommandData) -> fmt::Result {
+    match data.kind {
         CommandType::ChatInput => {
-            use fmt::Write;
+            write!(w, "/{}", data.name)?;
 
-            let mut s = format!("/{}", aci.data.name);
-
-            for opt in &aci.data.options {
+            for opt in &data.options {
                 match opt.kind {
                     CommandOptionType::SubCommand | CommandOptionType::SubCommandGroup => {
                         let cmd = match opt.resolved {
@@ -34,58 +49,126 @@ fn aci_name(aci: &ApplicationCommandInteraction) -> String {
                             Some(_) | None => &opt.name,
                         };
 
-                        write!(s, " {cmd}").unwrap();
+                        write!(w, " {cmd}")
                     },
                     _ => {
-                        write!(s, " {}(", opt.name).unwrap();
+                        if opt.focused {
+                            write!(w, " !:{}(", opt.name)
+                        } else {
+                            write!(w, " {}(", opt.name)
+                        }?;
                         if let Some(ref val) = opt.resolved {
                             match val {
-                                CommandDataOptionValue::String(v) => write!(s, "{v:?}"),
-                                CommandDataOptionValue::Integer(i) => write!(s, "{i}"),
-                                CommandDataOptionValue::Boolean(b) => write!(s, "{b:?}"),
+                                CommandDataOptionValue::String(v) => write!(w, "{v:?}"),
+                                CommandDataOptionValue::Integer(i) => write!(w, "{i}"),
+                                CommandDataOptionValue::Boolean(b) => write!(w, "{b:?}"),
                                 CommandDataOptionValue::User(u, _) => {
-                                    write!(s, "u:@{}#{:04}", u.name, u.discriminator)
+                                    write!(w, "u:").and_then(|()| write_user(w, u))
                                 },
                                 CommandDataOptionValue::Channel(c) => {
-                                    write!(s, "#{}", c.name.as_deref().unwrap_or("<???>"))
+                                    write!(w, "#{}", c.name.as_deref().unwrap_or("<???>"))
                                 },
                                 CommandDataOptionValue::Role(r) => {
-                                    write!(s, "r:@{}", r.name)
+                                    write!(w, "r:@{}", r.name)
                                 },
-                                CommandDataOptionValue::Number(f) => write!(s, "{f:.2}"),
+                                CommandDataOptionValue::Number(f) => write!(w, "{f:.2}"),
                                 CommandDataOptionValue::Attachment(a) => {
-                                    write!(s, "<{}>", a.filename)
+                                    write!(w, "<{}>", a.filename)
                                 },
                                 _ => {
-                                    s.push_str("<???>");
-                                    Ok(())
+                                    write!(w, "<???>")
                                 },
-                            }
-                            .unwrap();
+                            }?;
                         }
-                        s.push(')');
+                        write!(w, ")")
                     },
-                }
+                }?;
             }
-
-            s
+            Ok(())
         },
-        CommandType::User => format!("user::{}", aci.data.name),
-        CommandType::Message => format!("message::{}", aci.data.name),
-        _ => "???".into(),
+        CommandType::User => write!(w, "user::{}", data.name),
+        CommandType::Message => write!(w, "message::{}", data.name),
+        _ => write!(w, "???"),
     }
 }
 
-#[inline]
-fn aci_id(aci: &ApplicationCommandInteraction) -> String { format!("{}:{}", aci.id, aci.data.id) }
+fn command_id(w: &mut impl Write, data: &CommandData, id: InteractionId) -> fmt::Result {
+    write!(w, "{id}:{}", data.id)
+}
 
+fn command_issuer(w: &mut impl Write, user: &User, guild: &Option<GuildId>) -> fmt::Result {
+    write_user(w, user)?;
+    write!(w, " {}", guild_src(guild))
+}
+
+#[inline]
+fn guild_src(id: &Option<GuildId>) -> &'static str {
+    if id.is_some() { "in guild" } else { "in DM" }
+}
+
+#[inline]
+fn write_user(w: &mut impl Write, u: &User) -> fmt::Result {
+    write!(w, "@{}#{:04}", u.name, u.discriminator)
+}
+
+#[inline]
+fn aci_name(aci: &ApplicationCommandInteraction) -> String {
+    write_string(|s| command_name(s, &aci.data))
+}
+
+#[inline]
+fn aci_id(aci: &ApplicationCommandInteraction) -> String {
+    write_string(|s| command_id(s, &aci.data, aci.id))
+}
+
+#[inline]
 fn aci_issuer(aci: &ApplicationCommandInteraction) -> String {
-    let src = if aci.guild_id.is_some() {
-        "guild"
-    } else {
-        "DM"
+    write_string(|s| command_issuer(s, &aci.user, &aci.guild_id))
+}
+
+#[inline]
+fn mc_name(mc: &MessageComponentInteraction) -> String {
+    let ty = match mc.data.component_type {
+        ComponentType::ActionRow => "action_row",
+        ComponentType::Button => "button",
+        ComponentType::SelectMenu => "combo",
+        ComponentType::InputText => "textbox",
+        _ => "???",
     };
-    format!("@{}#{:04} in {src}", aci.user.name, aci.user.discriminator)
+
+    format!("{ty}::{}", mc.data.custom_id)
+}
+
+#[inline]
+fn mc_id(mc: &MessageComponentInteraction) -> String { format!("{}:{}", mc.id, mc.message.id) }
+
+#[inline]
+fn mc_issuer(mc: &MessageComponentInteraction) -> String {
+    write_string(|s| {
+        write_user(s, &mc.user)?;
+        write!(s, " {} channel {}", guild_src(&mc.guild_id), mc.channel_id)
+    })
+}
+
+fn ac_name(ac: &AutocompleteInteraction) -> String { write_string(|s| command_name(s, &ac.data)) }
+
+fn ac_id(ac: &AutocompleteInteraction) -> String {
+    write_string(|s| command_id(s, &ac.data, ac.id))
+}
+
+fn ac_issuer(ac: &AutocompleteInteraction) -> String {
+    write_string(|s| command_issuer(s, &ac.user, &ac.guild_id))
+}
+
+fn ms_name(ms: &ModalSubmitInteraction) -> String { ms.data.custom_id.clone() }
+
+fn ms_id(ms: &ModalSubmitInteraction) -> String { ms.id.to_string() }
+
+fn ms_issuer(ms: &ModalSubmitInteraction) -> String {
+    write_string(|s| {
+        write_user(s, &ms.user)?;
+        write!(s, " {}", guild_src(&ms.guild_id))
+    })
 }
 
 type Handler = Arc<dyn handler::CommandHandler>;
@@ -204,6 +287,7 @@ impl Registry {
         }
     }
 
+    #[inline]
     pub async fn init(&self, ctx: &Context) -> Result {
         let mut state = self.map.write().await;
 
@@ -214,7 +298,7 @@ impl Registry {
 
     #[instrument(
         level = "error",
-        name = "handle_aci",
+        name = "handle_command",
         err,
         skip(self, ctx, aci),
         fields(
@@ -224,13 +308,15 @@ impl Registry {
             issuer = aci_issuer(&aci),
         ),
     )]
-    async fn try_handle_aci(
+    async fn try_handle_command(
         &self,
         ctx: &Context,
         aci: ApplicationCommandInteraction,
     ) -> Result<(), serenity::Error> {
+        trace!("Handling application command");
+
         let map = self.map.read().await;
-        let responder = response::InitResponder::new(&ctx.http, &aci);
+        let responder = InitResponder::new(&ctx.http, &aci);
 
         let Some(ref map) = *map else {
             warn!("Rejecting command due to uninitialized registry");
@@ -259,13 +345,9 @@ impl Registry {
         debug!(?handler, "Handling command");
 
         let mut vis = visitor::Visitor::new(&aci);
-        let mut responder = response::BorrowedResponder::Init(responder);
+        let mut responder = BorrowedResponder::Init(responder);
         let res = handler
-            .respond(
-                ctx,
-                &mut vis,
-                response::BorrowingResponder::new(&mut responder),
-            )
+            .respond(ctx, &mut vis, BorrowingResponder::new(&mut responder))
             .await;
         let res = vis.finish().map_err(Into::into).and(res);
 
@@ -319,8 +401,100 @@ impl Registry {
         Ok(())
     }
 
+    #[instrument(
+        level = "error",
+        name = "handle_component",
+        err,
+        skip(self, ctx, mc),
+        fields(
+            // TODO: don't do stringification if logs don't happen
+            name = mc_name(&mc),
+            id = mc_id(&mc),
+            issuer = mc_issuer(&mc),
+        ),
+    )]
+    async fn try_handle_component(
+        &self,
+        ctx: &Context,
+        mc: MessageComponentInteraction,
+    ) -> Result<(), serenity::Error> {
+        trace!("Handling message component");
+        let responder = InitResponder::new(&ctx.http, &mc);
+
+        // TODO
+        responder
+            .defer_update(MessageOpts::default())
+            .await
+            .map(|_| ())
+    }
+
+    #[instrument(
+        level = "error",
+        name = "handle_autocomplete",
+        err,
+        skip(self, ctx, ac),
+        fields(
+            // TODO: don't do stringification if logs don't happen
+            name = ac_name(&ac),
+            id = ac_id(&ac),
+            issuer = ac_issuer(&ac),
+        ),
+    )]
+    async fn try_handle_autocomplete(
+        &self,
+        ctx: &Context,
+        ac: AutocompleteInteraction,
+    ) -> Result<(), serenity::Error> {
+        trace!("Handling command autocomplete");
+
+        ac.create_autocomplete_response(&ctx.http, |ac| {
+            ac // TODO
+        })
+        .await
+    }
+
+    #[instrument(
+        level = "error",
+        name = "handle_modal",
+        err,
+        skip(self, ctx, ms),
+        fields(
+            // TODO: don't do stringification if logs don't happen
+            name = ms_name(&ms),
+            id = ms_id(&ms),
+            issuer = ms_issuer(&ms),
+        ),
+    )]
+    async fn try_handle_modal(
+        &self,
+        ctx: &Context,
+        ms: ModalSubmitInteraction,
+    ) -> Result<(), serenity::Error> {
+        trace!("Handling modal submit");
+
+        let responder = InitResponder::new(&ctx.http, &ms);
+
+        // TODO
+        responder
+            .defer_update(MessageOpts::default())
+            .await
+            .map(|_| ())
+    }
+
     #[inline]
-    pub async fn handle_aci(&self, ctx: &Context, aci: ApplicationCommandInteraction) {
-        self.try_handle_aci(ctx, aci).await.ok();
+    pub async fn handle_command(&self, ctx: &Context, aci: ApplicationCommandInteraction) {
+        self.try_handle_command(ctx, aci).await.ok();
+    }
+
+    pub async fn handle_component(&self, ctx: &Context, mc: MessageComponentInteraction) {
+        self.try_handle_component(ctx, mc).await.ok();
+    }
+
+    pub async fn handle_autocomplete(&self, ctx: &Context, ac: AutocompleteInteraction) {
+        self.try_handle_autocomplete(ctx, ac).await.ok();
+    }
+
+    pub async fn handle_modal(&self, ctx: &Context, ms: ModalSubmitInteraction) {
+        self.try_handle_modal(ctx, ms).await.ok();
     }
 }

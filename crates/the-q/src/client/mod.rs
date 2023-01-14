@@ -3,9 +3,9 @@ use songbird::SerenityInit;
 
 use crate::{prelude::*, util::DebugShim};
 
-mod command;
 mod commands;
 mod handler;
+mod interaction;
 
 #[derive(Debug, clap::Args)]
 pub struct ClientOpts {
@@ -14,17 +14,17 @@ pub struct ClientOpts {
     discord_token: DebugShim<String>,
 
     #[command(flatten)]
-    commands: command::handler::Opts,
+    interactions: interaction::handler::Opts,
 }
 
 pub async fn build(opts: ClientOpts) -> Result<Client> {
     let ClientOpts {
         discord_token,
-        commands,
+        interactions,
     } = opts;
 
     let intents = GatewayIntents::non_privileged(); // TODO
-    let handler = handler::Handler::new_rc(commands);
+    let handler = handler::Handler::new_rc(interactions);
 
     Client::builder(discord_token.0, intents)
         .event_handler_arc(handler)

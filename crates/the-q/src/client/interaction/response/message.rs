@@ -8,6 +8,7 @@ use serenity::{
 
 use super::ResponseData;
 
+// TODO: handle embeds and attachments
 #[derive(Debug)]
 pub struct MessageBody {
     content: MessageBuilder,

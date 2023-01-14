@@ -9,6 +9,6 @@ impl ResponseData for Modal {
         self,
         data: &'a mut CreateInteractionResponseData<'b>,
     ) -> &'a mut CreateInteractionResponseData<'b> {
-        todo!()
+        todo!("{data:?}")
     }
 }
