@@ -123,234 +123,119 @@ mod private {
         ) -> Result<(), serenity::Error>;
     }
 
-    #[async_trait]
-    impl Interaction for ApplicationCommandInteraction {
-        #[inline]
-        async fn create_response<'a>(
-            &self,
-            http: &Http,
-            f: impl for<'b> FnOnce(
-                &'b mut CreateInteractionResponse<'a>,
-            ) -> &'b mut CreateInteractionResponse<'a>
-            + Send,
-        ) -> Result<(), serenity::Error> {
-            ApplicationCommandInteraction::create_interaction_response(self, http, f).await
-        }
+    macro_rules! interaction {
+        ($ty:ident) => {
+            #[async_trait]
+            impl Interaction for $ty {
+                #[inline]
+                async fn create_response<'a>(
+                    &self,
+                    http: &Http,
+                    f: impl for<'b> FnOnce(
+                        &'b mut CreateInteractionResponse<'a>,
+                    ) -> &'b mut CreateInteractionResponse<'a>
+                    + Send,
+                ) -> Result<(), serenity::Error> {
+                    $ty::create_interaction_response(self, http, f).await
+                }
 
-        #[inline]
-        async fn edit_response(
-            &self,
-            http: &Http,
-            f: impl for<'a> FnOnce(&'a mut EditInteractionResponse) -> &'a mut EditInteractionResponse
-            + Send,
-        ) -> Result<Message, serenity::Error> {
-            ApplicationCommandInteraction::edit_original_interaction_response(self, http, f).await
-        }
+                #[inline]
+                async fn edit_response(
+                    &self,
+                    http: &Http,
+                    f: impl for<'a> FnOnce(
+                        &'a mut EditInteractionResponse,
+                    ) -> &'a mut EditInteractionResponse
+                    + Send,
+                ) -> Result<Message, serenity::Error> {
+                    $ty::edit_original_interaction_response(self, http, f).await
+                }
 
-        #[inline]
-        async fn delete_response(&self, http: &Http) -> Result<(), serenity::Error> {
-            ApplicationCommandInteraction::delete_original_interaction_response(self, http).await
-        }
+                #[inline]
+                async fn delete_response(&self, http: &Http) -> Result<(), serenity::Error> {
+                    $ty::delete_original_interaction_response(self, http).await
+                }
 
-        #[inline]
-        async fn create_followup_message<'a>(
-            &self,
-            http: &Http,
-            f: impl for<'b> FnOnce(
-                &'b mut CreateInteractionResponseFollowup<'a>,
-            ) -> &'b mut CreateInteractionResponseFollowup<'a>
-            + Send,
-        ) -> Result<Message, serenity::Error> {
-            ApplicationCommandInteraction::create_followup_message(self, http, f).await
-        }
+                #[inline]
+                async fn create_followup_message<'a>(
+                    &self,
+                    http: &Http,
+                    f: impl for<'b> FnOnce(
+                        &'b mut CreateInteractionResponseFollowup<'a>,
+                    ) -> &'b mut CreateInteractionResponseFollowup<'a>
+                    + Send,
+                ) -> Result<Message, serenity::Error> {
+                    $ty::create_followup_message(self, http, f).await
+                }
 
-        #[inline]
-        async fn edit_followup_message<'a>(
-            &self,
-            http: &Http,
-            id: MessageId,
-            f: impl for<'b> FnOnce(
-                &'b mut CreateInteractionResponseFollowup<'a>,
-            ) -> &'b mut CreateInteractionResponseFollowup<'a>
-            + Send,
-        ) -> Result<Message, serenity::Error> {
-            ApplicationCommandInteraction::edit_followup_message(self, http, id, f).await
-        }
+                #[inline]
+                async fn edit_followup_message<'a>(
+                    &self,
+                    http: &Http,
+                    id: MessageId,
+                    f: impl for<'b> FnOnce(
+                        &'b mut CreateInteractionResponseFollowup<'a>,
+                    ) -> &'b mut CreateInteractionResponseFollowup<'a>
+                    + Send,
+                ) -> Result<Message, serenity::Error> {
+                    $ty::edit_followup_message(self, http, id, f).await
+                }
 
-        #[inline]
-        async fn delete_followup_message(
-            &self,
-            http: &Http,
-            id: MessageId,
-        ) -> Result<(), serenity::Error> {
-            ApplicationCommandInteraction::delete_followup_message(self, http, id).await
-        }
+                #[inline]
+                async fn delete_followup_message(
+                    &self,
+                    http: &Http,
+                    id: MessageId,
+                ) -> Result<(), serenity::Error> {
+                    $ty::delete_followup_message(self, http, id).await
+                }
+            }
+        };
     }
 
-    #[async_trait]
-    impl Interaction for MessageComponentInteraction {
-        #[inline]
-        async fn create_response<'a>(
-            &self,
-            http: &Http,
-            f: impl for<'b> FnOnce(
-                &'b mut CreateInteractionResponse<'a>,
-            ) -> &'b mut CreateInteractionResponse<'a>
-            + Send,
-        ) -> Result<(), serenity::Error> {
-            MessageComponentInteraction::create_interaction_response(self, http, f).await
-        }
+    interaction!(ApplicationCommandInteraction);
+    interaction!(MessageComponentInteraction);
+    interaction!(ModalSubmitInteraction);
 
-        #[inline]
-        async fn edit_response(
-            &self,
-            http: &Http,
-            f: impl for<'a> FnOnce(&'a mut EditInteractionResponse) -> &'a mut EditInteractionResponse
-            + Send,
-        ) -> Result<Message, serenity::Error> {
-            MessageComponentInteraction::edit_original_interaction_response(self, http, f).await
-        }
-
-        #[inline]
-        async fn delete_response(&self, http: &Http) -> Result<(), serenity::Error> {
-            MessageComponentInteraction::delete_original_interaction_response(self, http).await
-        }
-
-        #[inline]
-        async fn create_followup_message<'a>(
-            &self,
-            http: &Http,
-            f: impl for<'b> FnOnce(
-                &'b mut CreateInteractionResponseFollowup<'a>,
-            ) -> &'b mut CreateInteractionResponseFollowup<'a>
-            + Send,
-        ) -> Result<Message, serenity::Error> {
-            MessageComponentInteraction::create_followup_message(self, http, f).await
-        }
-
-        #[inline]
-        async fn edit_followup_message<'a>(
-            &self,
-            http: &Http,
-            id: MessageId,
-            f: impl for<'b> FnOnce(
-                &'b mut CreateInteractionResponseFollowup<'a>,
-            ) -> &'b mut CreateInteractionResponseFollowup<'a>
-            + Send,
-        ) -> Result<Message, serenity::Error> {
-            MessageComponentInteraction::edit_followup_message(self, http, id, f).await
-        }
-
-        #[inline]
-        async fn delete_followup_message(
-            &self,
-            http: &Http,
-            id: MessageId,
-        ) -> Result<(), serenity::Error> {
-            MessageComponentInteraction::delete_followup_message(self, http, id).await
-        }
+    #[derive(Debug)]
+    pub struct ResponderCore<'a, I> {
+        pub(super) http: &'a Http,
+        pub(super) int: &'a I,
     }
 
-    #[async_trait]
-    impl Interaction for ModalSubmitInteraction {
-        #[inline]
-        async fn create_response<'a>(
-            &self,
-            http: &Http,
-            f: impl for<'b> FnOnce(
-                &'b mut CreateInteractionResponse<'a>,
-            ) -> &'b mut CreateInteractionResponse<'a>
-            + Send,
-        ) -> Result<(), serenity::Error> {
-            ModalSubmitInteraction::create_interaction_response(self, http, f).await
-        }
-
-        #[inline]
-        async fn edit_response(
-            &self,
-            http: &Http,
-            f: impl for<'a> FnOnce(&'a mut EditInteractionResponse) -> &'a mut EditInteractionResponse
-            + Send,
-        ) -> Result<Message, serenity::Error> {
-            ModalSubmitInteraction::edit_original_interaction_response(self, http, f).await
-        }
-
-        #[inline]
-        async fn delete_response(&self, http: &Http) -> Result<(), serenity::Error> {
-            ModalSubmitInteraction::delete_original_interaction_response(self, http).await
-        }
-
-        #[inline]
-        async fn create_followup_message<'a>(
-            &self,
-            http: &Http,
-            f: impl for<'b> FnOnce(
-                &'b mut CreateInteractionResponseFollowup<'a>,
-            ) -> &'b mut CreateInteractionResponseFollowup<'a>
-            + Send,
-        ) -> Result<Message, serenity::Error> {
-            ModalSubmitInteraction::create_followup_message(self, http, f).await
-        }
-
-        #[inline]
-        async fn edit_followup_message<'a>(
-            &self,
-            http: &Http,
-            id: MessageId,
-            f: impl for<'b> FnOnce(
-                &'b mut CreateInteractionResponseFollowup<'a>,
-            ) -> &'b mut CreateInteractionResponseFollowup<'a>
-            + Send,
-        ) -> Result<Message, serenity::Error> {
-            ModalSubmitInteraction::edit_followup_message(self, http, id, f).await
-        }
-
-        #[inline]
-        async fn delete_followup_message(
-            &self,
-            http: &Http,
-            id: MessageId,
-        ) -> Result<(), serenity::Error> {
-            ModalSubmitInteraction::delete_followup_message(self, http, id).await
+    impl<'a, I> Clone for ResponderCore<'a, I> {
+        fn clone(&self) -> Self {
+            let Self { http, int } = *self;
+            Self { http, int }
         }
     }
+    impl<'a, I> Copy for ResponderCore<'a, I> {}
 
     pub trait Responder {
         type Interaction: Interaction;
 
-        fn http(&self) -> &Http;
-
-        fn interaction(&self) -> &Self::Interaction;
+        fn core(&self) -> ResponderCore<'_, Self::Interaction>;
     }
 
     impl<'a, I: Interaction> Responder for super::InitResponder<'a, I> {
         type Interaction = I;
 
         #[inline]
-        fn http(&self) -> &Http { self.http }
-
-        #[inline]
-        fn interaction(&self) -> &I { self.int }
+        fn core(&self) -> ResponderCore<'_, Self::Interaction> { self.0 }
     }
 
     impl<'a, I: Interaction> Responder for super::CreatedResponder<'a, I> {
         type Interaction = I;
 
         #[inline]
-        fn http(&self) -> &Http { self.http }
-
-        #[inline]
-        fn interaction(&self) -> &I { self.int }
+        fn core(&self) -> ResponderCore<'_, Self::Interaction> { self.0 }
     }
 
     impl<'a, I: Interaction> Responder for super::VoidResponder<'a, I> {
         type Interaction = I;
 
         #[inline]
-        fn http(&self) -> &Http { self.http }
-
-        #[inline]
-        fn interaction(&self) -> &I { self.int }
+        fn core(&self) -> ResponderCore<'_, Self::Interaction> { self.0 }
     }
 
     pub trait CreateUpdate: Interaction {}
@@ -366,7 +251,7 @@ mod private {
     impl<'a, I> CreateFollowup for super::VoidResponder<'a, I> {}
 }
 
-use private::Interaction;
+use private::{Interaction, ResponderCore};
 use serenity::{http::Http, model::application::interaction::InteractionResponseType};
 
 use super::{Message, MessageBody, MessageOpts, Modal, ResponseData};
@@ -380,8 +265,8 @@ pub trait ResponderExt: private::Responder {
     #[inline]
     async fn create_followup(&self, msg: Message) -> Result<Followup, serenity::Error>
     where Self: private::CreateFollowup {
-        self.interaction()
-            .create_followup_message(self.http(), |f| msg.build_followup(f))
+        let ResponderCore { http, int } = self.core();
+        int.create_followup_message(http, |f| msg.build_followup(f))
             .await
             .map(Followup)
     }
@@ -389,9 +274,9 @@ pub trait ResponderExt: private::Responder {
     #[inline]
     async fn edit_followup(&self, fup: &mut Followup, msg: Message) -> Result<(), serenity::Error>
     where Self: private::CreateFollowup {
+        let ResponderCore { http, int } = self.core();
         *fup = Followup(
-            self.interaction()
-                .edit_followup_message(self.http(), fup.0.id, |f| msg.build_followup(f))
+            int.edit_followup_message(http, fup.0.id, |f| msg.build_followup(f))
                 .await?,
         );
 
@@ -401,31 +286,25 @@ pub trait ResponderExt: private::Responder {
     #[inline]
     async fn delete_followup(&self, fup: Followup) -> Result<(), serenity::Error>
     where Self: private::CreateFollowup {
-        self.interaction()
-            .delete_followup_message(self.http(), fup.0.id)
-            .await
+        let ResponderCore { http, int } = self.core();
+        int.delete_followup_message(http, fup.0.id).await
     }
 }
 
 impl<R: private::Responder> ResponderExt for R {}
 
 #[derive(Debug)]
-pub struct InitResponder<'a, I> {
-    http: &'a Http,
-    int: &'a I,
-}
+#[repr(transparent)]
+pub struct InitResponder<'a, I>(ResponderCore<'a, I>);
 
 impl<'a, I> InitResponder<'a, I> {
     #[inline]
     #[must_use]
-    pub fn new(http: &'a Http, int: &'a I) -> Self { Self { http, int } }
+    pub fn new(http: &'a Http, int: &'a I) -> Self { Self(ResponderCore { http, int }) }
 
     #[inline]
     #[must_use]
-    pub fn void(self) -> VoidResponder<'a, I> {
-        let Self { http, int } = self;
-        VoidResponder { http, int }
-    }
+    pub fn void(self) -> VoidResponder<'a, I> { VoidResponder(self.0) }
 }
 
 impl<'a, I: private::Interaction> InitResponder<'a, I> {
@@ -434,15 +313,15 @@ impl<'a, I: private::Interaction> InitResponder<'a, I> {
         self,
         ty: InteractionResponseType,
         data: impl ResponseData + Send,
-        next: impl FnOnce(&'a Http, &'a I) -> T,
+        next: impl FnOnce(ResponderCore<'a, I>) -> T,
     ) -> Result<T, serenity::Error> {
-        let Self { http, int } = self;
+        let Self(core @ ResponderCore { http, int }) = self;
         int.create_response(http, |res| {
             res.kind(ty)
                 .interaction_response_data(|d| data.build_response_data(d))
         })
         .await?;
-        Ok(next(http, int))
+        Ok(next(core))
     }
 
     #[inline]
@@ -453,7 +332,7 @@ impl<'a, I: private::Interaction> InitResponder<'a, I> {
         self.create(
             InteractionResponseType::ChannelMessageWithSource,
             msg,
-            CreatedResponder::new,
+            CreatedResponder,
         )
         .await
     }
@@ -466,7 +345,7 @@ impl<'a, I: private::Interaction> InitResponder<'a, I> {
         self.create(
             InteractionResponseType::DeferredChannelMessageWithSource,
             opts,
-            CreatedResponder::new,
+            CreatedResponder,
         )
         .await
     }
@@ -481,7 +360,7 @@ impl<'a, I: private::CreateUpdate> InitResponder<'a, I> {
         self.create(
             InteractionResponseType::UpdateMessage,
             msg,
-            CreatedResponder::new,
+            CreatedResponder,
         )
         .await
     }
@@ -494,7 +373,7 @@ impl<'a, I: private::CreateUpdate> InitResponder<'a, I> {
         self.create(
             InteractionResponseType::DeferredUpdateMessage,
             opts,
-            CreatedResponder::new,
+            CreatedResponder,
         )
         .await
     }
@@ -503,56 +382,40 @@ impl<'a, I: private::CreateUpdate> InitResponder<'a, I> {
 impl<'a, I: private::CreateModal> InitResponder<'a, I> {
     #[inline]
     pub async fn modal(self, modal: Modal) -> Result<VoidResponder<'a, I>, serenity::Error> {
-        self.create(InteractionResponseType::Modal, modal, VoidResponder::new)
+        self.create(InteractionResponseType::Modal, modal, VoidResponder)
             .await
     }
 }
 
 #[derive(Debug)]
-pub struct CreatedResponder<'a, I> {
-    http: &'a Http,
-    int: &'a I,
-}
+#[repr(transparent)]
+pub struct CreatedResponder<'a, I>(ResponderCore<'a, I>);
 
 impl<'a, I: private::Interaction> CreatedResponder<'a, I> {
     #[inline]
     #[must_use]
-    fn new(http: &'a Http, int: &'a I) -> Self { Self { http, int } }
-
-    #[inline]
-    #[must_use]
-    pub fn void(self) -> VoidResponder<'a, I> {
-        let Self { http, int } = self;
-        VoidResponder { http, int }
-    }
+    pub fn void(self) -> VoidResponder<'a, I> { VoidResponder(self.0) }
 
     #[inline]
     pub async fn edit(
         &self,
         res: MessageBody,
     ) -> Result<serenity::model::channel::Message, serenity::Error> {
-        self.int
-            .edit_response(self.http, |e| res.build_edit_response(e))
+        self.0
+            .int
+            .edit_response(self.0.http, |e| res.build_edit_response(e))
             .await
     }
 
     #[inline]
     pub async fn delete(self) -> Result<(), serenity::Error> {
-        self.int.delete_response(self.http).await
+        self.0.int.delete_response(self.0.http).await
     }
 }
 
 #[derive(Debug)]
-pub struct VoidResponder<'a, I> {
-    http: &'a Http,
-    int: &'a I,
-}
-
-impl<'a, I> VoidResponder<'a, I> {
-    #[inline]
-    #[must_use]
-    fn new(http: &'a Http, int: &'a I) -> Self { Self { http, int } }
-}
+#[repr(transparent)]
+pub struct VoidResponder<'a, I>(ResponderCore<'a, I>);
 
 #[derive(Debug)]
 pub enum AckedResponder<'a, I> {
@@ -579,7 +442,9 @@ pub enum BorrowedResponder<'a, I> {
 impl<'a, I> BorrowedResponder<'a, I> {
     #[inline]
     #[must_use]
-    pub fn new(http: &'a Http, int: &'a I) -> Self { Self::Init(InitResponder { http, int }) }
+    pub fn new(http: &'a Http, int: &'a I) -> Self {
+        Self::Init(InitResponder(ResponderCore { http, int }))
+    }
 }
 
 impl<'a, I: private::Interaction> BorrowedResponder<'a, I> {
@@ -599,7 +464,7 @@ impl<'a, I: private::Interaction> BorrowedResponder<'a, I> {
                 Ok(None)
             },
             Self::Void(v) => v.create_followup(msg).await.map(Some),
-            Self::Poison => unreachable!(),
+            Self::Poison => panic!("Attempt to use poisoned responder"),
         }
     }
 }
@@ -620,11 +485,11 @@ impl<'a, 'b, I> BorrowingResponder<'a, 'b, I> {
 
     fn take(self) -> InitResponder<'b, I> {
         // TODO: consider poisoning self.0 for the duration of the response operation
-        let BorrowedResponder::Init(InitResponder { http, int }) = *self.0 else {
+        let BorrowedResponder::Init(InitResponder(core)) = *self.0 else {
             unreachable!();
         };
 
-        match mem::replace(self.0, BorrowedResponder::Void(VoidResponder { http, int })) {
+        match mem::replace(self.0, BorrowedResponder::Void(VoidResponder(core))) {
             BorrowedResponder::Init(i) => i,
             _ => unreachable!(),
         }
