@@ -16,48 +16,60 @@ impl Handler for VcCommand {
         None
     }
 
-    async fn respond(&self, ctx: &Context, visitor: &mut Visitor) -> CommandResult {
+    async fn respond<'a>(
+        &self,
+        ctx: &Context,
+        visitor: &mut Visitor<'_>,
+        responder: CommandResponder<'_, 'a>,
+    ) -> CommandResult<'a> {
         let gid = visitor.guild().required()?;
         let user = visitor.user();
 
         let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;
 
-        let voice_chan = guild
-            .voice_states
-            .get(&user.id)
-            .and_then(|s| s.channel_id)
-            .ok_or_else(|| {
-                Message::plain("Please connect to a voice channel first.")
-                    .ephemeral(true)
-                    .into_err("Error getting user voice state")
-            })?;
-
-        let ctx = ctx.clone();
-        let task = tokio::task::spawn(async move {
-            let sb = songbird::get(&ctx)
+        let Some(voice_chan) = guild.voice_states.get(&user.id).and_then(|s| s.channel_id)
+        else {
+            return Err(responder
+                .create_message(
+                    Message::plain("Please connect to a voice channel first.").ephemeral(true),
+                )
                 .await
-                .context("Missing songbird context")?;
+                .context("Error sending voice channel error")?
+                .into_err("Error getting user voice state"));
+        };
 
-            let (call, res) = sb.join(gid, voice_chan).await;
+        let responder = responder
+            .defer_message(MessageOpts::default().ephemeral(true))
+            .await
+            .context("Error sending deferred message")?;
 
-            res.context("Failed to join call").map_err(|e| {
-                warn!(?e, "Unable to join voice channel");
-                MessageBody::plain("Couldn't join that channel, sorry.")
-                    .into_err("Failed to join call (missing permissions?)")
-            })?;
+        let sb = songbird::get(ctx)
+            .await
+            .context("Missing songbird context")?;
 
-            call.lock()
+        let (call, res) = sb.join(gid, voice_chan).await;
+
+        if let Err(err) = res {
+            warn!(?err, "Unable to join voice channel");
+            responder
+                .edit(MessageBody::plain("Couldn't join that channel, sorry."))
                 .await
-                .leave()
-                .await
-                .context("Failed to leave call")?;
+                .context("Error sending channel join error")?;
 
-            Ok(MessageBody::plain(";)"))
-        });
+            return Err(responder.into_err("Couldn't join call (missing permissions?)"));
+        }
 
-        Ok(Response::DeferMessage(
-            MessageOpts::default().ephemeral(true),
-            task,
-        ))
+        call.lock()
+            .await
+            .leave()
+            .await
+            .context("Failed to leave call")?;
+
+        responder
+            .edit(MessageBody::plain(";)"))
+            .await
+            .context("Error updating deferred response")?;
+
+        Ok(responder.into())
     }
 }

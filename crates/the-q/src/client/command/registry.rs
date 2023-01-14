@@ -3,16 +3,19 @@ use serenity::{
     model::{
         application::{
             command::{Command, CommandOptionType, CommandType},
-            interaction::{
-                application_command::{ApplicationCommandInteraction, CommandDataOptionValue},
-                InteractionResponseType,
+            interaction::application_command::{
+                ApplicationCommandInteraction, CommandDataOptionValue,
             },
         },
         id::CommandId,
     },
 };
 
-use super::{handler, response, visitor};
+use super::{
+    handler,
+    response::{self, Message},
+    visitor,
+};
 use crate::prelude::*;
 
 #[inline]
@@ -85,7 +88,7 @@ fn aci_issuer(aci: &ApplicationCommandInteraction) -> String {
     format!("@{}#{:04} in {src}", aci.user.name, aci.user.discriminator)
 }
 
-type Handler = Arc<dyn handler::Handler>;
+type Handler = Arc<dyn handler::CommandHandler>;
 type HandlerMap = HashMap<CommandId, Handler>;
 
 #[derive(Debug)]
@@ -194,39 +197,6 @@ impl Registry {
         Ok(handlers)
     }
 
-    #[inline]
-    fn handle_defer(kind: &'static str, f: impl Future<Output = Result> + Send + 'static) {
-        let span = error_span!("handle_defer", kind);
-        tokio::task::spawn(
-            async move {
-                match f.await {
-                    Ok(()) => (),
-                    Err(err) => error!(?err),
-                }
-            }
-            .instrument(span),
-        );
-    }
-
-    async fn upsert_response(
-        ctx: &Context,
-        aci: &ApplicationCommandInteraction,
-        create_opts: Option<response::MessageOpts>,
-        body: response::MessageBody,
-    ) -> Result {
-        if let Some(opts) = create_opts {
-            let msg = response::Message::from_parts(body, opts);
-            aci.create_interaction_response(&ctx.http, |res| msg.build_response(res))
-                .await
-                .context("Failed to create deferred response message")
-        } else {
-            aci.edit_original_interaction_response(&ctx.http, |res| body.build_edit_response(res))
-                .await
-                .context("Failed to edit in deferred response message")
-                .map(|_| ())
-        }
-    }
-
     pub fn new(opts: handler::Opts, list: Vec<Handler>) -> Self {
         Self {
             init: RegistryInit { opts, list },
@@ -254,172 +224,103 @@ impl Registry {
             issuer = aci_issuer(&aci),
         ),
     )]
-    async fn try_handle(
+    async fn try_handle_aci(
         &self,
         ctx: &Context,
         aci: ApplicationCommandInteraction,
     ) -> Result<(), serenity::Error> {
         let map = self.map.read().await;
+        let responder = response::InitResponder::new(&ctx.http, &aci);
+
         let Some(ref map) = *map else {
             warn!("Rejecting command due to uninitialized registry");
 
-            return aci
-                .create_interaction_response(&ctx.http, |res| {
-                    response::Message::plain("Still starting!  Please try again later.")
-                        .ephemeral(true)
-                        .build_response(res)
-                })
-                .await;
+            return responder
+                .create_message(
+                    Message::plain("Still starting!  Please try again later.")
+                        .ephemeral(true),
+                )
+                .await
+                .map(|_| ());
         };
 
         let Some(handler) = map.get(&aci.data.id) else {
             warn!("Rejecting unknown command");
 
-            return aci
-                .create_interaction_response(&ctx.http, |res| {
-                    response::Message::plain("Unknown command - this may be a bug.")
-                        .ephemeral(true)
-                        .build_response(res)
-                })
-                .await;
+            return responder
+                .create_message(
+                    Message::plain("Unknown command - this may be a bug.")
+                        .ephemeral(true),
+                )
+                .await
+                .map(|_| ());
         };
 
         debug!(?handler, "Handling command");
 
         let mut vis = visitor::Visitor::new(&aci);
-        let res = handler.respond(ctx, &mut vis).await;
+        let mut responder = response::BorrowedResponder::Init(responder);
+        let res = handler
+            .respond(
+                ctx,
+                &mut vis,
+                response::BorrowingResponder::new(&mut responder),
+            )
+            .await;
         let res = vis.finish().map_err(Into::into).and(res);
 
-        match res {
-            Ok(handler::Response::Message(msg)) => {
-                aci.create_interaction_response(&ctx.http, |res| msg.build_response(res))
-                    .await
-            },
-            Ok(handler::Response::DeferMessage(opts, task)) => {
-                let create_opts = if task.is_finished() {
-                    Some(opts)
-                } else {
-                    aci.create_interaction_response(&ctx.http, |res| {
-                        res.kind(InteractionResponseType::DeferredChannelMessageWithSource)
-                            .interaction_response_data(|data| opts.build_response_data(data))
-                    })
-                    .await?;
-                    None
-                };
-
-                let ctx = ctx.clone();
-                Self::handle_defer("Response::DeferMessage", async move {
-                    let res = task.await.context("Failed to join deferred task")?;
-
-                    match res {
-                        Ok(body) => Self::upsert_response(&ctx, &aci, create_opts, body).await,
-                        Err(handler::DeferError::Response(err, body)) => {
-                            debug!(err, "Command responded to user with error");
-                            Self::upsert_response(&ctx, &aci, create_opts, body).await
-                        },
-                        Err(handler::DeferError::Other(err)) => {
-                            error!(?err, "Unexpected error handling command");
-                            Self::upsert_response(
-                                &ctx,
-                                &aci,
-                                create_opts,
-                                response::MessageBody::rich(|b| {
-                                    b.push("Unexpected error: ").push_mono_safe(err)
-                                }),
-                            )
-                            .await
-                        },
-                    }
-                });
-                Ok(())
-            },
-            Ok(handler::Response::DeferUpdateMessage(task)) => {
-                if !task.is_finished() {
-                    aci.create_interaction_response(&ctx.http, |res| {
-                        res.kind(InteractionResponseType::DeferredUpdateMessage)
-                    })
-                    .await?;
-                }
-
-                Self::handle_defer("Response::DeferUpdateMessage", async move {
-                    let res = task.await.context("Failed to join deferred task")?;
-
-                    match res {
-                        Ok(()) => todo!(),
-                        Err(handler::DeferError::Response(err, ())) => {
-                            debug!(err, "Command responded to user with error");
-                            todo!()
-                        },
-                        Err(handler::DeferError::Other(err)) => {
-                            error!(?err, "Unexpected error handling command");
-                            todo!()
-                        },
-                    }
-                });
-                Ok(())
-            },
-            Ok(
-                handler::Response::UpdateMessage
-                | handler::Response::Modal
-                | handler::Response::Autocomplete,
-            ) => todo!(),
-            Err(handler::Error::Parse(err)) => match err {
+        let msg = match res {
+            Ok(_res) => None,
+            Err(handler::CommandError::Parse(err)) => match err {
                 visitor::Error::GuildRequired => {
                     debug!(%err, "Responding with guild error");
-                    aci.create_interaction_response(&ctx.http, |res| {
-                        response::Message::rich(|b| {
-                            b.push_bold("ERROR:")
-                                .push(" This command must be run inside a server.")
-                        })
-                        .ephemeral(true)
-                        .build_response(res)
+                    Message::rich(|b| {
+                        b.push_bold("ERROR:")
+                            .push(" This command must be run inside a server.")
                     })
-                    .await
+                    .ephemeral(true)
+                    .into()
                 },
                 visitor::Error::DmRequired => {
-                    debug!(%err, "Responding with guild error");
-                    aci.create_interaction_response(&ctx.http, |res| {
-                        response::Message::rich(|b| {
-                            b.push_bold("ERROR:")
-                                .push(" This command cannot be run inside a server.")
-                        })
-                        .ephemeral(true)
-                        .build_response(res)
+                    debug!(%err, "Responding with non-guild error");
+                    Message::rich(|b| {
+                        b.push_bold("ERROR:")
+                            .push(" This command cannot be run inside a server.")
                     })
-                    .await
+                    .ephemeral(true)
+                    .into()
                 },
                 err => {
                     error!(%err, "Unexpected error parsing command");
-                    aci.create_interaction_response(&ctx.http, |res| {
-                        response::Message::rich(|b| {
-                            b.push("Unexpected error parsing command: ")
-                                .push_mono_safe(err)
-                        })
-                        .ephemeral(true)
-                        .build_response(res)
+                    Message::rich(|b| {
+                        b.push("Unexpected error parsing command: ")
+                            .push_mono_safe(err)
                     })
-                    .await
+                    .ephemeral(true)
+                    .into()
                 },
             },
-            Err(handler::Error::Response(err, msg)) => {
+            Err(handler::CommandError::User(err, _res)) => {
                 debug!(err, "Command responded to user with error");
-                aci.create_interaction_response(&ctx.http, |res| msg.build_response(res))
-                    .await
+                None
             },
-            Err(handler::Error::Other(err)) => {
+            Err(handler::CommandError::Other(err)) => {
                 error!(?err, "Unexpected error handling command");
-                aci.create_interaction_response(&ctx.http, |res| {
-                    response::Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
-                        .ephemeral(true)
-                        .build_response(res)
-                })
-                .await
+                Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
+                    .ephemeral(true)
+                    .into()
             },
+        };
+
+        if let Some(msg) = msg {
+            responder.upsert_message(msg).await?;
         }
+
+        Ok(())
     }
 
     #[inline]
-    pub async fn handle(&self, ctx: &Context, aci: ApplicationCommandInteraction) {
-        self.try_handle(ctx, aci).await.ok();
+    pub async fn handle_aci(&self, ctx: &Context, aci: ApplicationCommandInteraction) {
+        self.try_handle_aci(ctx, aci).await.ok();
     }
 }

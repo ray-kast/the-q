@@ -18,9 +18,18 @@ impl Handler for SayCommand {
         None
     }
 
-    async fn respond(&self, _: &Context, visitor: &mut Visitor) -> CommandResult {
+    async fn respond<'a>(
+        &self,
+        _: &Context,
+        visitor: &mut Visitor<'_>,
+        responder: CommandResponder<'_, 'a>,
+    ) -> CommandResult<'a> {
         let msg = visitor.visit_string("message")?.required()?;
 
-        Ok(Response::Message(Message::plain(msg)))
+        Ok(responder
+            .create_message(Message::plain(msg))
+            .await
+            .context("Error speaking message")?
+            .into())
     }
 }

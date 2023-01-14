@@ -1,4 +1,4 @@
-#![allow(clippy::all)]
+#![allow(clippy::all, dead_code)]
 
 use std::{
     collections::{BTreeMap, BTreeSet},

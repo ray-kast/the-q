@@ -1,13 +1,12 @@
 use serenity::{
-    builder::{CreateInteractionResponse, CreateInteractionResponseData, EditInteractionResponse},
-    model::{
-        application::interaction::InteractionResponseType,
-        id::{RoleId, UserId},
+    builder::{
+        CreateInteractionResponseData, CreateInteractionResponseFollowup, EditInteractionResponse,
     },
+    model::id::{RoleId, UserId},
     utils::MessageBuilder,
 };
 
-use super::super::handler;
+use super::ResponseData;
 
 #[derive(Debug)]
 pub struct MessageBody {
@@ -15,6 +14,22 @@ pub struct MessageBody {
     ping_replied: bool,
     ping_users: Vec<UserId>,
     ping_roles: Vec<RoleId>,
+}
+
+macro_rules! build_body {
+    ($self:expr, $builder:expr) => {{
+        let Self {
+            content,
+            ping_replied,
+            ping_users,
+            ping_roles,
+        } = $self;
+        $builder.content(content).allowed_mentions(|m| {
+            m.replied_user(ping_replied)
+                .users(ping_users)
+                .roles(ping_roles)
+        })
+    }};
 }
 
 impl MessageBody {
@@ -46,25 +61,30 @@ impl MessageBody {
 
     pub fn ping_roles(self, ping_roles: Vec<RoleId>) -> Self { Self { ping_roles, ..self } }
 
-    pub fn into_err(self, msg: &'static str) -> handler::DeferError<MessageBody> {
-        handler::DeferError::Response(msg, self)
-    }
-
+    #[inline]
     pub fn build_edit_response(
         self,
         res: &mut EditInteractionResponse,
     ) -> &mut EditInteractionResponse {
-        let Self {
-            content,
-            ping_replied,
-            ping_users,
-            ping_roles,
-        } = self;
-        res.content(content).allowed_mentions(|m| {
-            m.replied_user(ping_replied)
-                .users(ping_users)
-                .roles(ping_roles)
-        })
+        build_body!(self, res)
+    }
+
+    #[inline]
+    pub fn build_followup<'a, 'b>(
+        self,
+        fup: &'a mut CreateInteractionResponseFollowup<'b>,
+    ) -> &'a mut CreateInteractionResponseFollowup<'b> {
+        build_body!(self, fup)
+    }
+}
+
+impl ResponseData for MessageBody {
+    #[inline]
+    fn build_response_data<'a, 'b>(
+        self,
+        data: &'a mut CreateInteractionResponseData<'b>,
+    ) -> &'a mut CreateInteractionResponseData<'b> {
+        build_body!(self, data)
     }
 }
 
@@ -72,6 +92,13 @@ impl MessageBody {
 pub struct MessageOpts {
     tts: bool,
     ephemeral: bool,
+}
+
+macro_rules! build_opts {
+    ($self:expr, $builder:expr) => {{
+        let Self { tts, ephemeral } = $self;
+        $builder.tts(tts).ephemeral(ephemeral)
+    }};
 }
 
 impl MessageOpts {
@@ -82,12 +109,22 @@ impl MessageOpts {
 
     pub fn ephemeral(self, ephemeral: bool) -> Self { Self { ephemeral, ..self } }
 
-    pub fn build_response_data<'a, 'b>(
+    #[inline]
+    fn build_followup<'a, 'b>(
+        self,
+        fup: &'a mut CreateInteractionResponseFollowup<'b>,
+    ) -> &'a mut CreateInteractionResponseFollowup<'b> {
+        build_opts!(self, fup)
+    }
+}
+
+impl ResponseData for MessageOpts {
+    #[inline]
+    fn build_response_data<'a, 'b>(
         self,
         data: &'a mut CreateInteractionResponseData<'b>,
     ) -> &'a mut CreateInteractionResponseData<'b> {
-        let Self { tts, ephemeral } = self;
-        data.tts(tts).ephemeral(ephemeral)
+        build_opts!(self, data)
     }
 }
 
@@ -95,6 +132,13 @@ impl MessageOpts {
 pub struct Message {
     body: MessageBody,
     opts: MessageOpts,
+}
+
+macro_rules! build_msg {
+    ($self:expr, $builder:expr, $fn:ident) => {{
+        let Self { body, opts } = $self;
+        opts.$fn(body.$fn($builder))
+    }};
 }
 
 impl From<MessageBody> for Message {
@@ -155,32 +199,20 @@ impl Message {
     #[inline]
     pub fn ephemeral(self, ephemeral: bool) -> Self { self.opt(|o| o.ephemeral(ephemeral)) }
 
-    pub fn into_err(self, msg: &'static str) -> handler::Error {
-        handler::Error::Response(msg, self)
-    }
-
-    pub fn build_response<'a, 'b>(
+    pub fn build_followup<'a, 'b>(
         self,
-        res: &'a mut CreateInteractionResponse<'b>,
-    ) -> &'a mut CreateInteractionResponse<'b> {
-        let Self {
-            body:
-                MessageBody {
-                    content,
-                    ping_replied,
-                    ping_users,
-                    ping_roles,
-                },
-            opts,
-        } = self;
+        fup: &'a mut CreateInteractionResponseFollowup<'b>,
+    ) -> &'a mut CreateInteractionResponseFollowup<'b> {
+        build_msg!(self, fup, build_followup)
+    }
+}
 
-        res.kind(InteractionResponseType::ChannelMessageWithSource)
-            .interaction_response_data(|d| {
-                opts.build_response_data(d.content(content).allowed_mentions(|m| {
-                    m.replied_user(ping_replied)
-                        .users(ping_users)
-                        .roles(ping_roles)
-                }))
-            })
+impl ResponseData for Message {
+    #[inline]
+    fn build_response_data<'a, 'b>(
+        self,
+        data: &'a mut CreateInteractionResponseData<'b>,
+    ) -> &'a mut CreateInteractionResponseData<'b> {
+        build_msg!(self, data, build_response_data)
     }
 }

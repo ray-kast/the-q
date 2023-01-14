@@ -17,8 +17,10 @@ pub(self) mod prelude {
 
     pub use super::super::command::{
         handler,
-        handler::{CommandResult, Error, Handler, Response},
-        response::{Message, MessageBody, MessageOpts},
+        handler::{
+            CommandError, CommandHandler as Handler, CommandResponder, CommandResult, IntoErr,
+        },
+        response::{Message, MessageBody, MessageOpts, Modal, ResponseData},
         visitor,
         visitor::Visitor,
     };

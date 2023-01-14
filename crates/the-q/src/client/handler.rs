@@ -32,14 +32,11 @@ async fn handler(method: &'static str, f: impl Future<Output = Result>) {
 #[async_trait]
 impl serenity::client::EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, int: Interaction) {
-        // TODO: what's the minimum required response for each interaction type?
-        // TODO: handle multiple responses (create . edit*)
-        // TODO: handle followup messages
         // TODO: handle response embeds and attachments
         match int {
             Interaction::Ping(_) => (),
 
-            Interaction::ApplicationCommand(aci) => self.registry.handle(&ctx, aci).await,
+            Interaction::ApplicationCommand(aci) => self.registry.handle_aci(&ctx, aci).await,
 
             Interaction::MessageComponent(m) => {
                 handler(
@@ -66,12 +63,12 @@ impl serenity::client::EventHandler for Handler {
             Interaction::ModalSubmit(m) => {
                 handler(
                     "Interaction::ModalSubmit",
-                    m.create_interaction_response(&ctx.http, |res| {
-                        command::response::Message::plain("Success (probably)!")
-                            .ephemeral(true)
-                            .build_response(res)
-                    })
-                    .map(|r| r.context("Failed to respond to modal")),
+                    command::response::InitResponder::new(&ctx.http, &m)
+                        .create_message(
+                            command::response::Message::plain("Success (probably)!")
+                                .ephemeral(true),
+                        )
+                        .map(|r| r.map(|_| ()).context("Failed to respond to modal")),
                 )
                 .await;
             },

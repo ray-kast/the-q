@@ -10,12 +10,21 @@ impl Handler for ExplodeCommand {
         None
     }
 
-    async fn respond(&self, _: &Context, visitor: &mut Visitor) -> CommandResult {
+    async fn respond<'a>(
+        &self,
+        _: &Context,
+        visitor: &mut Visitor<'_>,
+        responder: CommandResponder<'_, 'a>,
+    ) -> CommandResult<'a> {
         let target = visitor.target().user()?;
 
-        Ok(Response::Message(
-            Message::rich(|b| b.mention(target).push(" ").push_bold("explode"))
-                .ping_users(vec![target.id]),
-        ))
+        Ok(responder
+            .create_message(
+                Message::rich(|b| b.mention(target).push(" ").push_bold("explode"))
+                    .ping_users(vec![target.id]),
+            )
+            .await
+            .context("Error casting blender explode")?
+            .into())
     }
 }

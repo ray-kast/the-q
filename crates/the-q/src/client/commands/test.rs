@@ -10,7 +10,12 @@ impl Handler for TestCommand {
         None
     }
 
-    async fn respond(&self, _: &Context, _: &mut Visitor) -> CommandResult {
+    async fn respond<'a>(
+        &self,
+        _: &Context,
+        _: &mut Visitor<'_>,
+        responder: CommandResponder<'_, 'a>,
+    ) -> CommandResult<'a> {
         // TODO: modals
         // cmd.create_interaction_response(&ctx.http, |res| {
         //     res.kind(InteractionResponseType::Modal)
@@ -29,6 +34,10 @@ impl Handler for TestCommand {
         // .await
         // .context("Failed to respond to interaction")?;
 
-        Ok(Response::Modal)
+        Ok(responder
+            .modal(Modal)
+            .await
+            .context("Error creating modal")?
+            .into())
     }
 }

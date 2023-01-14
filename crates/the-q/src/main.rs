@@ -25,6 +25,7 @@ pub(crate) mod prelude {
         fmt,
         future::Future,
         hash::Hash,
+        marker::PhantomData,
         mem,
         str::FromStr,
         sync::Arc,
