@@ -1,4 +1,5 @@
 // TODO: coverage tests
+// TODO: remove random-state data structures
 #![deny(
     clippy::disallowed_methods,
     clippy::suspicious,
@@ -400,6 +401,14 @@ impl CompatError {
             reader_cx: None,
             writer_cx: Some(Box::new(cx)),
             message: message.to_string(),
+        }
+    }
+
+    #[inline]
+    fn sided(side: Sided<()>, cx: impl fmt::Debug + 'static, message: impl fmt::Display) -> Self {
+        match side {
+            Sided::Read(_) => Self::reader(cx, message),
+            Sided::Write(_) => Self::writer(cx, message),
         }
     }
 
@@ -1013,6 +1022,18 @@ impl<'a> RecordValue<'a> for Field {
             group: Group,
         }
 
+        if matches!(cx.reader.kind, TypeCheckKind::ByName { .. }) {
+            for (_, val) in ck.reader.clone() {
+                val.warn_non_zigzag(&cx.reader, Sided::Read(()));
+            }
+        }
+
+        if matches!(cx.writer.kind, TypeCheckKind::ByName { .. }) {
+            for (_, val) in ck.writer.clone() {
+                val.warn_non_zigzag(&cx.writer, Sided::Write(()));
+            }
+        }
+
         let mut uf_ids: HashMap<i32, usize> = HashMap::new();
         let mut fields: HashMap<usize, HashSet<Sided<FieldInfo>>> = HashMap::new();
         let mut group_reps: HashMap<Sided<Group>, usize> = HashMap::new();
@@ -1417,6 +1438,23 @@ impl CheckCompat for Field {
     }
 }
 
+impl Field {
+    fn warn_non_zigzag(&self, ctx: &TypeContext<'_>, side: Sided<()>) {
+        let wire = self
+            .ty
+            .wire_format(self.kind, |n| ctx.types.get(n).unwrap());
+
+        if wire == WireType::VarInt(VarIntMode::Signed) {
+            CompatError::sided(
+                side,
+                ctx.kind.ty().member(&self.name).to_owned(),
+                "Non-zigzag signed field",
+            )
+            .warn();
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum VarIntMode {
     Signed,
@@ -1572,7 +1610,6 @@ impl WireType {
     }
 }
 
-// TODO: warn on non-zigzag types and negative enums?
 #[derive(Debug, Clone, Copy)]
 enum PrimitiveType {
     F64,    // Double
