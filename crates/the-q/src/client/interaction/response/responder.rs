@@ -204,10 +204,7 @@ mod private {
     }
 
     impl<'a, I> Clone for ResponderCore<'a, I> {
-        fn clone(&self) -> Self {
-            let Self { http, int } = *self;
-            Self { http, int }
-        }
+        fn clone(&self) -> Self { *self }
     }
     impl<'a, I> Copy for ResponderCore<'a, I> {}
 

@@ -203,11 +203,15 @@ fn check_protos(
             writer: &old_schema,
         };
         let cx = CompatPair {
-            reader: new_name,
-            writer: old_name,
+            reader: SchemaContext { name: new_name },
+            writer: SchemaContext { name: old_name },
         };
-        let _s = tracing::error_span!("check_backward", reader = cx.reader, writer = cx.writer)
-            .entered();
+        let _s = tracing::error_span!(
+            "check_backward",
+            reader = cx.reader.name,
+            writer = cx.writer.name
+        )
+        .entered();
         ck.check(cx).map_err(|err| {
             tracing::error!("{err}");
             anyhow::anyhow!("Backward-compatibility check of {new_name} against {old_name} failed")
@@ -220,11 +224,15 @@ fn check_protos(
             writer: new_schema,
         };
         let cx = CompatPair {
-            reader: old_name,
-            writer: new_name,
+            reader: SchemaContext { name: old_name },
+            writer: SchemaContext { name: new_name },
         };
-        let _s =
-            tracing::error_span!("check_forward", reader = cx.reader, writer = cx.writer).entered();
+        let _s = tracing::error_span!(
+            "check_forward",
+            reader = cx.reader.name,
+            writer = cx.writer.name
+        )
+        .entered();
         ck.check(cx).map_err(|err| {
             tracing::error!("{err}");
             anyhow::anyhow!("Forward-compatibility check of {new_name} against {old_name} failed")
@@ -351,15 +359,6 @@ impl<'a> MemberQualName<'a> {
             memb: memb.as_ref().to_owned().into(),
         }
     }
-
-    fn into_owned(self) -> MemberQualName<'static> {
-        let Self { ty, memb } = self;
-
-        MemberQualName {
-            ty: ty.into_owned(),
-            memb: memb.into_owned().into(),
-        }
-    }
 }
 
 trait CheckCompat {
@@ -446,6 +445,27 @@ impl<'a, T: CheckCompat> CompatPair<&'a T> {
     }
 }
 
+impl<'a, K: Eq + Hash, V> CompatPair<&'a HashMap<K, V>> {
+    fn iter(self) -> impl Iterator<Item = (&'a K, CompatPair<Option<&'a V>>)> {
+        let Self { reader, writer } = self;
+
+        reader
+            .iter()
+            .map(|(key, reader)| {
+                (key, CompatPair {
+                    reader: Some(reader),
+                    writer: writer.get(key),
+                })
+            })
+            .chain(writer.iter().filter_map(|(key, writer)| {
+                (!reader.contains_key(key)).then_some((key, CompatPair {
+                    reader: None,
+                    writer: Some(writer),
+                }))
+            }))
+    }
+}
+
 impl<'a, K: Eq + Hash, V: CheckCompat> CompatPair<&'a HashMap<K, V>> {
     fn check_symmetric<'b, E>(
         self,
@@ -457,25 +477,18 @@ impl<'a, K: Eq + Hash, V: CheckCompat> CompatPair<&'a HashMap<K, V>> {
     where
         'a: 'b,
     {
-        let Self { reader, writer } = self;
-
-        for (key, rd_val) in reader {
-            if let Some(wr_val) = writer.get(key) {
-                CompatPair {
-                    reader: rd_val,
-                    writer: wr_val,
-                }
-                .check(CompatPair {
-                    reader: cx(&extra.reader, key),
-                    writer: cx(&extra.writer, key),
-                })?;
-            } else {
-                missing_write(key, rd_val)?;
+        for (key, pair) in self.iter() {
+            match (pair.reader, pair.writer) {
+                (Some(reader), Some(writer)) => {
+                    CompatPair { reader, writer }.check(CompatPair {
+                        reader: cx(&extra.reader, key),
+                        writer: cx(&extra.writer, key),
+                    })?;
+                },
+                (Some(reader), None) => missing_write(key, reader)?,
+                (None, Some(writer)) => missing_read(key, writer)?,
+                (None, None) => unreachable!(),
             }
-        }
-
-        for (key, wr_val) in writer.iter().filter(|(k, _)| !reader.contains_key(k)) {
-            missing_read(key, wr_val)?;
         }
 
         Ok(())
@@ -503,10 +516,12 @@ impl Schema {
     }
 }
 
-impl CheckCompat for Schema {
-    type Context<'a> = &'a str;
+struct SchemaContext<'a> {
+    name: &'a str,
+}
 
-    // schema name
+impl CheckCompat for Schema {
+    type Context<'a> = SchemaContext<'a>;
 
     fn check_compat(ck: CompatPair<&'_ Schema>, cx: CompatPair<Self::Context<'_>>) -> CompatResult {
         let CompatPair { reader, writer } = ck;
@@ -536,8 +551,8 @@ impl CheckCompat for Schema {
                     Ok(())
                 } else {
                     Err(CompatError::both(
-                        rd_name.to_owned(),
-                        wr_name.to_owned(),
+                        rd_name.name.to_owned(),
+                        wr_name.name.to_owned(),
                         format!("Missing {} type {wk:?} present in writer", wv.var()),
                     ))
                 }
@@ -647,6 +662,80 @@ impl ReservedMap {
 }
 
 #[derive(Debug)]
+struct UnionFindNode {
+    parent: usize,
+    rank: usize,
+}
+
+#[derive(Debug, Default)]
+struct UnionFind(Vec<UnionFindNode>);
+
+impl UnionFind {
+    fn put(&mut self) -> usize {
+        let key = self.0.len();
+        self.0.push(UnionFindNode {
+            parent: key,
+            rank: 1,
+        });
+        key
+    }
+
+    fn find(&mut self, key: usize) -> Option<usize> {
+        let entry = self.0.get(key)?;
+
+        if entry.parent == key {
+            Some(entry.parent)
+        } else {
+            let root = self.find(entry.parent).unwrap();
+
+            debug_assert!(self.0.len() > key);
+            // Safety: find does not change the element count
+            unsafe { self.0.get_unchecked_mut(key).parent = root };
+
+            Some(root)
+        }
+    }
+
+    fn union(&mut self, a: usize, b: usize) -> Result<Option<usize>, ()> {
+        use std::cmp::Ordering;
+
+        let mut a = self.find(a).ok_or(())?;
+        let mut b = self.find(b).ok_or(())?;
+
+        let mut a_rank;
+        let mut b_rank;
+        debug_assert!(self.0.len() > a);
+        debug_assert!(self.0.len() > b);
+        // Safety: find does not change the element count
+        unsafe {
+            a_rank = self.0.get_unchecked(a).rank;
+            b_rank = self.0.get_unchecked(b).rank;
+        }
+
+        match a.cmp(&b) {
+            Ordering::Equal => return Ok(None),
+            Ordering::Greater if a_rank <= b_rank => {
+                std::mem::swap(&mut a, &mut b);
+                std::mem::swap(&mut a_rank, &mut b_rank);
+            },
+            Ordering::Less | Ordering::Greater => (),
+        }
+
+        debug_assert!((a_rank, b) > (b_rank, a));
+
+        // Safety: find nor any operations since the last unsafe block do not
+        //         change the element count or key values
+        unsafe {
+            self.0.get_unchecked_mut(a).rank += b_rank;
+            debug_assert!(self.0[a].rank == a_rank + b_rank);
+            self.0.get_unchecked_mut(b).parent = a;
+        }
+
+        Ok(Some(a))
+    }
+}
+
+#[derive(Debug)]
 enum Type {
     Message(Record<Field>),
     Enum(Record<Variant>),
@@ -686,16 +775,6 @@ impl<'a> fmt::Debug for TypeCheckKind<'a> {
 }
 
 impl<'a> TypeCheckKind<'a> {
-    fn into_owned(self) -> TypeCheckKind<'static> {
-        match self {
-            Self::ByName(q) => TypeCheckKind::ByName(q.into_owned()),
-            Self::ForField { name, ty } => TypeCheckKind::ForField {
-                name: name.into_owned(),
-                ty: ty.into_owned(),
-            },
-        }
-    }
-
     fn to_owned(&self) -> TypeCheckKind<'static> {
         match self {
             Self::ByName(q) => TypeCheckKind::ByName(q.to_owned()),
@@ -744,22 +823,6 @@ impl CheckCompat for Type {
     }
 }
 
-enum FieldQuery<T> {
-    Missing,
-    Reserved,
-    Present(T),
-}
-
-impl<T> FieldQuery<T> {
-    fn map<U>(self, f: impl FnOnce(T) -> U) -> FieldQuery<U> {
-        match self {
-            Self::Missing => FieldQuery::Missing,
-            Self::Reserved => FieldQuery::Reserved,
-            Self::Present(v) => FieldQuery::Present(f(v)),
-        }
-    }
-}
-
 struct RecordContext<'a> {
     ty: &'a TypeContext<'a>,
     id: i32,
@@ -770,19 +833,65 @@ trait RecordValue<'a>: CheckCompat<Context<'a> = RecordContext<'a>> {
 
     fn names(&'a self) -> Self::Names;
 
-    fn missing_reader(
+    fn missing_reader_id(
         &self,
         cx: &CompatPair<TypeContext<'a>>,
         wr_id: i32,
         reserved: impl FnOnce() -> bool,
     ) -> CompatResult;
 
-    fn missing_writer(
+    fn missing_writer_id(
         &self,
         cx: &CompatPair<TypeContext<'a>>,
         rd_id: i32,
         reserved: impl FnOnce() -> bool,
     ) -> CompatResult;
+
+    fn id_conflict(
+        cx: &CompatPair<TypeContext<'a>>,
+        name: &str,
+        ids: CompatPair<i32>,
+    ) -> CompatResult;
+
+    fn missing_reader_name(
+        cx: &CompatPair<TypeContext<'a>>,
+        name: &str,
+        wr_id: Option<i32>,
+    ) -> CompatResult;
+
+    fn missing_writer_name(
+        cx: &CompatPair<TypeContext<'a>>,
+        name: &str,
+        rd_id: Option<i32>,
+    ) -> CompatResult;
+
+    fn check_extra(
+        ck: CompatPair<std::collections::hash_map::Iter<'_, i32, Self>>,
+        cx: &CompatPair<TypeContext<'a>>,
+    ) -> CompatResult
+    where
+        Self: Sized;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Sided<T> {
+    Read(T),
+    Write(T),
+}
+
+impl<T> Sided<T> {
+    fn then<U>(&self, val: U) -> Sided<U> {
+        match self {
+            Self::Read(_) => Sided::Read(val),
+            Self::Write(_) => Sided::Write(val),
+        }
+    }
+
+    fn inner(self) -> T {
+        match self {
+            Self::Read(v) | Self::Write(v) => v,
+        }
+    }
 }
 
 impl<'a> RecordValue<'a> for Field {
@@ -790,7 +899,7 @@ impl<'a> RecordValue<'a> for Field {
 
     fn names(&'a self) -> Self::Names { std::iter::once(&self.name) }
 
-    fn missing_reader(
+    fn missing_reader_id(
         &self,
         cx: &CompatPair<TypeContext<'a>>,
         wr_id: i32,
@@ -811,7 +920,7 @@ impl<'a> RecordValue<'a> for Field {
         Ok(())
     }
 
-    fn missing_writer(
+    fn missing_writer_id(
         &self,
         cx: &CompatPair<TypeContext<'a>>,
         rd_id: i32,
@@ -831,6 +940,177 @@ impl<'a> RecordValue<'a> for Field {
 
         Ok(())
     }
+
+    fn id_conflict(
+        cx: &CompatPair<TypeContext<'a>>,
+        name: &str,
+        ids: CompatPair<i32>,
+    ) -> CompatResult {
+        CompatError::both(
+            cx.reader.kind.to_owned(),
+            cx.writer.kind.to_owned(),
+            format!(
+                "Field {name} has id {} on reader and {} on writer",
+                ids.reader, ids.writer
+            ),
+        )
+        .warn();
+        Ok(())
+    }
+
+    fn missing_reader_name(
+        cx: &CompatPair<TypeContext<'a>>,
+        name: &str,
+        wr_id: Option<i32>,
+    ) -> CompatResult {
+        if let (TypeCheckKind::ByName(_), Some(id)) = (&cx.reader.kind, wr_id) {
+            CompatError::both(
+                cx.reader.kind.to_owned(),
+                cx.writer.kind.to_owned(),
+                format!("Field name {name} (ID {id}) missing and not reserved on reader"),
+            )
+            .warn();
+        }
+
+        Ok(())
+    }
+
+    fn missing_writer_name(
+        cx: &CompatPair<TypeContext<'a>>,
+        name: &str,
+        rd_id: Option<i32>,
+    ) -> CompatResult {
+        if let (TypeCheckKind::ByName(_), Some(id)) = (&cx.reader.kind, rd_id) {
+            CompatError::both(
+                cx.reader.kind.to_owned(),
+                cx.writer.kind.to_owned(),
+                format!("Field name {name} (ID {id}) missing and not reserved on writer"),
+            )
+            .warn();
+        }
+
+        Ok(())
+    }
+
+    fn check_extra(
+        ck: CompatPair<std::collections::hash_map::Iter<'_, i32, Self>>,
+        cx: &CompatPair<TypeContext<'a>>,
+    ) -> CompatResult
+    where
+        Self: Sized,
+    {
+        use std::collections::hash_map::Entry;
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        enum Group {
+            Uniq(usize),
+            Oneof(i32),
+        }
+
+        #[derive(Debug, PartialEq, Eq, Hash)]
+        struct FieldInfo<'a> {
+            name: &'a str,
+            group: Group,
+        }
+
+        let mut uf_ids: HashMap<i32, usize> = HashMap::new();
+        let mut fields: HashMap<usize, HashSet<Sided<FieldInfo>>> = HashMap::new();
+        let mut group_reps: HashMap<Sided<Group>, usize> = HashMap::new();
+        let mut uf: UnionFind = UnionFind::default();
+        let mut next_uniq = 0_usize;
+
+        for ((key, val), side) in ck
+            .reader
+            .zip(std::iter::repeat(Sided::Read(())))
+            .chain(ck.writer.zip(std::iter::repeat(Sided::Write(()))))
+        {
+            let group = val.oneof.map_or_else(
+                || {
+                    let next = next_uniq + 1;
+                    Group::Uniq(std::mem::replace(&mut next_uniq, next))
+                },
+                Group::Oneof,
+            );
+
+            let uf_id = match uf_ids.entry(*key) {
+                Entry::Occupied(o) => *o.get(),
+                Entry::Vacant(v) => {
+                    let uf_id = uf.put();
+                    v.insert(uf_id);
+                    uf_id
+                },
+            };
+
+            let field = FieldInfo {
+                name: &val.name,
+                group,
+            };
+
+            assert!(fields.entry(uf_id).or_default().insert(side.then(field)));
+
+            if let Some(prev) = group_reps.insert(side.then(group), uf_id) {
+                assert!(!matches!(group, Group::Uniq(_)));
+                uf.union(prev, uf_id).unwrap();
+            }
+        }
+
+        let mut clashes: HashMap<Sided<usize>, BTreeSet<usize>> = HashMap::new();
+
+        for &uf_id in uf_ids.values() {
+            let fields = fields.get(&uf_id).unwrap();
+            let root = uf.find(uf_id).unwrap();
+
+            for field in fields {
+                clashes.entry(field.then(root)).or_default().insert(uf_id);
+            }
+        }
+
+        let clashes_rev: HashMap<BTreeSet<usize>, HashSet<Sided<usize>>> = clashes
+            .into_iter()
+            .fold(HashMap::default(), |mut map, (k, v)| {
+                map.entry(v).or_default().insert(k);
+                map
+            });
+
+        for (clash, rep) in clashes_rev {
+            if clash.len() < 2 {
+                continue;
+            }
+
+            let clash_fields: HashSet<&Sided<FieldInfo>> =
+                clash.iter().flat_map(|k| fields.get(k).unwrap()).collect();
+            let rep_fields: HashSet<&Sided<FieldInfo>> = rep
+                .iter()
+                .flat_map(|v| fields.get(&v.inner()).unwrap())
+                .collect();
+            // TODO: locate relevant groups
+
+            let mut s = "Oneof group clash - fields involved: ".to_owned();
+
+            for (i, field) in clash_fields.iter().enumerate() {
+                use std::fmt::Write;
+
+                if i != 0 {
+                    s.push_str(", ");
+                }
+
+                match field {
+                    Sided::Read(r) => write!(s, "{} on reader", r.name),
+                    Sided::Write(w) => write!(s, "{} on writer", w.name),
+                }
+                .unwrap();
+            }
+
+            // TODO: continue on non-fatal errors
+            return Err(CompatError::both(
+                cx.reader.kind.to_owned(),
+                cx.writer.kind.to_owned(),
+                s,
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 impl<'a> RecordValue<'a> for Variant {
@@ -838,7 +1118,7 @@ impl<'a> RecordValue<'a> for Variant {
 
     fn names(&'a self) -> Self::Names { self.0.iter().map(AsRef::as_ref) }
 
-    fn missing_reader(
+    fn missing_reader_id(
         &self,
         cx: &CompatPair<TypeContext<'a>>,
         wr_id: i32,
@@ -859,7 +1139,7 @@ impl<'a> RecordValue<'a> for Variant {
         Ok(())
     }
 
-    fn missing_writer(
+    fn missing_writer_id(
         &self,
         cx: &CompatPair<TypeContext<'a>>,
         rd_id: i32,
@@ -875,6 +1155,87 @@ impl<'a> RecordValue<'a> for Variant {
                 ),
             )
             .warn();
+        }
+
+        Ok(())
+    }
+
+    fn id_conflict(
+        cx: &CompatPair<TypeContext<'a>>,
+        name: &str,
+        ids: CompatPair<i32>,
+    ) -> CompatResult {
+        Err(CompatError::both(
+            cx.reader.kind.to_owned(),
+            cx.writer.kind.to_owned(),
+            format!(
+                "Enum variant {name} has value {} on reader and {} on writer",
+                ids.reader, ids.writer
+            ),
+        ))
+    }
+
+    fn missing_reader_name(
+        cx: &CompatPair<TypeContext<'a>>,
+        name: &str,
+        wr_id: Option<i32>,
+    ) -> CompatResult {
+        if let Some(id) = wr_id {
+            CompatError::both(
+                cx.reader.kind.to_owned(),
+                cx.writer.kind.to_owned(),
+                format!("Enum variant name {name} (ID {id}) missing and not reserved on reader"),
+            )
+            .warn();
+        }
+
+        Ok(())
+    }
+
+    fn missing_writer_name(
+        cx: &CompatPair<TypeContext<'a>>,
+        name: &str,
+        rd_id: Option<i32>,
+    ) -> CompatResult {
+        if let Some(id) = rd_id {
+            CompatError::both(
+                cx.reader.kind.to_owned(),
+                cx.writer.kind.to_owned(),
+                format!("Enum variant name {name} (ID {id}) missing and not reserved on writer"),
+            )
+            .warn();
+        }
+
+        Ok(())
+    }
+
+    fn check_extra(
+        ck: CompatPair<std::collections::hash_map::Iter<'_, i32, Self>>,
+        cx: &CompatPair<TypeContext<'a>>,
+    ) -> CompatResult
+    where
+        Self: Sized,
+    {
+        let CompatPair { reader, writer } = ck;
+
+        for (val, var) in reader {
+            if *val < 0 {
+                CompatError::reader(
+                    cx.reader.kind.ty().member(var.name_pretty(true)).to_owned(),
+                    format!("Negative enum value {val}"),
+                )
+                .warn();
+            }
+        }
+
+        for (val, var) in writer {
+            if *val < 0 {
+                CompatError::writer(
+                    cx.writer.kind.ty().member(var.name_pretty(true)).to_owned(),
+                    format!("Negative enum value {val}"),
+                )
+                .warn();
+            }
         }
 
         Ok(())
@@ -916,11 +1277,36 @@ impl<T: for<'a> RecordValue<'a>> CheckCompat for Record<T> {
         .check_symmetric(
             &cx,
             |ty, &id| RecordContext { ty, id },
-            |wk, wv| wv.missing_reader(&cx, *wk, || rd_res.contains((*wk).into())),
-            |rk, rv| rv.missing_writer(&cx, *rk, || wr_res.contains((*rk).into())),
+            |wk, wv| wv.missing_reader_id(&cx, *wk, || rd_res.contains((*wk).into())),
+            |rk, rv| rv.missing_writer_id(&cx, *rk, || wr_res.contains((*rk).into())),
         )?;
 
-        Ok(()) // TODO: handle names and per-T pairwise logic (i.e. oneof mismatches)
+        let names = CompatPair {
+            reader: rd_names,
+            writer: wr_names,
+        };
+
+        for (key, pair) in names.iter() {
+            match (pair.reader, pair.writer) {
+                (Some(&rd_id), Some(&wr_id)) => match (rd_id, wr_id) {
+                    (Some(reader), Some(writer)) if reader != writer => {
+                        T::id_conflict(&cx, key, CompatPair { reader, writer })
+                    },
+                    (..) => Ok(()),
+                },
+                (Some(&r), None) => T::missing_writer_name(&cx, key, r),
+                (None, Some(&w)) => T::missing_reader_name(&cx, key, w),
+                (None, None) => unreachable!(),
+            }?;
+        }
+
+        T::check_extra(
+            CompatPair {
+                reader: rd_nums.iter(),
+                writer: wr_nums.iter(),
+            },
+            &cx,
+        )
     }
 }
 
@@ -957,29 +1343,6 @@ impl<T: for<'a> RecordValue<'a>> Record<T> {
     }
 }
 
-impl<T> Record<T> {
-    fn lookup_name(&self, name: &str) -> FieldQuery<(i32, &T)> {
-        let Some(id) = self.names.get(name).copied() else {
-            return FieldQuery::Missing;
-        };
-
-        let Some(id) = id else { return FieldQuery::Reserved; };
-
-        FieldQuery::Present((id, self.numbers.get(&id).unwrap()))
-    }
-
-    fn lookup_number(&self, id: i32) -> FieldQuery<&T> {
-        if self.reserved.contains(id.into()) {
-            debug_assert!(!self.numbers.contains_key(&id));
-            return FieldQuery::Reserved;
-        }
-
-        let Some(field) = self.numbers.get(&id) else { return FieldQuery::Missing; };
-
-        FieldQuery::Present(field)
-    }
-}
-
 #[derive(Debug)]
 struct Field {
     name: String,
@@ -998,13 +1361,13 @@ impl CheckCompat for Field {
             name: rd_name,
             ty: rd_ty,
             kind: rd_kind,
-            oneof: rd_oneof, // TODO: drop these oneof binds once oneof checking is done
+            oneof: _,
         } = reader;
         let Self {
             name: wr_name,
             ty: wr_ty,
             kind: wr_kind,
-            oneof: wr_oneof,
+            oneof: _,
         } = writer;
 
         assert_eq!(cx.reader.id, cx.writer.id);
@@ -1291,7 +1654,7 @@ impl CheckCompat for FieldType {
     fn check_compat(ck: CompatPair<&'_ Self>, cx: CompatPair<Self::Context<'_>>) -> CompatResult {
         let CompatPair { reader, writer } = ck;
 
-        let rd_name = cx.reader.name.to_owned(); // TODO: skip clone?
+        let rd_name = cx.reader.name.to_owned();
         let wr_name = cx.writer.name.to_owned();
         let rd_types = cx.reader.types;
         let wr_types = cx.writer.types;
@@ -1698,7 +2061,8 @@ impl<'a> ScopeRef<'a> {
             match *me.scope {
                 Scope::Package { name, .. } => {
                     package = name;
-                    name
+                    assert!(curr.is_none());
+                    None
                 },
                 Scope::Type { name, .. } => Some(name),
             }
@@ -1750,147 +2114,6 @@ impl<'a> ScopeRef<'a> {
     }
 }
 
-// type ScopeSet<'a> = HashSet<&'a str>;
-
-// enum GlobalName<'a, 'b> {
-//     Scope(&'b Scope<'a>),
-//     Type(&'a str),
-// }
-
-// #[derive(Debug)]
-// struct GlobalScope<'a> {
-//     packages: HashSet<Option<&'a str>>,
-// }
-
-// impl<'a> GlobalScope<'a> {
-//     fn package(
-//         &'a self,
-//         package: Option<&'a str>,
-//         msgs: &'a [prost_types::DescriptorProto],
-//         enums: &'a [prost_types::EnumDescriptorProto],
-//     ) -> Scope<'a> {
-//         assert!(self.packages.contains(&package));
-
-//         Scope::Root {
-//             parent: self,
-//             package,
-//             names: Scope::build_names(msgs, enums),
-//         }
-//     }
-// }
-
-// #[derive(Debug)]
-// enum Scope<'a> {
-//     Root {
-//         package: Option<&'a str>,
-//         parent: &'a GlobalScope<'a>,
-//         names: ScopeSet<'a>,
-//     },
-//     Nested {
-//         name: &'a str,
-//         parent: &'a Scope<'a>,
-//         names: ScopeSet<'a>,
-//     },
-// }
-
-// impl<'a> Scope<'a> {
-//     fn build_names(
-//         msgs: &'a [prost_types::DescriptorProto],
-//         enums: &'a [prost_types::EnumDescriptorProto],
-//     ) -> ScopeSet<'a> {
-//         msgs.iter()
-//             .map(|m| m.name.as_deref().unwrap())
-//             .chain(enums.iter().map(|m| m.name.as_deref().unwrap()))
-//             .collect()
-//     }
-
-//     fn package(&self) -> Option<&'a str> {
-//         match *self {
-//             Self::Root { package, .. } => package,
-//             Self::Nested { parent, .. } => parent.package(),
-//         }
-//     }
-
-//     #[allow(clippy::needless_collect)]
-//     fn path(&self) -> impl Iterator<Item = &'a str> + Clone {
-//         let mut curr = Some(self);
-//         let stack: Vec<_> = std::iter::from_fn(|| match curr {
-//             None => None,
-//             Some(&Self::Root { package, .. }) => {
-//                 curr = None;
-//                 package
-//             },
-//             Some(&Self::Nested { name, parent, .. }) => {
-//                 curr = Some(parent);
-//                 Some(name)
-//             },
-//         })
-//         .collect();
-
-//         stack.into_iter().rev()
-//     }
-
-//     fn find_root(&self) -> &Self {
-//         match self {
-//             Self::Root { .. } => self,
-//             Self::Nested { parent, .. } => parent.find_root(),
-//         }
-//     }
-
-//     fn find_global(&self) -> &'a GlobalScope<'a> {
-//         match self {
-//             Self::Root { parent, .. } => parent,
-//             Self::Nested { parent, .. } => parent.find_global(),
-//         }
-//     }
-
-//     fn declare<P: IntoIterator>(&self, path: P) -> QualName<'a>
-//     where
-//         P::Item: Into<Cow<'a, str>>,
-//     {
-//         QualName {
-//             package: self.package().map(Cow::Borrowed),
-//             path: self
-//                 .path()
-//                 .map(Cow::Borrowed)
-//                 .chain(path.into_iter().map(Into::into))
-//                 .collect(),
-//         }
-//     }
-
-//     fn names(&self) -> &ScopeSet<'a> {
-//         match self {
-//             Self::Root { names, .. } | Self::Nested { names, .. } => names,
-//         }
-//     }
-
-//     fn search<Q: Eq + std::hash::Hash + ?Sized>(&self, query: &Q) -> Option<&Scope<'a>>
-//     where
-//         &'a str: std::borrow::Borrow<Q>,
-//     {
-//         if self.names().contains(query) {
-//             Some(self)
-//         } else if let Self::Nested { parent, .. } = self {
-//             parent.search(query)
-//         } else {
-//             None
-//         }
-//     }
-
-//     fn nest(
-//         &'a self,
-//         name: &'a str,
-//         msgs: &'a [prost_types::DescriptorProto],
-//         enums: &'a [prost_types::EnumDescriptorProto],
-//     ) -> Self {
-//         Self::Nested {
-//             name,
-//             parent: self,
-//             names: Self::build_names(msgs, enums),
-//         }
-//     }
-// }
-
 struct Visitor<'a>(&'a mut Schema);
 
 impl<'a> Visitor<'a> {
@@ -1900,6 +2123,22 @@ impl<'a> Visitor<'a> {
         let FileDescriptorSet { file } = desc;
 
         file.iter().for_each(|f| self.fildes(&scope, f));
+    }
+
+    #[inline]
+    fn descend(
+        &mut self,
+        scope: &ScopeRef<'_>,
+        msgs: &[prost_types::DescriptorProto],
+        enums: &[prost_types::EnumDescriptorProto],
+    ) {
+        for m in msgs {
+            self.desc(&scope.clone().ty(m.name.as_deref().unwrap()).unwrap(), m);
+        }
+
+        for e in enums {
+            self.enum_desc(&scope.clone().ty(e.name.as_deref().unwrap()).unwrap(), e);
+        }
     }
 
     fn fildes(&mut self, scope: &GlobalScope<'_>, desc: &prost_types::FileDescriptorProto) {
@@ -1929,12 +2168,7 @@ impl<'a> Visitor<'a> {
 
         let scope = scope.package(&package.as_deref()).unwrap();
 
-        message_type
-            .iter()
-            .for_each(|d| self.desc(&scope.clone().ty(d.name.as_deref().unwrap()).unwrap(), d));
-        enum_type.iter().for_each(|e| {
-            self.enum_desc(&scope.clone().ty(e.name.as_deref().unwrap()).unwrap(), e)
-        });
+        self.descend(&scope, message_type, enum_type);
     }
 
     fn desc(&mut self, scope: &ScopeRef<'_>, desc: &prost_types::DescriptorProto) {
@@ -1978,13 +2212,6 @@ impl<'a> Visitor<'a> {
             (false, false)
         };
 
-        nested_type
-            .iter()
-            .for_each(|d| self.desc(&scope.clone().ty(d.name.as_deref().unwrap()).unwrap(), d));
-        enum_type.iter().for_each(|e| {
-            self.enum_desc(&scope.clone().ty(e.name.as_deref().unwrap()).unwrap(), e)
-        });
-
         let mut numbers = HashMap::new();
 
         for field in field {
@@ -2019,6 +2246,8 @@ impl<'a> Visitor<'a> {
                 )
                 .is_none()
         );
+
+        self.descend(scope, nested_type, enum_type);
     }
 
     #[inline]
