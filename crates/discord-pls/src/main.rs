@@ -118,6 +118,7 @@ enum TestMode {
         untried: BTreeMap<FlowType, Vec<Arc<[CrudOp<usize>]>>>,
         results: BTreeMap<(FlowType, Box<[CrudOp<ResponseType>]>), bool>,
     },
+    PingPong,
 }
 
 struct Handler {
@@ -136,9 +137,19 @@ fn sample_create_response<'a, 'b>(
                 d.content("foo").components(|c| {
                     c.create_action_row(|r| {
                         r.create_button(|b| {
+                            let mut id = "\0".to_owned();
+
+                            std::iter::from_fn(|| {
+                                Some(rand::thread_rng().gen_range('\0'..char::MAX))
+                            })
+                            .take(99)
+                            .for_each(|c| id.push(c));
+
+                            tracing::trace!(id);
+
                             b.style(component::ButtonStyle::Primary)
                                 .label("hi")
-                                .custom_id("hi")
+                                .custom_id(id)
                         })
                     })
                 })
@@ -567,6 +578,19 @@ impl EventHandler for Handler {
                 .instrument(span)
                 .await
             },
+
+            TestMode::PingPong => {
+                create_response(&int, &ctx.http, |res| {
+                    sample_create_response(
+                        flow.initial_interaction(),
+                        interaction::InteractionResponseType::ChannelMessageWithSource,
+                        res,
+                    )
+                })
+                .await
+                .map_err(|e| tracing::warn!(%e))
+                .ok();
+            },
         }
     }
 }
@@ -578,6 +602,7 @@ enum Subcommand {
         modals: bool,
     },
     CrudBrute,
+    PingPong,
 }
 
 #[derive(clap::Parser)]
@@ -675,6 +700,7 @@ async fn main() {
                 results: BTreeMap::default(),
             }
         },
+        Subcommand::PingPong => TestMode::PingPong,
     };
 
     let mut client = Client::builder(discord_token, GatewayIntents::non_privileged())
