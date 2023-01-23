@@ -2,7 +2,7 @@ use prost_types::field_descriptor_proto::Type;
 
 use super::{field_kind::FieldKind, field_type::FieldTypeContext};
 use crate::{
-    check_compat::{CheckCompat, CompatError, CompatResult},
+    check_compat::{CheckCompat, CompatError, CompatLog},
     compat_pair::CompatPair,
 };
 
@@ -27,8 +27,6 @@ pub enum PrimitiveType {
 
 impl PrimitiveType {
     pub fn new(ty: Type) -> Option<Self> {
-        // TODO: check for remaining imports inside items
-
         Some(match ty {
             Type::Double => Self::F64,
             Type::Float => Self::F32,
@@ -69,7 +67,6 @@ impl PrimitiveType {
 
 type NumericWireType = WireType<std::convert::Infallible>;
 
-// TODO: can prost handle this?
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WireType<B = BytesMode> {
     VarInt(VarIntMode),
@@ -104,24 +101,29 @@ impl WireType {
 impl CheckCompat for WireType {
     type Context<'a> = FieldTypeContext<'a>;
 
-    fn check_compat(ck: CompatPair<&'_ Self>, cx: CompatPair<Self::Context<'_>>) -> CompatResult {
+    fn check_compat(
+        ck: CompatPair<&'_ Self>,
+        cx: CompatPair<Self::Context<'_>>,
+        log: &mut CompatLog,
+    ) {
         match ck.into_inner() {
             (WireType::VarInt(ref reader), WireType::VarInt(ref writer)) => {
-                CompatPair::new(reader, writer).check(cx)
+                CompatPair::new(reader, writer).check(cx, log);
             },
             (WireType::Fix32(ref reader), WireType::Fix32(ref writer))
             | (WireType::Fix64(ref reader), WireType::Fix64(ref writer)) => {
-                CompatPair::new(reader, writer).check(cx)
+                CompatPair::new(reader, writer).check(cx, log);
             },
             (WireType::Bytes(ref reader), WireType::Bytes(ref writer)) => {
-                CompatPair::new(reader, writer).check(cx)
+                CompatPair::new(reader, writer).check(cx, log);
             },
-            (rd, wr) => Err(CompatError::new(
+            (rd, wr) => CompatError::new(
                 cx.map(|c| c.field.to_owned()).into(),
                 format!(
                     "Fields have incompatible wire formats ({rd:?} for reader, {wr:?} for writer)"
                 ),
-            )),
+            )
+            .err(log),
         }
     }
 }
@@ -137,30 +139,40 @@ pub enum VarIntMode {
 impl CheckCompat for VarIntMode {
     type Context<'a> = FieldTypeContext<'a>;
 
-    fn check_compat(ck: CompatPair<&'_ Self>, cx: CompatPair<Self::Context<'_>>) -> CompatResult {
+    fn check_compat(
+        ck: CompatPair<&'_ Self>,
+        cx: CompatPair<Self::Context<'_>>,
+        log: &mut CompatLog,
+    ) {
         match ck.into_inner() {
-            (a, b) if a == b => Ok(()),
+            (a, b) if a == b => (),
             (rd @ (Self::Signed | Self::Unsigned), wr @ (Self::Signed | Self::Unsigned)) => {
                 CompatError::new(
                     cx.map(|c| c.field.to_owned()).into(),
-                    format!("Varint sign difference ({rd:?} in reader, {wr:?} in writer)"),
+                    format!(
+                        "Varint sign difference ({:?})",
+                        CompatPair::new(rd, wr).display()
+                    ),
                 )
-                .warn();
-                Ok(())
+                .warn(log);
             },
             (rd @ (Self::Signed | Self::Unsigned), wr @ Self::Enum)
-            | (rd @ Self::Enum, wr @ (Self::Signed | Self::Unsigned)) => {
-                CompatError::new(
-                    cx.map(|c| c.field.to_owned()).into(),
-                    format!("Enum type punning ({rd:?} in reader, {wr:?} in writer)"),
-                )
-                .warn();
-                Ok(())
-            },
-            (rd, wr) => Err(CompatError::new(
+            | (rd @ Self::Enum, wr @ (Self::Signed | Self::Unsigned)) => CompatError::new(
                 cx.map(|c| c.field.to_owned()).into(),
-                format!("Incompatible varint formats ({rd:?} in reader, {wr:?} in writer)"),
-            )),
+                format!(
+                    "Enum type punning ({:?})",
+                    CompatPair::new(rd, wr).display()
+                ),
+            )
+            .warn(log),
+            (rd, wr) => CompatError::new(
+                cx.map(|c| c.field.to_owned()).into(),
+                format!(
+                    "Incompatible varint formats ({:?})",
+                    CompatPair::new(rd, wr).display()
+                ),
+            )
+            .err(log),
         }
     }
 }
@@ -175,24 +187,31 @@ pub enum FixIntMode {
 impl CheckCompat for FixIntMode {
     type Context<'a> = FieldTypeContext<'a>;
 
-    fn check_compat(ck: CompatPair<&'_ Self>, cx: CompatPair<Self::Context<'_>>) -> CompatResult {
+    fn check_compat(
+        ck: CompatPair<&'_ Self>,
+        cx: CompatPair<Self::Context<'_>>,
+        log: &mut CompatLog,
+    ) {
         match ck.into_inner() {
-            (a, b) if a == b => Ok(()),
+            (a, b) if a == b => (),
             (rd @ (Self::Signed | Self::Unsigned), wr @ (Self::Signed | Self::Unsigned)) => {
                 CompatError::new(
                     cx.map(|c| c.field.to_owned()).into(),
                     format!(
-                        "Sign difference in fixint fields ({rd:?} in reader, {wr:?} in writer)"
+                        "Sign difference in fixint fields ({:?})",
+                        CompatPair::new(rd, wr).display(),
                     ),
                 )
-                .warn();
-
-                Ok(())
+                .warn(log);
             },
-            (rd, wr) => Err(CompatError::new(
+            (rd, wr) => CompatError::new(
                 cx.map(|c| c.field.to_owned()).into(),
-                format!("Incompatible fixint formats ({rd:?} in reader, {wr:?} in writer)"),
-            )),
+                format!(
+                    "Incompatible fixint formats ({:?})",
+                    CompatPair::new(rd, wr).display(),
+                ),
+            )
+            .err(log),
         }
     }
 }
@@ -208,29 +227,36 @@ pub enum BytesMode {
 impl CheckCompat for BytesMode {
     type Context<'a> = FieldTypeContext<'a>;
 
-    fn check_compat(ck: CompatPair<&'_ Self>, cx: CompatPair<Self::Context<'_>>) -> CompatResult {
+    fn check_compat(
+        ck: CompatPair<&'_ Self>,
+        cx: CompatPair<Self::Context<'_>>,
+        log: &mut CompatLog,
+    ) {
         match ck.into_inner() {
-            (a, b) if a == b => Ok(()),
-            (rd @ (Self::Bytes | Self::Utf8), wr @ (Self::Bytes | Self::Utf8)) => {
-                CompatError::new(
-                    cx.map(|c| c.field.to_owned()).into(),
-                    format!("UTF-8 type punning ({rd:?} in reader, {wr:?} in writer)"),
-                )
-                .warn();
-                Ok(())
-            },
+            (a, b) if a == b => (),
+            (rd @ (Self::Bytes | Self::Utf8), wr @ (Self::Bytes | Self::Utf8)) => CompatError::new(
+                cx.map(|c| c.field.to_owned()).into(),
+                format!("UTF-8 type punning ({:?})", CompatPair::new(rd, wr)),
+            )
+            .warn(log),
             (rd @ (Self::Bytes | Self::Message), wr @ (Self::Bytes | Self::Message)) => {
                 CompatError::new(
                     cx.map(|c| c.field.to_owned()).into(),
-                    format!("Embedded message type punning ({rd:?} in reader, {wr:?} in writer)"),
+                    format!(
+                        "Embedded message type punning ({:?})",
+                        CompatPair::new(rd, wr).display(),
+                    ),
                 )
-                .warn();
-                Ok(())
+                .warn(log);
             },
-            (rd, wr) => Err(CompatError::new(
+            (rd, wr) => CompatError::new(
                 cx.map(|c| c.field.to_owned()).into(),
-                format!("Incompatible byte formats ({rd:?} in reader, {wr:?} in writer)"),
-            )),
+                format!(
+                    "Incompatible byte formats ({:?})",
+                    CompatPair::new(rd, wr).display(),
+                ),
+            )
+            .err(log),
         }
     }
 }

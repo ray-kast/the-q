@@ -3,10 +3,10 @@ use super::{
     primitive::{PrimitiveType, WireType},
     qual_name::{MemberQualName, QualName},
     ty::Type,
-    TypeMap,
+    TypeError, TypeMap,
 };
 use crate::{
-    check_compat::{CheckCompat, CompatResult},
+    check_compat::{CheckCompat, CompatError, CompatLog},
     compat_pair::CompatPair,
     schema::ty::{TypeCheckKind, TypeContext},
 };
@@ -21,13 +21,12 @@ impl FieldType {
     pub fn wire_format<'a>(
         &'a self,
         kind: FieldKind,
-        // TODO: this should be fallible
-        ty: impl Fn(&'a QualName<'a>) -> &'a Type,
-    ) -> WireType {
-        match self {
+        ty: impl Fn(&'a QualName<'a>) -> Result<&'a Type, TypeError<'a, QualName<'a>>>,
+    ) -> Result<WireType, TypeError<'a, QualName<'a>>> {
+        Ok(match self {
             &Self::Primitive(p) => p.wire_format(kind),
-            Self::Named(n) => ty(n).wire_format(kind),
-        }
+            Self::Named(n) => ty(n)?.wire_format(kind),
+        })
     }
 }
 
@@ -40,15 +39,30 @@ pub struct FieldTypeContext<'a> {
 impl CheckCompat for FieldType {
     type Context<'a> = FieldTypeContext<'a>;
 
-    fn check_compat(ck: CompatPair<&'_ Self>, cx: CompatPair<Self::Context<'_>>) -> CompatResult {
+    fn check_compat(
+        ck: CompatPair<&'_ Self>,
+        cx: CompatPair<Self::Context<'_>>,
+        log: &mut CompatLog,
+    ) {
         let names = cx.as_ref().map(|c| c.field.to_owned());
         let type_maps = cx.as_ref().map(|c| c.types);
 
-        let wire_formats = ck
+        let wire_formats = match ck
             .zip(cx.as_ref())
-            .map(|(t, c)| t.wire_format(c.kind, |n| c.types.get(n).unwrap()));
+            .try_map(|(t, c)| t.wire_format(c.kind, |n| c.types.get(n)))
+        {
+            Ok(f) => f,
+            Err(e) => {
+                CompatError::new(
+                    e.kind().project(names).into(),
+                    format!("Type resolution failure for {:?}", e.map(|e| e.0).display()),
+                )
+                .err(log);
+                return;
+            },
+        };
 
-        wire_formats.as_ref().check(cx)?;
+        wire_formats.as_ref().check(cx, log);
 
         if let Some(type_names) = ck.filter_map(|t| {
             if let Self::Named(t) = t {
@@ -59,7 +73,17 @@ impl CheckCompat for FieldType {
         }) {
             let _wire = wire_formats.unwrap_eq();
 
-            let types = type_names.zip(type_maps).map(|(n, t)| t.get(n).unwrap());
+            let types = match type_names.zip(type_maps).try_map(|(n, t)| t.get(n)) {
+                Ok(t) => t,
+                Err(e) => {
+                    CompatError::new(
+                        e.kind().project(names).into(),
+                        format!("Type resolution failure for {:?}", e.map(|e| e.0).display()),
+                    )
+                    .err(log);
+                    return;
+                },
+            };
 
             let cx = names
                 .zip(type_names)
@@ -72,9 +96,7 @@ impl CheckCompat for FieldType {
                     types,
                 });
 
-            types.check(cx)?;
+            types.check(cx, log);
         }
-
-        Ok(())
     }
 }

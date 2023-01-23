@@ -1,5 +1,4 @@
 // TODO: coverage tests
-// TODO: remove random-state data structures
 #![deny(
     clippy::disallowed_methods,
     clippy::suspicious,
@@ -27,7 +26,8 @@ mod entry {
     use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
     use crate::{
-        compat_pair::{CompatPair, SpanExt},
+        check_compat::CompatLog,
+        compat_pair::CompatPair,
         git, protoc,
         schema::{Schema, SchemaContext},
     };
@@ -149,21 +149,23 @@ mod entry {
     ) -> Result<()> {
         let old_desc = protoc::get_descriptor_set([old])?;
         let old_schema = Schema::new(&old_desc);
+        let mut res = Ok(());
 
         if mode.is_backward() {
             let ck = CompatPair::new(new_schema, &old_schema);
             let cx = CompatPair::new(SchemaContext { name: new_name }, SchemaContext {
                 name: old_name,
             });
-            let s = tracing::error_span!("check_backward");
-            s.record_pair(&cx.as_ref().map(|c| c.name));
-            let _s = s.entered();
-            ck.check(cx).map_err(|err| {
-                tracing::error!("{err}");
-                anyhow::anyhow!(
-                    "Backward-compatibility check of {new_name} against {old_name} failed"
-                )
-            })?;
+            let (reader, writer) = cx.as_ref().map(|c| c.name).into_inner();
+            let _s = tracing::error_span!("check_backward", reader, writer).entered();
+            res = res.and(CompatLog::run(
+                |l| ck.check(cx, l),
+                || {
+                    tracing::error!(
+                        "Backward-compatibility check of {new_name} against {old_name} failed"
+                    );
+                },
+            ));
         }
 
         if mode.is_forward() {
@@ -171,17 +173,18 @@ mod entry {
             let cx = CompatPair::new(SchemaContext { name: old_name }, SchemaContext {
                 name: new_name,
             });
-            let s = tracing::error_span!("check_forward");
-            s.record_pair(&cx.as_ref().map(|c| c.name));
-            let _s = s.entered();
-            ck.check(cx).map_err(|err| {
-                tracing::error!("{err}");
-                anyhow::anyhow!(
-                    "Forward-compatibility check of {new_name} against {old_name} failed"
-                )
-            })?;
+            let (reader, writer) = cx.as_ref().map(|c| c.name).into_inner();
+            let _s = tracing::error_span!("check_forward", reader, writer).entered();
+            res = res.and(CompatLog::run(
+                |l| ck.check(cx, l),
+                || {
+                    tracing::error!(
+                        "Forward-compatibility check of {new_name} against {old_name} failed"
+                    );
+                },
+            ));
         }
 
-        Ok(())
+        res.map_err(|()| anyhow::anyhow!("Stopping due to failed compatibility check"))
     }
 }

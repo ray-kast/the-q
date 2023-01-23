@@ -1,25 +1,13 @@
 use std::{
     collections::HashMap,
+    fmt,
     hash::Hash,
     ops::{Deref, DerefMut},
 };
 
-use tracing::Value;
+use crate::check_compat::{CheckCompat, CompatLog};
 
-use crate::check_compat::{CheckCompat, CompatResult};
-
-pub trait SpanExt {
-    fn record_pair<V: Value>(&self, pair: &CompatPair<V>) -> &Self;
-}
-
-impl SpanExt for tracing::Span {
-    fn record_pair<V: Value>(&self, pair: &CompatPair<V>) -> &Self {
-        self.record("reader", &pair.reader)
-            .record("writer", &pair.writer)
-    }
-}
-
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CompatPair<T> {
     reader: T,
     writer: T,
@@ -44,11 +32,15 @@ impl<T> CompatPair<T> {
         CompatPair { reader, writer }
     }
 
+    #[inline]
+    pub const fn display(&self) -> Display<CompatPair<T>> { Display(self) }
+
     pub fn into_inner(self) -> (T, T) {
         let Self { reader, writer } = self;
         (reader, writer)
     }
 
+    #[inline]
     pub fn visit(self, side: Side) -> T {
         match side {
             Side::Reader(()) => self.reader,
@@ -68,6 +60,14 @@ impl<T> CompatPair<T> {
             reader: f(reader),
             writer: f(writer),
         }
+    }
+
+    pub fn try_map<U, E>(self, f: impl Fn(T) -> Result<U, E>) -> Result<CompatPair<U>, Side<E>> {
+        let Self { reader, writer } = self;
+        Ok(CompatPair {
+            reader: f(reader).map_err(Side::Reader)?,
+            writer: f(writer).map_err(Side::Writer)?,
+        })
     }
 
     pub fn filter_map<U>(self, f: impl Fn(T) -> Option<U>) -> Option<CompatPair<U>> {
@@ -91,6 +91,17 @@ impl<T> CompatPair<T> {
             reader: (r1, r2),
             writer: (w1, w2),
         }
+    }
+}
+
+impl<'a, T: Copy> CompatPair<&'a T> {
+    #[inline]
+    pub const fn copied(self) -> CompatPair<T> {
+        let Self {
+            reader: &reader,
+            writer: &writer,
+        } = self;
+        CompatPair { reader, writer }
     }
 }
 
@@ -132,8 +143,8 @@ impl<T: Eq + std::fmt::Debug> CompatPair<T> {
 
 impl<'a, T: CheckCompat> CompatPair<&'a T> {
     #[inline]
-    pub fn check(self, cx: CompatPair<T::Context<'_>>) -> CompatResult {
-        CheckCompat::check_compat(self, cx)
+    pub fn check(self, cx: CompatPair<T::Context<'_>>, log: &mut CompatLog) {
+        CheckCompat::check_compat(self, cx, log);
     }
 }
 
@@ -154,13 +165,13 @@ impl<'a, K: Eq + Hash, V> CompatPair<&'a HashMap<K, V>> {
                 (
                     key,
                     writer.get(key).map_or_else(
-                        || SideInclusive::Reader(reader),
-                        |writer| SideInclusive::Both { reader, writer },
+                        || Side::Reader(reader).into(),
+                        |writer| CompatPair { reader, writer }.into(),
                     ),
                 )
             })
             .chain(writer.iter().filter_map(|(key, writer)| {
-                (!reader.contains_key(key)).then_some((key, SideInclusive::Writer(writer)))
+                (!reader.contains_key(key)).then_some((key, Side::Writer(writer).into()))
             }))
     }
 }
@@ -169,51 +180,57 @@ impl<'a, K: Eq + Hash, V: CheckCompat> CompatPair<&'a HashMap<K, V>> {
     pub fn check_joined<'b, E>(
         self,
         extra: &'b CompatPair<E>,
+        log: &mut CompatLog,
         cx: impl Fn(&'b E, &'b K) -> V::Context<'b>,
-        missing_val: impl Fn(&K, Side<&V>) -> CompatResult,
-    ) -> CompatResult
-    where
+        missing_val: impl Fn(&K, Side<&V>, &mut CompatLog),
+    ) where
         'a: 'b,
     {
         for (key, side) in self.iter_joined() {
             match side {
-                SideInclusive::Both { reader, writer } => {
-                    CompatPair { reader, writer }.check(CompatPair {
+                SideInclusive::One(s) => missing_val(key, s, log),
+                SideInclusive::Both(pair) => pair.check(
+                    CompatPair {
                         reader: cx(&extra.reader, key),
                         writer: cx(&extra.writer, key),
-                    })?;
-                },
-                SideInclusive::Reader(r) => missing_val(key, Side::Reader(r))?,
-                SideInclusive::Writer(w) => missing_val(key, Side::Writer(w))?,
+                    },
+                    log,
+                ),
             }
         }
-
-        Ok(())
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Side<T = ()> {
     Reader(T),
     Writer(T),
 }
 
 impl<T> Side<T> {
-    pub const fn then<U>(&self, val: U) -> Side<U> {
+    #[inline]
+    pub const fn kind(&self) -> Side {
         match self {
-            Self::Reader(_) => Side::Reader(val),
-            Self::Writer(_) => Side::Writer(val),
+            Self::Reader(_) => Side::Reader(()),
+            Self::Writer(_) => Side::Writer(()),
         }
     }
-
-    #[inline]
-    pub const fn kind(&self) -> Side { self.then(()) }
 
     #[inline]
     pub const fn as_ref(&self) -> Side<&T> {
         match self {
             Self::Reader(r) => Side::Reader(r),
             Self::Writer(w) => Side::Writer(w),
+        }
+    }
+
+    #[inline]
+    pub const fn display(&self) -> Display<Side<T>> { Display(self) }
+
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Side<U> {
+        match self {
+            Self::Reader(r) => Side::Reader(f(r)),
+            Self::Writer(w) => Side::Writer(f(w)),
         }
     }
 
@@ -239,7 +256,39 @@ impl<T> Side<T> {
     }
 }
 
+impl<'a, T: Copy> Side<&'a T> {
+    #[inline]
+    pub const fn copied(&self) -> Side<T> {
+        match self {
+            Self::Reader(&r) => Side::Reader(r),
+            Self::Writer(&w) => Side::Writer(w),
+        }
+    }
+}
+
+impl<T> Side<Option<T>> {
+    #[inline]
+    pub fn transpose(self) -> Option<Side<T>> {
+        match self {
+            Self::Reader(Some(r)) => Some(Side::Reader(r)),
+            Self::Writer(Some(w)) => Some(Side::Writer(w)),
+            Self::Reader(None) | Self::Writer(None) => None,
+        }
+    }
+}
+
 impl Side {
+    #[inline]
+    pub const fn then<T>(self, val: T) -> Side<T> {
+        match self {
+            Self::Reader(()) => Side::Reader(val),
+            Self::Writer(()) => Side::Writer(val),
+        }
+    }
+
+    #[inline]
+    pub fn project<T>(self, pair: CompatPair<T>) -> Side<T> { self.then(pair.visit(self)) }
+
     #[inline]
     pub const fn pretty(self) -> &'static str {
         match self {
@@ -255,12 +304,6 @@ impl Side {
             Self::Writer(()) => Self::Reader(()),
         }
     }
-
-    #[inline]
-    pub const fn reader(self) -> bool { matches!(self, Self::Reader(())) }
-
-    #[inline]
-    pub const fn writer(self) -> bool { matches!(self, Self::Writer(())) }
 }
 
 impl<T> Deref for Side<T> {
@@ -285,42 +328,107 @@ impl<T> DerefMut for Side<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NoneError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SideInclusive<T = ()> {
-    // TODO: use Side here?
-    Reader(T),
-    Writer(T),
-    // TODO: use CompatPair here?
-    Both { reader: T, writer: T },
+    One(Side<T>),
+    Both(CompatPair<T>),
+}
+
+impl<T> TryFrom<CompatPair<Option<T>>> for SideInclusive<T> {
+    type Error = NoneError;
+
+    fn try_from(pair: CompatPair<Option<T>>) -> Result<Self, Self::Error> {
+        let CompatPair { reader, writer } = pair;
+
+        Ok(match (reader, writer) {
+            (None, None) => return Err(NoneError),
+            (Some(r), None) => Self::One(Side::Reader(r)),
+            (None, Some(w)) => Self::One(Side::Writer(w)),
+            (Some(reader), Some(writer)) => Self::Both(CompatPair { reader, writer }),
+        })
+    }
 }
 
 impl<T> From<Side<T>> for SideInclusive<T> {
     #[inline]
-    fn from(val: Side<T>) -> Self {
-        match val {
-            Side::Reader(r) => Self::Reader(r),
-            Side::Writer(w) => Self::Writer(w),
-        }
-    }
+    fn from(val: Side<T>) -> Self { Self::One(val) }
 }
 
 impl<T> From<CompatPair<T>> for SideInclusive<T> {
     #[inline]
-    fn from(val: CompatPair<T>) -> Self {
-        let CompatPair { reader, writer } = val;
-        Self::Both { reader, writer }
-    }
+    fn from(val: CompatPair<T>) -> Self { Self::Both(val) }
 }
 
 impl<T> SideInclusive<T> {
+    #[inline]
+    pub fn as_ref(&self) -> SideInclusive<&T> {
+        match self {
+            Self::One(s) => SideInclusive::One(s.as_ref()),
+            Self::Both(p) => SideInclusive::Both(p.as_ref()),
+        }
+    }
+
+    #[inline]
+    pub const fn display(&self) -> Display<SideInclusive<T>> { Display(self) }
+
     pub fn map<U>(self, f: impl Fn(T) -> U) -> SideInclusive<U> {
         match self {
-            Self::Reader(r) => SideInclusive::Reader(f(r)),
-            Self::Writer(w) => SideInclusive::Writer(f(w)),
-            Self::Both { reader, writer } => SideInclusive::Both {
-                reader: f(reader),
-                writer: f(writer),
-            },
+            Self::One(s) => SideInclusive::One(s.map(f)),
+            Self::Both(p) => SideInclusive::Both(p.map(f)),
+        }
+    }
+}
+
+#[repr(transparent)]
+pub struct Display<'a, T>(&'a T);
+
+impl<'a, T: fmt::Display> fmt::Display for Display<'a, CompatPair<T>> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let CompatPair { reader, writer } = self.0;
+        write!(f, "{reader} in reader, {writer} in writer")
+    }
+}
+
+impl<'a, T: fmt::Debug> fmt::Debug for Display<'a, CompatPair<T>> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let CompatPair { reader, writer } = self.0;
+        write!(f, "{reader:?} in reader, {writer:?} in writer")
+    }
+}
+
+impl<'a, T: fmt::Display> fmt::Display for Display<'a, Side<T>> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (side, val) = self.0.as_ref().split();
+        write!(f, "{val} in {}", side.pretty())
+    }
+}
+
+impl<'a, T: fmt::Debug> fmt::Debug for Display<'a, Side<T>> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (side, val) = self.0.as_ref().split();
+        write!(f, "{val:?} in {}", side.pretty())
+    }
+}
+
+impl<'a, T: fmt::Display> fmt::Display for Display<'a, SideInclusive<T>> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            SideInclusive::One(s) => write!(f, "{}", s.display()),
+            SideInclusive::Both(p) => write!(f, "{}", p.display()),
+        }
+    }
+}
+
+impl<'a, T: fmt::Debug> fmt::Debug for Display<'a, SideInclusive<T>> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            SideInclusive::One(s) => write!(f, "{:?}", s.display()),
+            SideInclusive::Both(p) => write!(f, "{:?}", p.display()),
         }
     }
 }

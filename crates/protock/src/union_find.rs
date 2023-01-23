@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 #[derive(Debug)]
 struct UnionFindNode {
     parent: usize,
@@ -34,8 +36,6 @@ impl UnionFind {
     }
 
     pub fn union(&mut self, a: usize, b: usize) -> Result<Option<usize>, ()> {
-        use std::cmp::Ordering;
-
         let mut a = self.find(a).ok_or(())?;
         let mut b = self.find(b).ok_or(())?;
 

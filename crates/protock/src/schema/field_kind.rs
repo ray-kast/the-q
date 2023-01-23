@@ -2,7 +2,7 @@ use prost_types::field_descriptor_proto::Label;
 
 use super::qual_name::MemberQualName;
 use crate::{
-    check_compat::{CheckCompat, CompatError, CompatResult},
+    check_compat::{CheckCompat, CompatError, CompatLog},
     compat_pair::CompatPair,
 };
 
@@ -32,27 +32,33 @@ impl FieldKind {
 impl CheckCompat for FieldKind {
     type Context<'a> = MemberQualName<'a>;
 
-    fn check_compat(ck: CompatPair<&'_ Self>, cx: CompatPair<Self::Context<'_>>) -> CompatResult {
+    fn check_compat(
+        ck: CompatPair<&'_ Self>,
+        cx: CompatPair<Self::Context<'_>>,
+        log: &mut CompatLog,
+    ) {
         match ck.into_inner() {
-            (a, b) if a == b => Ok(()),
-            (Self::Singular | Self::Optional, Self::Singular | Self::Optional) => Ok(()),
-            (Self::Repeated { packed }, Self::Singular | Self::Optional) => {
-                assert!(!matches!(packed, Some(true)));
-                Ok(())
-            },
-            (rd @ (Self::Singular | Self::Optional), Self::Repeated { packed }) => {
-                assert!(!matches!(packed, Some(true)));
+            (a, b) if a == b => (),
+            (Self::Singular | Self::Optional, Self::Singular | Self::Optional) => (),
+            (Self::Repeated { packed: _ }, Self::Singular | Self::Optional) => {},
+            (rd @ (Self::Singular | Self::Optional), wr @ Self::Repeated { packed: _ }) => {
                 CompatError::new(
                     cx.map(|n| n.to_owned()).into(),
-                    format!("Repeated/singular mismatch ({rd:?} on reader, repeated on writer)"),
+                    format!(
+                        "Repeated/singular mismatch ({:?})",
+                        CompatPair::new(rd, wr).display()
+                    ),
                 )
-                .warn();
-                Ok(())
+                .warn(log);
             },
-            (rd, wr) => Err(CompatError::new(
+            (rd, wr) => CompatError::new(
                 cx.map(|n| n.to_owned()).into(),
-                format!("Incompatible field kinds ({rd:?} on reader, {wr:?} on writer)"),
-            )),
+                format!(
+                    "Incompatible field kinds ({:?})",
+                    CompatPair::new(rd, wr).display()
+                ),
+            )
+            .err(log),
         }
     }
 }

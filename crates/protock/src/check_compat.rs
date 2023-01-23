@@ -2,14 +2,46 @@ use std::fmt;
 
 use crate::compat_pair::{CompatPair, SideInclusive};
 
-pub type CompatResult = std::result::Result<(), CompatError>;
+#[derive(Debug, Default)]
+pub struct CompatLog {
+    errors: Vec<CompatError>,
+    warnings: Vec<CompatError>,
+}
+
+impl CompatLog {
+    pub fn run<E>(f: impl FnOnce(&mut Self), e: impl FnOnce() -> E) -> Result<(), E> {
+        let mut me = Self::default();
+        f(&mut me);
+        me.finish(e)
+    }
+
+    pub fn finish<E>(self, error: impl FnOnce() -> E) -> Result<(), E> {
+        let Self { errors, warnings } = self;
+
+        for warn in warnings {
+            tracing::warn!("{warn}");
+        }
+
+        let err = !errors.is_empty();
+        for err in errors {
+            tracing::error!("{err}");
+        }
+
+        err.then(|| Err(error())).unwrap_or(Ok(()))
+    }
+}
 
 pub trait CheckCompat {
     type Context<'a>;
 
-    fn check_compat(ck: CompatPair<&'_ Self>, cx: CompatPair<Self::Context<'_>>) -> CompatResult;
+    fn check_compat(
+        ck: CompatPair<&'_ Self>,
+        cx: CompatPair<Self::Context<'_>>,
+        log: &mut CompatLog,
+    );
 }
 
+#[derive(Debug)]
 pub struct CompatError {
     cx: SideInclusive<Box<dyn fmt::Debug>>,
     message: String,
@@ -17,15 +49,7 @@ pub struct CompatError {
 
 impl fmt::Display for CompatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.cx {
-            SideInclusive::Reader(r) => write!(f, "({r:?} in reader) "),
-            SideInclusive::Writer(w) => write!(f, "({w:?} in writer) "),
-            SideInclusive::Both { reader, writer } => {
-                write!(f, "({reader:?} in reader, {writer:?} in writer) ")
-            },
-        }?;
-
-        write!(f, "{}", self.message)
+        write!(f, "({:?}) {}", self.cx.display(), self.message)
     }
 }
 
@@ -39,8 +63,8 @@ impl CompatError {
     }
 
     #[inline]
-    #[deprecated]
-    pub fn warn(self) {
-        tracing::warn!("{self}");
-    }
+    pub fn err(self, log: &mut CompatLog) { log.errors.push(self); }
+
+    #[inline]
+    pub fn warn(self, log: &mut CompatLog) { log.warnings.push(self); }
 }

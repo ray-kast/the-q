@@ -75,6 +75,6 @@ pub fn commit_file<'a>(
     };
 
     entry
-        .map(|e| e.to_object(&repo).and_then(|o| o.peel_to_blob()))
+        .map(|e| e.to_object(repo).and_then(|o| o.peel_to_blob()))
         .transpose()
 }

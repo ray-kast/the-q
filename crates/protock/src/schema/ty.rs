@@ -10,7 +10,7 @@ use super::{
     TypeMap,
 };
 use crate::{
-    check_compat::{CheckCompat, CompatError, CompatResult},
+    check_compat::{CheckCompat, CompatError, CompatLog},
     compat_pair::CompatPair,
 };
 
@@ -105,23 +105,26 @@ pub struct TypeContext<'a> {
 impl CheckCompat for Type {
     type Context<'a> = TypeContext<'a>;
 
-    fn check_compat(ck: CompatPair<&'_ Type>, cx: CompatPair<Self::Context<'_>>) -> CompatResult {
+    fn check_compat(
+        ck: CompatPair<&'_ Type>,
+        cx: CompatPair<Self::Context<'_>>,
+        log: &mut CompatLog,
+    ) {
         match ck.map(|t| &t.0).into_inner() {
             (Kind::Message(ref reader), Kind::Message(ref writer)) => {
-                CompatPair::new(reader, writer).check(cx)
+                CompatPair::new(reader, writer).check(cx, log);
             },
             (Kind::Enum(ref reader), Kind::Enum(ref writer)) => {
-                CompatPair::new(reader, writer).check(cx)
+                CompatPair::new(reader, writer).check(cx, log);
             },
-            (rd, wr) => Err(CompatError::new(
+            (rd, wr) => CompatError::new(
                 cx.map(|c| c.kind.to_owned()).into(),
-                // TODO: DRY the "x in reader, y in writer" stuff
                 format!(
-                    "Type mismatch: {} in reader, {} in writer",
-                    rd.var_pretty(),
-                    wr.var_pretty()
+                    "Type mismatch: {}",
+                    CompatPair::new(&rd, &wr).map(|t| t.var_pretty()).display(),
                 ),
-            )),
+            )
+            .err(log),
         }
     }
 }

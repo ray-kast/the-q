@@ -11,8 +11,16 @@ use prost_types::{
 
 use super::{scope::GlobalScope, scope_ref::ScopeRef};
 use crate::schema::{
-    field::Field, field_kind::FieldKind, field_type::FieldType, primitive::PrimitiveType,
-    record::Record, reserved::ReservedMap, ty::Type, variant::Variant, Schema,
+    field::{Field, FieldExtra},
+    field_kind::FieldKind,
+    field_type::FieldType,
+    oneof::Oneof,
+    primitive::PrimitiveType,
+    record::Record,
+    reserved::ReservedMap,
+    ty::Type,
+    variant::Variant,
+    Schema,
 };
 
 pub struct Visitor<'a>(&'a mut Schema);
@@ -118,15 +126,19 @@ impl<'a> Visitor<'a> {
         };
 
         let mut numbers = HashMap::new();
+        let mut oneofs = vec![];
 
         for field in field {
             Self::field(&mut numbers, scope, field);
         }
 
         for oneof in oneof_decl {
-            let OneofDescriptorProto { name: _, options } = oneof;
+            let OneofDescriptorProto { name, options } = oneof;
 
+            let name = name.as_ref().unwrap();
             assert!(options.is_none());
+
+            oneofs.push(Oneof::new(name.into()));
         }
 
         let reserved = if deprecated {
@@ -147,7 +159,13 @@ impl<'a> Visitor<'a> {
                 .types
                 .insert(
                     qual_name.into_owned(),
-                    Type::message(Record::new(numbers, reserved, reserved_names, is_for_map))
+                    Type::message(Record::new(
+                        numbers,
+                        reserved,
+                        reserved_names,
+                        is_for_map,
+                        FieldExtra::new(oneofs)
+                    ))
                 )
                 .is_none()
         );
@@ -229,7 +247,7 @@ impl<'a> Visitor<'a> {
                 FieldType::Named(qual)
             },
             FieldKind::new(label, packed, *proto3_optional),
-            *oneof_index,
+            oneof_index.map(|i| usize::try_from(i).unwrap().into()),
         );
 
         assert!(numbers.insert(number, field).is_none());
@@ -316,7 +334,8 @@ impl<'a> Visitor<'a> {
                             .collect(),
                         reserved,
                         reserved_names,
-                        false
+                        false,
+                        (),
                     ))
                 )
                 .is_none()
