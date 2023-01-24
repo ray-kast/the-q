@@ -9,6 +9,7 @@ RUN apt-get update -y && \
   apt-get install -y \
     cmake \
     jq \
+    protobuf-compiler \
   && \
   rm -rf /var/lib/apt/lists/*
 
@@ -52,8 +53,8 @@ WORKDIR /opt/the-q
 
 RUN apt-get update -y && \
   apt-get install -y --no-install-recommends \
-    && \
-    rm -rf /var/lib/apt/lists/*
+  && \
+  rm -rf /var/lib/apt/lists/*
 
 COPY .env .env.prod ./
 
