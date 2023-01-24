@@ -37,7 +37,7 @@ services:
       target: bot
     environment:
       - LOKI_ENDPOINT=http://loki:3100/
-      - RUST_LOG=info,the_q=debug
+      - RUST_LOG=info,the_q=trace
     volumes:
       - type: bind
         source: ./.env.local
