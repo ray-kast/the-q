@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package modal;
+
+enum ModalSource {
+  UNKNOWN = 0;
+  COMMAND = 1;
+  COMPONENT = 2;
+}
+
+message Modal {
+  ModalSource source = 1;
+
+  oneof payload {
+    Rename rename = 2;
+  }
+}
+
+message Rename {
+}

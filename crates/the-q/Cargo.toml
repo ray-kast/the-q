@@ -7,12 +7,16 @@ edition = "2021"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/ray-kast/the-q/"
 
+build = "build.rs"
+
 [dependencies]
 anyhow = "1.0.68"
 async-trait = "0.1.60"
+base64k = { version = "=0.1.0", path = "../base64k" }
 clap = { version = "4.0.32", features = ["env", "cargo", "derive"] }
 dotenv = "0.15.0"
 futures-util = "0.3.25"
+prost = "0.11.6"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.91"
 serenity = { version = "0.11.5", default-features = false, features = ["tokio", "parking_lot", "client", "builder", "cache", "chrono", "gateway", "model", "http", "utils", "rustls_backend", "voice_model", "voice"] }
@@ -23,3 +27,8 @@ tracing = "0.1.37"
 tracing-loki = { version = "0.2.1", default-features = false, features = ["rustls", "compat-0-2-1"] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "fmt", "tracing-log"] }
 url = "2.3.1"
+zstd = { version = "0.12.2", features = ["experimental"] }
+
+[build-dependencies]
+glob = "0.3.1"
+prost-build = "0.11.6"

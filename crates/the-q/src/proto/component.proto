@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package component;
+
+message Component {
+  oneof payload {
+    Role role = 1;
+  }
+}
+
+message Role {
+}

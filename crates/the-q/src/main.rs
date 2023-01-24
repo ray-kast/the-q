@@ -13,6 +13,7 @@
 
 pub(crate) mod client;
 mod entry;
+pub(crate) mod proto;
 pub(crate) mod util;
 
 pub(crate) mod prelude {

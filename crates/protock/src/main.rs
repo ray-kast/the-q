@@ -83,7 +83,13 @@ mod entry {
             })
             .init();
 
-        std::process::exit(run(opts).map_or(1, |()| 0));
+        std::process::exit(run(opts).map_or_else(
+            |e| {
+                tracing::error!("{e:?}");
+                1
+            },
+            |()| 0,
+        ));
     }
 
     #[inline]

@@ -6,7 +6,7 @@ use serenity::{
     utils::MessageBuilder,
 };
 
-use super::ResponseData;
+use super::{Components, ResponseData};
 
 // TODO: handle embeds and attachments
 #[derive(Debug)]
@@ -15,21 +15,23 @@ pub struct MessageBody {
     ping_replied: bool,
     ping_users: Vec<UserId>,
     ping_roles: Vec<RoleId>,
+    components: Components,
 }
 
 macro_rules! build_body {
-    ($self:expr, $builder:expr) => {{
+    ($self:expr, $builder:expr, $fn:ident) => {{
         let Self {
             content,
             ping_replied,
             ping_users,
             ping_roles,
+            components,
         } = $self;
-        $builder.content(content).allowed_mentions(|m| {
+        components.$fn($builder.content(content).allowed_mentions(|m| {
             m.replied_user(ping_replied)
                 .users(ping_users)
                 .roles(ping_roles)
-        })
+        }))
     }};
 }
 
@@ -43,6 +45,7 @@ impl MessageBody {
             ping_replied: false,
             ping_users: vec![],
             ping_roles: vec![],
+            components: Components::default(),
         }
     }
 
@@ -67,7 +70,7 @@ impl MessageBody {
         self,
         res: &mut EditInteractionResponse,
     ) -> &mut EditInteractionResponse {
-        build_body!(self, res)
+        build_body!(self, res, build_edit_response)
     }
 
     #[inline]
@@ -75,7 +78,7 @@ impl MessageBody {
         self,
         fup: &'a mut CreateInteractionResponseFollowup<'b>,
     ) -> &'a mut CreateInteractionResponseFollowup<'b> {
-        build_body!(self, fup)
+        build_body!(self, fup, build_followup)
     }
 }
 
@@ -85,7 +88,7 @@ impl ResponseData for MessageBody {
         self,
         data: &'a mut CreateInteractionResponseData<'b>,
     ) -> &'a mut CreateInteractionResponseData<'b> {
-        build_body!(self, data)
+        build_body!(self, data, build_response_data)
     }
 }
 

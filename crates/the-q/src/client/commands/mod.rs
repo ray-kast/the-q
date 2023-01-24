@@ -5,7 +5,6 @@ mod test;
 mod vc;
 
 pub(self) mod prelude {
-    // TODO: minimize these
     pub(super) use serenity::{
         builder::CreateApplicationCommand,
         model::{
@@ -24,7 +23,10 @@ pub(self) mod prelude {
         visitor,
         visitor::Visitor,
     };
-    pub use crate::prelude::*;
+    pub use crate::{
+        prelude::*,
+        proto::{component, modal},
+    };
 }
 
 pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler>> {
