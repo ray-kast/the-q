@@ -2,11 +2,17 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt,
     sync::Arc,
 };
 
 use rand::prelude::*;
-use serenity::{model::prelude::*, prelude::*};
+use serenity::{
+    builder::{CreateApplicationCommand, CreateApplicationCommandOption},
+    model::prelude::*,
+    prelude::*,
+    utils::MessageBuilder,
+};
 use tracing::Instrument;
 use tracing_subscriber::prelude::*;
 
@@ -107,6 +113,86 @@ impl<T> CrudOp<T> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum CommandOpt {
+    String(String, bool),
+    Subcommand(String, Vec<CommandOpt>),
+    Group(String, Vec<CommandOpt>),
+}
+
+fn command_opt(
+    opt: &mut CreateApplicationCommandOption,
+    ty: command::CommandOptionType,
+    name: String,
+    req: bool,
+) -> &mut CreateApplicationCommandOption {
+    opt.kind(ty).name(name).description("foo").required(req)
+}
+
+impl CommandOpt {
+    fn str(s: impl fmt::Display, r: bool) -> Self { Self::String(s.to_string(), r) }
+
+    fn subcmd(s: impl fmt::Display, o: impl IntoIterator<Item = Self>) -> Self {
+        Self::Subcommand(s.to_string(), o.into_iter().collect())
+    }
+
+    fn group(s: impl fmt::Display, o: impl IntoIterator<Item = Self>) -> Self {
+        Self::Group(s.to_string(), o.into_iter().collect())
+    }
+
+    fn build_cmd<'a>(
+        opts: &[Self],
+        cmd: &'a mut CreateApplicationCommand,
+    ) -> &'a mut CreateApplicationCommand {
+        cmd.name("foo")
+            .kind(command::CommandType::ChatInput)
+            .description("a command");
+
+        for opt in opts {
+            cmd.create_option(|o| opt.build(o));
+        }
+
+        cmd
+    }
+
+    fn build<'a>(
+        &self,
+        opt: &'a mut CreateApplicationCommandOption,
+    ) -> &'a mut CreateApplicationCommandOption {
+        match *self {
+            CommandOpt::String(ref s, r) => opt
+                .kind(command::CommandOptionType::String)
+                .name(s)
+                .description("a string")
+                .required(r),
+
+            CommandOpt::Subcommand(ref s, ref o) => {
+                opt.kind(command::CommandOptionType::SubCommand)
+                    .name(s)
+                    .description("a subcommand");
+
+                for o in o {
+                    opt.create_sub_option(|s| o.build(s));
+                }
+
+                opt
+            },
+
+            CommandOpt::Group(ref s, ref o) => {
+                opt.kind(command::CommandOptionType::SubCommandGroup)
+                    .name(s)
+                    .description("a group");
+
+                for o in o {
+                    opt.create_sub_option(|s| o.build(s));
+                }
+
+                opt
+            },
+        }
+    }
+}
+
 enum TestMode {
     Cartesian {
         untried: BTreeSet<(InteractionType, interaction::InteractionResponseType)>,
@@ -119,6 +205,11 @@ enum TestMode {
         results: BTreeMap<(FlowType, Box<[CrudOp<ResponseType>]>), bool>,
     },
     PingPong,
+    CommandReg {
+        untried: BTreeSet<Vec<CommandOpt>>,
+        results: BTreeMap<Vec<CommandOpt>, bool>,
+        cmd: Option<command::Command>,
+    },
 }
 
 struct Handler {
@@ -328,7 +419,7 @@ async fn try_pair(
     })
     .await;
 
-    let mut mb = serenity::utils::MessageBuilder::new();
+    let mut mb = MessageBuilder::new();
 
     match res {
         Ok(()) => mb.push_bold("Success!"),
@@ -384,6 +475,120 @@ async fn try_pair(
     .ok();
 }
 
+async fn try_cmdreg(
+    int: &interaction::Interaction,
+    http: impl AsRef<serenity::http::Http> + Clone,
+    untried: &mut BTreeSet<Vec<CommandOpt>>,
+    results: &mut BTreeMap<Vec<CommandOpt>, bool>,
+    cmd: &mut Option<command::Command>,
+) {
+    #[tracing::instrument(level = "error", name = "try_pair", skip(f))]
+    async fn run(
+        opts: &[CommandOpt],
+        f: impl std::future::Future<Output = serenity::Result<command::Command>>,
+    ) -> serenity::Result<command::Command> {
+        let res = f.await;
+        match &res {
+            Ok(cmd) => tracing::info!(?cmd, "Success!"),
+            Err(e) => tracing::error!(%e, "Error"),
+        }
+        res
+    }
+
+    let Some(opts) = untried.pop_first() else {
+        tracing::warn!("No untried options left");
+        return;
+    };
+
+    let h = http.clone();
+    let res = run(&opts, async {
+        let c = match cmd {
+            Some(c) => {
+                command::Command::edit_global_application_command(h, c.id, |c| {
+                    CommandOpt::build_cmd(&opts, c)
+                })
+                .await
+            },
+            None => {
+                command::Command::create_global_application_command(h, |c| {
+                    CommandOpt::build_cmd(&opts, c);
+                    tracing::debug!(?c);
+                    c
+                })
+                .await
+            },
+        }?;
+
+        *cmd = Some(c.clone());
+
+        Ok(c)
+    })
+    .await;
+
+    if let Ok(ref c) = res {
+        let mut mb = MessageBuilder::new();
+        mb.push_codeblock_safe(format!("{:?}", c.options), None);
+
+        create_response(int, http.clone(), |res| {
+            res.kind(interaction::InteractionResponseType::ChannelMessageWithSource)
+                .interaction_response_data(|d| d.content(mb))
+        })
+        .await
+        .map_err(|e| tracing::warn!(%e, "Failed to send created command"))
+        .ok();
+    }
+
+    let mut mb = MessageBuilder::new();
+
+    match res {
+        Ok(_) => mb.push_bold("Success!"),
+        Err(ref e) => mb.push_bold("ERROR: ").push_mono_safe(e),
+    }
+    .push('\n');
+
+    results.insert(opts, res.is_ok());
+
+    if untried.is_empty() {
+        mb.push_bold_line("Test suite completed!");
+
+        let mut s = "Results:".to_owned();
+
+        for (opts, success) in results.iter() {
+            use std::fmt::Write;
+
+            let success = if *success { "OK" } else { "FAIL" };
+
+            mb.push_mono_safe(format!("{opts:?}"))
+                .push(": ")
+                .push_bold_line(success);
+
+            let opts = format!("{opts:?}");
+            write!(s, "\n{opts:<74}: {success}").unwrap();
+        }
+
+        tracing::info!("{s}");
+    } else {
+        mb.push_bold_line("Remaining items:");
+        for opts in untried.iter() {
+            mb.push_mono_line_safe(format!("{opts:?}"));
+        }
+    }
+
+    if res.is_ok() {
+        create_followup(int, http, |res| res.content(mb))
+            .await
+            .map(|_| ())
+    } else {
+        create_response(int, http, |res| {
+            res.kind(interaction::InteractionResponseType::ChannelMessageWithSource)
+                .interaction_response_data(|d| d.content(mb))
+        })
+        .await
+    }
+    .map_err(|e| tracing::warn!(%e, "Failed to send followup"))
+    .ok();
+}
+
 fn pick_random<T, R: IntoIterator<Item = T>>(from: &mut Vec<T>, refill: impl FnOnce() -> R) -> T {
     if from.is_empty() {
         from.extend(refill());
@@ -394,10 +599,10 @@ fn pick_random<T, R: IntoIterator<Item = T>>(from: &mut Vec<T>, refill: impl FnO
 
 fn print_crud_results(
     results: &BTreeMap<(FlowType, Box<[CrudOp<ResponseType>]>), bool>,
-) -> serenity::utils::MessageBuilder {
+) -> MessageBuilder {
     use std::fmt::Write;
 
-    let mut mb = serenity::utils::MessageBuilder::new();
+    let mut mb = MessageBuilder::new();
     mb.push_bold_line("Results:");
     let mut s = "Results:".to_owned();
 
@@ -591,6 +796,45 @@ impl EventHandler for Handler {
                 .map_err(|e| tracing::warn!(%e))
                 .ok();
             },
+
+            TestMode::CommandReg {
+                ref mut untried,
+                ref mut results,
+                ref mut cmd,
+            } => match flow {
+                FlowType::TopLevel(InteractionType::Command(command::CommandType::ChatInput)) => {
+                    let interaction::Interaction::ApplicationCommand(ref cmd) = int else { unreachable!() };
+
+                    let info = (&cmd.data.options,);
+                    tracing::info!(?info);
+
+                    let mut mb = MessageBuilder::new();
+                    mb.push_mono_safe(format!("{info:?}"));
+
+                    create_response(&int, &ctx.http, |res| {
+                        res.kind(interaction::InteractionResponseType::ChannelMessageWithSource)
+                            .interaction_response_data(|d| d.content(mb))
+                    })
+                    .await
+                    .map_err(|e| tracing::warn!(%e))
+                    .ok();
+                },
+                FlowType::TopLevel(InteractionType::MessageComponent) => {
+                    try_cmdreg(&int, &ctx.http, untried, results, cmd).await;
+                },
+                f => {
+                    create_response(&int, &ctx.http, |res| {
+                        sample_create_response(
+                            f.initial_interaction(),
+                            interaction::InteractionResponseType::ChannelMessageWithSource,
+                            res,
+                        )
+                    })
+                    .await
+                    .map_err(|e| tracing::warn!(%e))
+                    .ok();
+                },
+            },
         }
     }
 }
@@ -603,6 +847,7 @@ enum Subcommand {
     },
     CrudBrute,
     PingPong,
+    CommandReg,
 }
 
 #[derive(clap::Parser)]
@@ -701,6 +946,23 @@ async fn main() {
             }
         },
         Subcommand::PingPong => TestMode::PingPong,
+        Subcommand::CommandReg => {
+            use CommandOpt as Opt;
+
+            let untried = [
+                // vec![Opt::str("s", true)],
+                // vec![Opt::str("s", false)],
+                vec![Opt::subcmd("c", [Opt::str("s", true)])],
+            ]
+            .into_iter()
+            .collect();
+
+            TestMode::CommandReg {
+                untried,
+                results: BTreeMap::default(),
+                cmd: None,
+            }
+        },
     };
 
     let mut client = Client::builder(discord_token, GatewayIntents::non_privileged())

@@ -171,20 +171,23 @@ impl<'a> RecordValue<'a> for Variant {
         let ((), ()) = extra.into_inner();
 
         for side in ck.iter() {
-            let (side, (value, var)) = side.split();
-            CompatError::new(
-                side.then(
-                    cx.as_ref()
-                        .visit(side)
-                        .kind
-                        .type_name()
-                        .member(var.name_pretty(true))
-                        .to_owned(),
+            let (side, (&value, var)) = side.split();
+
+            if value < 0 {
+                CompatError::new(
+                    side.then(
+                        cx.as_ref()
+                            .visit(side)
+                            .kind
+                            .type_name()
+                            .member(var.name_pretty(true))
+                            .to_owned(),
+                    )
+                    .into(),
+                    format!("Negative enum value {value}"),
                 )
-                .into(),
-                format!("Negative enum value {value}"),
-            )
-            .warn(log);
+                .warn(log);
+            }
         }
     }
 }

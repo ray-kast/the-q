@@ -65,6 +65,7 @@ impl PrimitiveType {
     }
 }
 
+// TODO: replace all instances of Infallible with !
 type NumericWireType = WireType<std::convert::Infallible>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

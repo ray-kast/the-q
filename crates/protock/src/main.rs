@@ -19,7 +19,10 @@ mod union_find;
 fn main() { entry::main(); }
 
 mod entry {
-    use std::{io::prelude::*, path::PathBuf};
+    use std::{
+        io::prelude::*,
+        path::{Path, PathBuf},
+    };
 
     use anyhow::{Context, Result};
     use clap::Parser;
@@ -149,7 +152,7 @@ mod entry {
     fn check_protos(
         new_schema: &Schema,
         new_name: &str,
-        old: impl AsRef<std::ffi::OsStr>,
+        old: impl AsRef<Path>,
         old_name: &str,
         mode: Mode,
     ) -> Result<()> {
