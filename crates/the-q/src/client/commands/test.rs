@@ -5,10 +5,7 @@ pub struct TestCommand;
 
 #[async_trait]
 impl Handler for TestCommand {
-    fn register(&self, _: &handler::Opts, cmd: &mut CreateApplicationCommand) -> Option<GuildId> {
-        cmd.name("Test").kind(CommandType::User);
-        None
-    }
+    fn register_global(&self, _: &handler::Opts) -> CommandInfo { CommandInfo::user("Test") }
 
     async fn respond<'a>(
         &self,

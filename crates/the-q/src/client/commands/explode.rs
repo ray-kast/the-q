@@ -5,9 +5,8 @@ pub struct ExplodeCommand;
 
 #[async_trait]
 impl Handler for ExplodeCommand {
-    fn register(&self, _: &handler::Opts, cmd: &mut CreateApplicationCommand) -> Option<GuildId> {
-        cmd.kind(CommandType::User).name("Blender Explode");
-        None
+    fn register_global(&self, _: &handler::Opts) -> CommandInfo {
+        CommandInfo::user("Blender Explode")
     }
 
     async fn respond<'a>(

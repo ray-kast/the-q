@@ -52,7 +52,7 @@ fn init_subscriber<
     f(reg)
         .with(fmt_layer())
         .try_init()
-        .unwrap_or_else(|e| init_error!("Failed to initialize logger: {e}"));
+        .unwrap_or_else(|e| init_error!("Error initializing logger: {e}"));
 }
 
 #[allow(clippy::inline_always)]
@@ -78,7 +78,7 @@ pub fn main() {
             Ok(())
         },
         Err(dotenv::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e).with_context(|| format!("Failed to load {p:?}")),
+        Err(e) => Err(e).with_context(|| format!("Error loading env from {p:?}")),
     })
     .unwrap_or_else(|e| init_error!("Loading .env files failed: {e:?}"));
 
@@ -94,7 +94,7 @@ pub fn main() {
             [].into_iter().collect(),
             [].into_iter().collect(),
         )
-        .unwrap_or_else(|err| init_error!(%err, "Failed to initialize Loki exporter"));
+        .unwrap_or_else(|err| init_error!(%err, "Error initializing Loki exporter"));
 
         init_subscriber(log_filter, |r| r.with(layer));
         Some(task)
@@ -117,7 +117,7 @@ pub fn main() {
         builder
             .enable_all()
             .build()
-            .unwrap_or_else(|e| init_error!("Failed to initialize async runtime: {e}"))
+            .unwrap_or_else(|e| init_error!("Async runtime setup error: {e}"))
     };
 
     let def = std::panic::take_hook();
@@ -188,7 +188,7 @@ async fn run(opts: Opts) -> Result {
         .into_iter()
         .map(|k| {
             tokio::signal::unix::signal(k)
-                .with_context(|| format!("Failed to hook signal {k:?}"))
+                .with_context(|| format!("Error hooking signal {k:?}"))
                 .map(|mut s| async move {
                     s.recv().await;
                     Result::<_>::Ok(k)

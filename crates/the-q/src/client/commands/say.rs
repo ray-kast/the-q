@@ -5,17 +5,11 @@ pub struct SayCommand;
 
 #[async_trait]
 impl Handler for SayCommand {
-    fn register(&self, _: &handler::Opts, cmd: &mut CreateApplicationCommand) -> Option<GuildId> {
-        cmd.kind(CommandType::ChatInput)
-            .name("qsay")
-            .description("say something!")
-            .create_option(|opt| {
-                opt.kind(CommandOptionType::String)
-                    .name("message")
-                    .description("The message to send")
-                    .required(true)
-            });
-        None
+    fn register_global(&self, _: &handler::Opts) -> CommandInfo {
+        CommandInfo::build_slash("qsay", "say something!", |a| {
+            a.string("message", "The message to send", true, ..)
+        })
+        .unwrap()
     }
 
     async fn respond<'a>(

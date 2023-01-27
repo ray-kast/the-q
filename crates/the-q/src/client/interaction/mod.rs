@@ -1,3 +1,4 @@
+pub mod command;
 pub mod handler;
 mod registry;
 pub mod response;

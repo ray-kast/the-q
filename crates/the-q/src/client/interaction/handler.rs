@@ -1,12 +1,11 @@
 use serenity::{
-    builder::CreateApplicationCommand,
     client::Context,
     model::{
         application::interaction::application_command::ApplicationCommandInteraction, id::GuildId,
     },
 };
 
-use super::{response, visitor};
+use super::{command::CommandInfo, response, visitor};
 use crate::prelude::*;
 
 // TODO: can argument/config parsing be (easily) included in the Handler trait?
@@ -47,8 +46,16 @@ impl<'a> IntoErr<CommandError<'a>>
 
 #[async_trait]
 pub trait CommandHandler: fmt::Debug + Send + Sync {
-    // TODO: returning an optional GuildId is the stupidest way to handle scope
-    fn register(&self, opts: &Opts, cmd: &mut CreateApplicationCommand) -> Option<GuildId>;
+    fn register_global(&self, opts: &Opts) -> CommandInfo;
+
+    #[inline]
+    fn register_guild(&self, opts: &Opts, id: GuildId) -> Option<CommandInfo> {
+        // Use the variables to give the trait args a nice name without getting
+        // dead code warnings
+        #[allow(clippy::let_underscore_drop)]
+        let _ = (opts, id);
+        None
+    }
 
     // TODO: set timeout for non-deferred commands?
     async fn respond<'a>(

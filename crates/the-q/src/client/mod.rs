@@ -30,5 +30,5 @@ pub async fn build(opts: ClientOpts) -> Result<Client> {
         .event_handler_arc(handler)
         .register_songbird()
         .await
-        .context("Failed to construct Serenity client")
+        .context("Error constructing Serenity client")
 }

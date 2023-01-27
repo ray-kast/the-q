@@ -271,6 +271,7 @@ impl<'a, T, E> OptionVisitor<'a, std::result::Result<T, E>> {
 #[repr(transparent)]
 pub struct GuildVisitor(Option<GuildId>);
 
+// TODO: handle the dm_permission field
 impl GuildVisitor {
     #[inline]
     pub fn optional(self) -> Option<GuildId> { self.0 }

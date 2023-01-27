@@ -1,0 +1,74 @@
+mod foo {
+    use std::borrow::{Borrow, BorrowMut};
+
+    pub trait FooBuilderExt: Sized + BorrowMut<FooBuilder> {
+        fn val(mut self, val: usize) -> Self {
+            self.borrow_mut().val = val;
+            self
+        }
+    }
+
+    impl<T: Sized + BorrowMut<FooBuilder>> FooBuilderExt for T {}
+
+    pub trait BarBuilderExt: Sized + BorrowMut<BarBuilder> {
+        fn item(mut self, item: usize) -> Self {
+            self.borrow_mut().items.push(item);
+            self
+        }
+    }
+
+    impl<T: Sized + BorrowMut<BarBuilder>> BarBuilderExt for T {}
+
+    #[derive(Default)]
+    pub struct FooBuilder {
+        val: usize,
+        bar: BarBuilder,
+    }
+
+    #[derive(Default)]
+    pub struct BarBuilder {
+        items: Vec<usize>,
+    }
+
+    impl Borrow<BarBuilder> for FooBuilder {
+        fn borrow(&self) -> &BarBuilder { &self.bar }
+    }
+
+    impl BorrowMut<BarBuilder> for FooBuilder {
+        fn borrow_mut(&mut self) -> &mut BarBuilder { &mut self.bar }
+    }
+
+    impl FooBuilder {
+        pub fn build(self) -> Foo {
+            let Self { val, bar: BarBuilder { items } } = self;
+            Foo { val, items }
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Foo {
+        val: usize,
+        items: Vec<usize>,
+    }
+}
+
+mod prelude {
+    pub use super::foo::{FooBuilderExt as _, BarBuilderExt as _};
+}
+
+mod test {
+    use super::prelude::*;
+    use super::foo;
+
+    fn test2(x: &mut foo::FooBuilder) -> &mut foo::FooBuilder { x.val(4) }
+
+    pub fn main() {
+        let foo1 = foo::FooBuilder::default().val(1).item(2).build();
+        let mut b = foo::FooBuilder::default();
+        test2(&mut b);
+        let foo2 = b.build();
+        println!("{foo1:#?}\n{foo2:#?}")
+    }
+}
+
+fn main() { test::main() }

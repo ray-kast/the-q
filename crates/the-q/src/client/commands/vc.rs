@@ -5,15 +5,8 @@ pub struct VcCommand;
 
 #[async_trait]
 impl Handler for VcCommand {
-    fn register(
-        &self,
-        opts: &handler::Opts,
-        cmd: &mut CreateApplicationCommand,
-    ) -> Option<GuildId> {
-        cmd.name(&opts.command_base)
-            .description(";)")
-            .kind(CommandType::ChatInput);
-        None
+    fn register_global(&self, opts: &handler::Opts) -> CommandInfo {
+        CommandInfo::slash(&opts.command_base, ";)", Args::default())
     }
 
     async fn respond<'a>(
@@ -56,14 +49,14 @@ impl Handler for VcCommand {
                 .await
                 .context("Error sending channel join error")?;
 
-            return Err(responder.into_err("Couldn't join call (missing permissions?)"));
+            return Err(responder.into_err("Error joining call (missing permissions?)"));
         }
 
         call.lock()
             .await
             .leave()
             .await
-            .context("Failed to leave call")?;
+            .context("Error leaving call")?;
 
         responder
             .edit(MessageBody::plain(";)"))

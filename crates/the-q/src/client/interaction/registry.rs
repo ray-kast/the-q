@@ -1,5 +1,3 @@
-// !TODO: stop saying "Failed to"
-
 use std::fmt::Write;
 
 use serenity::{
@@ -23,8 +21,11 @@ use serenity::{
 };
 
 use super::{
+    command::RegisteredCommand,
     handler,
-    response::{BorrowedResponder, BorrowingResponder, InitResponder, Message, MessageOpts},
+    response::{
+        prelude::*, BorrowedResponder, BorrowingResponder, InitResponder, Message, MessageOpts,
+    },
     visitor,
 };
 use crate::prelude::*;
@@ -188,95 +189,73 @@ pub struct Registry {
 
 impl Registry {
     #[instrument(level = "debug", skip(ctx))]
-    async fn patch_commands(ctx: &Context, init: &RegistryInit) -> Result<HandlerMap> {
+    async fn patch_commands(
+        ctx: &Context,
+        init: &RegistryInit,
+        guild: Option<GuildId>,
+    ) -> Result<HandlerMap> {
+        if let Some(guild) = guild {
+            todo!("handle guild {guild}");
+        }
+
         let RegistryInit { opts, list } = init;
         let mut handlers = HashMap::new();
 
-        let cmds = Command::get_global_application_commands(&ctx.http)
+        let existing = Command::get_global_application_commands(&ctx.http)
             .await
-            .context("Failed to get initial command list")?;
+            .context("Error fetching initial command list")?
+            .into_iter()
+            .map(RegisteredCommand::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .context("Error parsing initial command list")?;
 
-        let mut existing: HashMap<_, _> = cmds
+        let mut unpaired_existing: HashMap<_, _> = existing.iter().map(|r| (&r.info, r)).collect();
+
+        let mut new: HashMap<_, _> = list
             .iter()
-            .map(|c| ((Borrowed(c.name.as_str()), c.kind, c.guild_id), Borrowed(c)))
+            .map(|c| {
+                let inf = c.register_global(opts);
+                (inf.name().clone(), (c, inf))
+            })
             .collect();
+        assert_eq!(new.len(), list.len());
 
-        for cmd in list {
-            let mut builder = serenity::builder::CreateApplicationCommand::default();
-            let scope = cmd.register(opts, &mut builder);
-            let builder = builder;
+        let mut unpaired_new: HashSet<_> = HashSet::new();
 
-            let name = builder
-                .0
-                .get("name")
-                .and_then(serde_json::Value::as_str)
-                .expect("Missing command name!")
-                .to_owned();
-            let kind = builder.0.get("type").expect("Missing command type!");
-            let kind = serde_json::from_value(kind.clone()).expect("Invalid command type!");
-
-            let id = existing
-                .get(&(Borrowed(name.as_str()), kind, scope))
-                .map(|c| c.id);
-            let map = serde_json::Value::from(serenity::json::hashmap_to_json_map(builder.0));
-
-            // TODO: skip HTTP request for identical commands
-
-            // Shoutout to serenity for not having non-builder command methods
-            let res = match (id, scope) {
-                (None, None) => {
-                    debug!("Creating global command {name:?}");
-                    ctx.http.create_global_application_command(&map).await
-                },
-                (None, Some(guild)) => {
-                    debug!("Creating guild command {name:?} for {guild:?}");
-                    ctx.http
-                        .create_guild_application_command(guild.into(), &map)
-                        .await
-                },
-                (Some(id), None) => {
-                    debug!("Updating global command {name:?} (ID {id:?})");
-                    ctx.http
-                        .edit_global_application_command(id.into(), &map)
-                        .await
-                },
-                (Some(id), Some(guild)) => {
-                    debug!("Updating guild command {name:?} (ID {id:?}) for {guild:?}");
-                    ctx.http
-                        .edit_guild_application_command(guild.into(), id.into(), &map)
-                        .await
-                },
-            }
-            .with_context(|| format!("Failed to upsert {cmd:?}"))?;
-
-            let was_updated = id.is_some();
-            let id = res.id;
-            let prev = existing.insert(
-                (Owned(res.name.clone()), res.kind, res.guild_id),
-                Owned(res),
-            );
-
-            assert_eq!(prev.is_some(), was_updated);
-            assert!(prev.map_or(true, |v| matches!(v, Borrowed(_))));
-
-            assert!(handlers.insert(id, cmd.clone()).is_none());
-        }
-
-        for cmd in cmds {
-            if handlers.contains_key(&cmd.id) {
+        for (name, (cmd, inf)) in &new {
+            if let Some(reg) = unpaired_existing.remove(inf) {
+                handlers.insert(reg.id, Arc::clone(cmd));
                 continue;
             }
 
-            debug!(
-                "Deleting unregistered command {:?} (ID {:?})",
-                cmd.name, cmd.id
-            );
-
-            Command::delete_global_application_command(&ctx.http, cmd.id)
-                .await
-                .with_context(|| format!("Failed to delete command {cmd:?}"))?;
+            unpaired_new.insert(name.clone());
         }
 
+        // TODO: pair up and upsert similar commands
+        // assert!(unpaired_new.is_empty() || unpaired_existing.is_empty());
+
+        for name in unpaired_new {
+            let (cmd, inf) = new.remove(&name).unwrap();
+            debug!("Creating global command {name:?}");
+            let res = Command::create_global_application_command(&ctx.http, |c| inf.build(c))
+                .await
+                .with_context(|| format!("Error creating command {name:?}"))?;
+
+            assert!(handlers.insert(res.id, Arc::clone(cmd)).is_none());
+        }
+
+        for (inf, reg) in unpaired_existing {
+            debug!(
+                "Deleting unregistered command {:?} (ID {:?})",
+                inf.name(),
+                reg.id,
+            );
+            Command::delete_global_application_command(&ctx.http, reg.id)
+                .await
+                .with_context(|| format!("Error deleting command {:?}", inf.name()))?;
+        }
+
+        assert!(handlers.len() == new.len());
         Ok(handlers)
     }
 
@@ -291,7 +270,9 @@ impl Registry {
     pub async fn init(&self, ctx: &Context) -> Result {
         let mut state = self.map.write().await;
 
-        *state = Some(Self::patch_commands(ctx, &self.init).await?);
+        *state = Some(Self::patch_commands(ctx, &self.init, None).await?);
+
+        // TODO: handle guild commands
 
         Ok(())
     }
@@ -342,7 +323,7 @@ impl Registry {
                 .map(|_| ());
         };
 
-        debug!(?handler, "Handling command");
+        debug!(?handler, "Command handler selected");
 
         let mut vis = visitor::Visitor::new(&aci);
         let mut responder = BorrowedResponder::Init(responder);

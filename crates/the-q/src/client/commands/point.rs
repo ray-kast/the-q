@@ -5,9 +5,8 @@ pub struct PointCommand;
 
 #[async_trait]
 impl Handler for PointCommand {
-    fn register(&self, _: &handler::Opts, cmd: &mut CreateApplicationCommand) -> Option<GuildId> {
-        cmd.kind(CommandType::Message).name("Point and Laugh");
-        None
+    fn register_global(&self, _: &handler::Opts) -> CommandInfo {
+        CommandInfo::message("Point and Laugh")
     }
 
     async fn respond<'a>(

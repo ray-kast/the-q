@@ -1,3 +1,4 @@
+use qcore::builder;
 use serenity::{
     builder::{
         CreateInteractionResponseData, CreateInteractionResponseFollowup, EditInteractionResponse,
@@ -35,6 +36,7 @@ macro_rules! build_body {
     }};
 }
 
+#[builder(trait_name = "MessageBodyExt")]
 impl MessageBody {
     #[inline]
     pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
@@ -54,16 +56,11 @@ impl MessageBody {
         Self::rich(|mb| mb.push_safe(c))
     }
 
-    pub fn ping_replied(self, ping_replied: bool) -> Self {
-        Self {
-            ping_replied,
-            ..self
-        }
-    }
+    pub fn ping_replied(&mut self, ping_replied: bool) { self.ping_replied = ping_replied; }
 
-    pub fn ping_users(self, ping_users: Vec<UserId>) -> Self { Self { ping_users, ..self } }
+    pub fn ping_users(&mut self, ping_users: Vec<UserId>) { self.ping_users = ping_users; }
 
-    pub fn ping_roles(self, ping_roles: Vec<RoleId>) -> Self { Self { ping_roles, ..self } }
+    pub fn ping_roles(&mut self, ping_roles: Vec<RoleId>) { self.ping_roles = ping_roles; }
 
     #[inline]
     pub fn build_edit_response(
@@ -105,13 +102,14 @@ macro_rules! build_opts {
     }};
 }
 
+#[builder(trait_name = "MessageOptsExt")]
 impl MessageOpts {
     #[inline]
     pub fn new() -> Self { Self::default() }
 
-    pub fn tts(self, tts: bool) -> Self { Self { tts, ..self } }
+    pub fn tts(&mut self, tts: bool) { self.tts = tts; }
 
-    pub fn ephemeral(self, ephemeral: bool) -> Self { Self { ephemeral, ..self } }
+    pub fn ephemeral(&mut self, ephemeral: bool) { self.ephemeral = ephemeral; }
 
     #[inline]
     fn build_followup<'a, 'b>(
@@ -138,6 +136,9 @@ pub struct Message {
     opts: MessageOpts,
 }
 
+qcore::borrow!(Message { mut body: MessageBody });
+qcore::borrow!(Message { mut opts: MessageOpts });
+
 macro_rules! build_msg {
     ($self:expr, $builder:expr, $fn:ident) => {{
         let Self { body, opts } = $self;
@@ -154,6 +155,7 @@ impl From<MessageBody> for Message {
     }
 }
 
+#[builder(trait_name = "MessageExt")]
 impl Message {
     #[inline]
     pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
@@ -165,43 +167,6 @@ impl Message {
 
     #[inline]
     pub fn from_parts(body: MessageBody, opts: MessageOpts) -> Self { Self { body, opts } }
-
-    #[inline]
-    fn body(self, f: impl FnOnce(MessageBody) -> MessageBody) -> Self {
-        Self {
-            body: f(self.body),
-            ..self
-        }
-    }
-
-    #[inline]
-    pub fn ping_replied(self, ping_replied: bool) -> Self {
-        self.body(|b| b.ping_replied(ping_replied))
-    }
-
-    #[inline]
-    pub fn ping_users(self, ping_users: Vec<UserId>) -> Self {
-        self.body(|b| b.ping_users(ping_users))
-    }
-
-    #[inline]
-    pub fn ping_roles(self, ping_roles: Vec<RoleId>) -> Self {
-        self.body(|b| b.ping_roles(ping_roles))
-    }
-
-    #[inline]
-    fn opt(self, f: impl FnOnce(MessageOpts) -> MessageOpts) -> Self {
-        Self {
-            opts: f(self.opts),
-            ..self
-        }
-    }
-
-    #[inline]
-    pub fn tts(self, tts: bool) -> Self { self.opt(|o| o.tts(tts)) }
-
-    #[inline]
-    pub fn ephemeral(self, ephemeral: bool) -> Self { self.opt(|o| o.ephemeral(ephemeral)) }
 
     pub fn build_followup<'a, 'b>(
         self,

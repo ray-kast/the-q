@@ -5,21 +5,15 @@ mod test;
 mod vc;
 
 pub(self) mod prelude {
-    pub(super) use serenity::{
-        builder::CreateApplicationCommand,
-        model::{
-            application::command::{CommandOptionType, CommandType},
-            id::GuildId,
-        },
-        prelude::*,
-    };
+    pub(super) use serenity::client::Context;
 
     pub use super::super::interaction::{
+        command::{prelude::*, Args, CommandInfo},
         handler,
         handler::{
             CommandError, CommandHandler as Handler, CommandResponder, CommandResult, IntoErr,
         },
-        response::{Message, MessageBody, MessageOpts, Modal, ResponseData},
+        response::{prelude::*, Message, MessageBody, MessageOpts, Modal, ResponseData},
         visitor,
         visitor::Visitor,
     };
