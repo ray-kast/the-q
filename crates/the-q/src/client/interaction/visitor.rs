@@ -7,7 +7,7 @@ use serenity::model::{
         },
     },
     channel::{Attachment, Message, PartialChannel},
-    guild::{PartialMember, Role},
+    guild::{Member, PartialMember, Role},
     id::GuildId,
     user::User,
 };
@@ -217,10 +217,15 @@ impl<'a> Visitor<'a> {
     }
 
     #[inline]
-    pub fn guild(&self) -> GuildVisitor { GuildVisitor(self.aci.guild_id) }
+    pub fn guild(&self) -> GuildVisitor {
+        assert_eq!(self.aci.guild_id.is_some(), self.aci.member.is_some());
+        GuildVisitor(self.aci.guild_id.zip(self.aci.member.as_ref()))
+    }
 
+    #[inline]
     pub fn user(&self) -> &'a User { &self.aci.user }
 
+    #[inline]
     pub fn target(&self) -> TargetVisitor<'a> {
         TargetVisitor(self.aci.data.kind, &self.aci.data.resolved)
     }
@@ -268,16 +273,19 @@ impl<'a, T, E> OptionVisitor<'a, std::result::Result<T, E>> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct GuildVisitor(Option<GuildId>);
+pub struct GuildVisitor<'a>(Option<(GuildId, &'a Member)>);
 
 // TODO: handle the dm_permission field
-impl GuildVisitor {
+impl<'a> GuildVisitor<'a> {
     #[inline]
-    pub fn optional(self) -> Option<GuildId> { self.0 }
+    pub fn optional(self) -> Option<(GuildId, &'a Member)> { self.0 }
 
-    pub fn required(self) -> Result<GuildId> { self.0.ok_or(Error::GuildRequired) }
+    #[inline]
+    pub fn required(self) -> Result<(GuildId, &'a Member)> { self.0.ok_or(Error::GuildRequired) }
 
+    #[inline]
     pub fn require_dm(self) -> Result<()> {
         self.0.is_none().then_some(()).ok_or(Error::DmRequired)
     }
@@ -286,29 +294,34 @@ impl GuildVisitor {
 pub struct TargetVisitor<'a>(CommandType, &'a CommandDataResolved);
 
 impl<'a> TargetVisitor<'a> {
-    fn pull_single<K, V>(map: &'a HashMap<K, V>, name: &'static str) -> Result<(&'a K, &'a V)> {
+    fn pull_single_opt<K, V>(
+        map: &'a HashMap<K, V>,
+        name: &'static str,
+    ) -> Result<Option<(&'a K, &'a V)>> {
         let mut it = map.iter();
 
-        let pair = it
-            .next()
-            .ok_or_else(|| Error::MissingOptionValue(name.into()))?;
+        let Some(pair) = it.next() else { return Ok(None) };
 
         it.next()
             .is_none()
-            .then_some(pair)
+            .then_some(Some(pair))
             .ok_or_else(|| Error::Trailing(vec![name.into()]))
     }
 
-    pub fn user(self) -> Result<&'a User> {
-        // TODO: should probably get member data wherever user/guild data is exposed
-        let (_uid, user) = Self::pull_single(
-            (self.0 == CommandType::User)
-                .then_some(&self.1.users)
-                .ok_or(Error::NotUser)?,
-            "user",
-        )?;
+    fn pull_single<K, V>(map: &'a HashMap<K, V>, name: &'static str) -> Result<(&'a K, &'a V)> {
+        Self::pull_single_opt(map, name)
+            .and_then(|o| o.ok_or_else(|| Error::MissingOptionValue(name.into())))
+    }
 
-        Ok(user)
+    pub fn user(self) -> Result<(&'a User, Option<&'a PartialMember>)> {
+        let (users, members) = (self.0 == CommandType::User)
+            .then_some((&self.1.users, &self.1.members))
+            .ok_or(Error::NotUser)?;
+
+        let (_uid, user) = Self::pull_single(users, "user")?;
+        let memb = Self::pull_single_opt(members, "member")?.map(|(_, m)| m);
+
+        Ok((user, memb))
     }
 
     pub fn message(self) -> Result<&'a Message> {

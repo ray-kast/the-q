@@ -1,6 +1,6 @@
 use serenity::builder::CreateInteractionResponseData;
 
-use super::{id, ResponseData};
+use super::{id, Components, ResponseData};
 use crate::{prelude::*, proto::modal};
 
 #[derive(Debug, Clone, Copy)]
@@ -25,6 +25,7 @@ impl From<Source> for modal::ModalSource {
 pub struct Modal {
     id: String,
     title: String,
+    components: Components,
 }
 
 impl Modal {
@@ -40,25 +41,22 @@ impl Modal {
                 payload: Some(payload),
             })?,
             title: title.into(),
+            components: Components::default(),
         })
     }
 }
 
-impl ResponseData for Modal {
+impl<'a> ResponseData<'a> for Modal {
     #[inline]
-    fn build_response_data<'a, 'b>(
+    fn build_response_data<'b>(
         self,
-        data: &'a mut CreateInteractionResponseData<'b>,
-    ) -> &'a mut CreateInteractionResponseData<'b> {
-        let Self { id, title } = self;
-        data.custom_id(id).title(title).components(|c| {
-            c.create_action_row(|r| {
-                r.create_input_text(|t| {
-                    t.custom_id("todo")
-                        .style(serenity::model::prelude::component::InputTextStyle::Paragraph)
-                        .label("todo")
-                })
-            })
-        })
+        data: &'b mut CreateInteractionResponseData<'a>,
+    ) -> &'b mut CreateInteractionResponseData<'a> {
+        let Self {
+            id,
+            title,
+            components,
+        } = self;
+        components.build_response_data(data.custom_id(id).title(title))
     }
 }

@@ -15,7 +15,7 @@ impl Handler for ExplodeCommand {
         visitor: &mut Visitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
-        let target = visitor.target().user()?;
+        let (target, _memb) = visitor.target().user()?;
 
         Ok(responder
             .create_message(

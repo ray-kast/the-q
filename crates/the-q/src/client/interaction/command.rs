@@ -82,7 +82,6 @@ pub struct CommandInfo {
     data: Data,
 }
 
-#[builder(trait_name = "CommandInfoExt")]
 impl CommandInfo {
     // TODO: do descriptions support markdown?
     #[inline]
@@ -128,8 +127,6 @@ impl CommandInfo {
 
     pub fn name(&self) -> &String { &self.name }
 
-    pub fn can_dm(&mut self, can_dm: bool) { self.can_dm = can_dm; }
-
     pub fn build(self, cmd: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
         let Self { name, can_dm, data } = self;
         cmd.name(name).dm_permission(can_dm);
@@ -162,6 +159,11 @@ impl CommandInfo {
             Data::Message => cmd.kind(CommandType::Message),
         }
     }
+}
+
+#[builder(trait_name = "CommandInfoExt")]
+impl CommandInfo {
+    pub fn can_dm(&mut self, can_dm: bool) { self.can_dm = can_dm; }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -654,6 +656,68 @@ enum ArgBuilderState {
     Error(&'static str),
 }
 
+impl ArgBuilder {
+    #[inline]
+    fn arg_parts(
+        &mut self,
+        name: impl Into<String>,
+        desc: impl Into<String>,
+        required: bool,
+        ty: ArgType,
+    ) {
+        let desc = desc.into();
+        self.arg(name, Arg { desc, required, ty });
+    }
+
+    fn insert_subcommand(&mut self, name: impl Into<String>, cmd: Subcommand) {
+        let name = name.into();
+
+        let height = match &mut self.0 {
+            s @ ArgBuilderState::Default => {
+                *s = ArgBuilderState::Branch(
+                    NonZeroU8::new(1).unwrap_or_else(|| unreachable!()),
+                    [(name, cmd)].into_iter().collect(),
+                );
+                1
+            },
+            s @ ArgBuilderState::Leaf(..) => {
+                *s = ArgBuilderState::Error("Attempted to add subcommand after adding arguments");
+                return;
+            },
+            ArgBuilderState::Branch(h, c) => {
+                *h = (*h).max(
+                    cmd.node
+                        .height()
+                        .checked_add(1)
+                        .and_then(NonZeroU8::new)
+                        .unwrap_or_else(|| unreachable!()),
+                );
+
+                if c.insert(name, cmd).is_some() {
+                    self.0 = ArgBuilderState::Error("Duplicate subcommand name added");
+                    return;
+                }
+
+                (*h).into()
+            },
+            ArgBuilderState::Error(_) => return,
+        };
+
+        if height > 2 {
+            self.0 = ArgBuilderState::Error("Maximum subcommand nesting depth exceeded");
+        }
+    }
+
+    pub fn build(self) -> Result<Args, TryFromError> {
+        Ok(Args(match self.0 {
+            ArgBuilderState::Default => Trie::default(),
+            ArgBuilderState::Leaf(args, arg_order) => Trie::Leaf { args, arg_order },
+            ArgBuilderState::Branch(height, children) => Trie::Branch { height, children },
+            ArgBuilderState::Error(e) => return Err(TryFromError(e)),
+        }))
+    }
+}
+
 #[builder(trait_name = "ArgBuilderExt")]
 impl ArgBuilder {
     pub fn arg(&mut self, name: impl Into<String>, arg: Arg) {
@@ -675,17 +739,6 @@ impl ArgBuilder {
             },
             ArgBuilderState::Error(_) => (),
         }
-    }
-
-    fn arg_parts(
-        &mut self,
-        name: impl Into<String>,
-        desc: impl Into<String>,
-        required: bool,
-        ty: ArgType,
-    ) {
-        let desc = desc.into();
-        self.arg(name, Arg { desc, required, ty });
     }
 
     pub fn string(
@@ -859,45 +912,6 @@ impl ArgBuilder {
         }
     }
 
-    fn insert_subcommand(&mut self, name: impl Into<String>, cmd: Subcommand) {
-        let name = name.into();
-
-        let height = match &mut self.0 {
-            s @ ArgBuilderState::Default => {
-                *s = ArgBuilderState::Branch(
-                    NonZeroU8::new(1).unwrap_or_else(|| unreachable!()),
-                    [(name, cmd)].into_iter().collect(),
-                );
-                1
-            },
-            s @ ArgBuilderState::Leaf(..) => {
-                *s = ArgBuilderState::Error("Attempted to add subcommand after adding arguments");
-                return;
-            },
-            ArgBuilderState::Branch(h, c) => {
-                *h = (*h).max(
-                    cmd.node
-                        .height()
-                        .checked_add(1)
-                        .and_then(NonZeroU8::new)
-                        .unwrap_or_else(|| unreachable!()),
-                );
-
-                if c.insert(name, cmd).is_some() {
-                    self.0 = ArgBuilderState::Error("Duplicate subcommand name added");
-                    return;
-                }
-
-                (*h).into()
-            },
-            ArgBuilderState::Error(_) => return,
-        };
-
-        if height > 2 {
-            self.0 = ArgBuilderState::Error("Maximum subcommand nesting depth exceeded");
-        }
-    }
-
     pub fn subcmd(&mut self, name: impl Into<String>, desc: impl Into<String>, args: Args) {
         let name = name.into();
         let desc = desc.into();
@@ -918,15 +932,6 @@ impl ArgBuilder {
             },
             Err(TryFromError(e)) => self.0 = ArgBuilderState::Error(e),
         }
-    }
-
-    pub fn build(self) -> Result<Args, TryFromError> {
-        Ok(Args(match self.0 {
-            ArgBuilderState::Default => Trie::default(),
-            ArgBuilderState::Leaf(args, arg_order) => Trie::Leaf { args, arg_order },
-            ArgBuilderState::Branch(height, children) => Trie::Branch { height, children },
-            ArgBuilderState::Error(e) => return Err(TryFromError(e)),
-        }))
     }
 }
 

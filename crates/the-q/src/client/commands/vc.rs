@@ -15,7 +15,7 @@ impl Handler for VcCommand {
         visitor: &mut Visitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
-        let gid = visitor.guild().required()?;
+        let (gid, _memb) = visitor.guild().required()?;
         let user = visitor.user();
 
         let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;

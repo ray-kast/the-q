@@ -267,7 +267,7 @@ pub struct Followup(serenity::model::channel::Message);
 #[async_trait]
 pub trait ResponderExt: private::Responder {
     #[inline]
-    async fn create_followup(&self, msg: Message) -> Result<Followup, serenity::Error>
+    async fn create_followup(&self, msg: Message<'_>) -> Result<Followup, serenity::Error>
     where Self: private::CreateFollowup {
         let ResponderCore { http, int } = self.core();
         int.create_followup_message(http, |f| msg.build_followup(f))
@@ -276,8 +276,14 @@ pub trait ResponderExt: private::Responder {
     }
 
     #[inline]
-    async fn edit_followup(&self, fup: &mut Followup, msg: Message) -> Result<(), serenity::Error>
-    where Self: private::CreateFollowup {
+    async fn edit_followup(
+        &self,
+        fup: &mut Followup,
+        msg: Message<'_>,
+    ) -> Result<(), serenity::Error>
+    where
+        Self: private::CreateFollowup,
+    {
         let ResponderCore { http, int } = self.core();
         *fup = Followup(
             int.edit_followup_message(http, fup.0.id, |f| msg.build_followup(f))
@@ -324,7 +330,7 @@ impl<'a, I: private::Interaction> InitResponder<'a, I> {
     async fn create<T>(
         self,
         ty: InteractionResponseType,
-        data: impl ResponseData + Send,
+        data: impl ResponseData<'_> + Send,
         next: impl FnOnce(ResponderCore<'a, I>) -> T,
     ) -> Result<T, serenity::Error> {
         let Self(core @ ResponderCore { http, int }) = self;
@@ -339,7 +345,7 @@ impl<'a, I: private::Interaction> InitResponder<'a, I> {
     #[inline]
     pub async fn create_message(
         self,
-        msg: Message,
+        msg: Message<'_>,
     ) -> Result<CreatedResponder<'a, I>, serenity::Error> {
         self.create(
             InteractionResponseType::ChannelMessageWithSource,
@@ -367,7 +373,7 @@ impl<'a, I: private::CreateUpdate> InitResponder<'a, I> {
     #[inline]
     pub async fn update_message(
         self,
-        msg: Message, // TODO: is opts necessary?
+        msg: Message<'_>, // TODO: is opts necessary?
     ) -> Result<CreatedResponder<'a, I>, serenity::Error> {
         self.create(
             InteractionResponseType::UpdateMessage,
@@ -470,7 +476,7 @@ impl<'a, I> BorrowedResponder<'a, I> {
 impl<'a, I: private::Interaction> BorrowedResponder<'a, I> {
     pub async fn upsert_message(
         &mut self,
-        msg: Message,
+        msg: Message<'_>,
     ) -> Result<Option<Followup>, serenity::Error> {
         match self {
             Self::Init(_) => {
@@ -532,7 +538,7 @@ impl<'a, 'b, I: private::Interaction> BorrowingResponder<'a, 'b, I> {
     #[inline]
     pub async fn create_message(
         self,
-        msg: Message,
+        msg: Message<'_>,
     ) -> Result<CreatedResponder<'b, I>, serenity::Error> {
         // SAFETY: this is a create response endpoint
         unsafe { self.take(|i| i.create_message(msg)).await }
@@ -552,7 +558,7 @@ impl<'a, 'b, I: private::CreateUpdate> BorrowingResponder<'a, 'b, I> {
     #[inline]
     pub async fn update_message(
         self,
-        msg: Message,
+        msg: Message<'_>,
     ) -> Result<CreatedResponder<'b, I>, serenity::Error> {
         // SAFETY: this is a create response endpoint
         unsafe { self.take(|i| i.update_message(msg)).await }

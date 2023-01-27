@@ -14,14 +14,17 @@ impl Handler for SayCommand {
 
     async fn respond<'a>(
         &self,
-        _: &Context,
+        ctx: &Context,
         visitor: &mut Visitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         let msg = visitor.visit_string("message")?.required()?;
+        let guild = visitor.guild().optional();
+
+        let color = guild.and_then(|(_, m)| m.colour(&ctx.cache));
 
         Ok(responder
-            .create_message(Message::plain(msg))
+            .create_message(Embed::default().desc_plain(msg).color_opt(color).into())
             .await
             .context("Error speaking message")?
             .into())

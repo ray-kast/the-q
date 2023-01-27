@@ -3,16 +3,19 @@ use serenity::{
     builder::{
         CreateInteractionResponseData, CreateInteractionResponseFollowup, EditInteractionResponse,
     },
-    model::id::{RoleId, UserId},
+    model::{
+        id::{RoleId, UserId},
+        prelude::AttachmentType,
+    },
     utils::MessageBuilder,
 };
 
-use super::{Components, ResponseData};
+use super::{Components, Embed, Embeds, ResponseData};
 
-// TODO: handle embeds and attachments
 #[derive(Debug)]
 pub struct MessageBody {
     content: MessageBuilder,
+    embeds: Embeds,
     ping_replied: bool,
     ping_users: Vec<UserId>,
     ping_roles: Vec<RoleId>,
@@ -23,12 +26,13 @@ macro_rules! build_body {
     ($self:expr, $builder:expr, $fn:ident) => {{
         let Self {
             content,
+            embeds,
             ping_replied,
             ping_users,
             ping_roles,
             components,
         } = $self;
-        components.$fn($builder.content(content).allowed_mentions(|m| {
+        components.$fn(embeds.$fn($builder.content(content)).allowed_mentions(|m| {
             m.replied_user(ping_replied)
                 .users(ping_users)
                 .roles(ping_roles)
@@ -36,7 +40,6 @@ macro_rules! build_body {
     }};
 }
 
-#[builder(trait_name = "MessageBodyExt")]
 impl MessageBody {
     #[inline]
     pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
@@ -44,6 +47,7 @@ impl MessageBody {
         f(&mut content);
         Self {
             content,
+            embeds: Embeds::default(),
             ping_replied: false,
             ping_users: vec![],
             ping_roles: vec![],
@@ -56,12 +60,6 @@ impl MessageBody {
         Self::rich(|mb| mb.push_safe(c))
     }
 
-    pub fn ping_replied(&mut self, ping_replied: bool) { self.ping_replied = ping_replied; }
-
-    pub fn ping_users(&mut self, ping_users: Vec<UserId>) { self.ping_users = ping_users; }
-
-    pub fn ping_roles(&mut self, ping_roles: Vec<RoleId>) { self.ping_roles = ping_roles; }
-
     #[inline]
     pub fn build_edit_response(
         self,
@@ -73,18 +71,33 @@ impl MessageBody {
     #[inline]
     pub fn build_followup<'a, 'b>(
         self,
-        fup: &'a mut CreateInteractionResponseFollowup<'b>,
-    ) -> &'a mut CreateInteractionResponseFollowup<'b> {
+        fup: &'b mut CreateInteractionResponseFollowup<'a>,
+    ) -> &'b mut CreateInteractionResponseFollowup<'a> {
         build_body!(self, fup, build_followup)
     }
 }
 
-impl ResponseData for MessageBody {
+#[builder(trait_name = "MessageBodyExt")]
+impl MessageBody {
+    pub fn ping_replied(&mut self, ping_replied: bool) { self.ping_replied = ping_replied; }
+
+    pub fn ping_users(&mut self, ping_users: Vec<UserId>) { self.ping_users = ping_users; }
+
+    pub fn ping_roles(&mut self, ping_roles: Vec<RoleId>) { self.ping_roles = ping_roles; }
+
+    pub fn embed(&mut self, embed: Embed) { self.embeds.0.push(embed); }
+
+    pub fn build_embed(&mut self, f: impl FnOnce(Embed) -> Embed) {
+        self.embed(f(Embed::default()));
+    }
+}
+
+impl<'a> ResponseData<'a> for MessageBody {
     #[inline]
-    fn build_response_data<'a, 'b>(
+    fn build_response_data<'b>(
         self,
-        data: &'a mut CreateInteractionResponseData<'b>,
-    ) -> &'a mut CreateInteractionResponseData<'b> {
+        data: &'b mut CreateInteractionResponseData<'a>,
+    ) -> &'b mut CreateInteractionResponseData<'a> {
         build_body!(self, data, build_response_data)
     }
 }
@@ -102,14 +115,9 @@ macro_rules! build_opts {
     }};
 }
 
-#[builder(trait_name = "MessageOptsExt")]
 impl MessageOpts {
     #[inline]
     pub fn new() -> Self { Self::default() }
-
-    pub fn tts(&mut self, tts: bool) { self.tts = tts; }
-
-    pub fn ephemeral(&mut self, ephemeral: bool) { self.ephemeral = ephemeral; }
 
     #[inline]
     fn build_followup<'a, 'b>(
@@ -120,43 +128,54 @@ impl MessageOpts {
     }
 }
 
-impl ResponseData for MessageOpts {
+#[builder(trait_name = "MessageOptsExt")]
+impl MessageOpts {
+    pub fn tts(&mut self, tts: bool) { self.tts = tts; }
+
+    pub fn ephemeral(&mut self, ephemeral: bool) { self.ephemeral = ephemeral; }
+}
+
+impl<'a> ResponseData<'a> for MessageOpts {
     #[inline]
-    fn build_response_data<'a, 'b>(
+    fn build_response_data<'b>(
         self,
-        data: &'a mut CreateInteractionResponseData<'b>,
-    ) -> &'a mut CreateInteractionResponseData<'b> {
+        data: &'b mut CreateInteractionResponseData<'a>,
+    ) -> &'b mut CreateInteractionResponseData<'a> {
         build_opts!(self, data)
     }
 }
 
-#[derive(Debug)]
-pub struct Message {
+#[derive(Debug, qcore::Borrow)]
+pub struct Message<'a> {
+    #[borrow(mut)]
     body: MessageBody,
+    #[borrow(mut)]
     opts: MessageOpts,
+    attachments: Vec<AttachmentType<'a>>,
 }
-
-qcore::borrow!(Message { mut body: MessageBody });
-qcore::borrow!(Message { mut opts: MessageOpts });
 
 macro_rules! build_msg {
     ($self:expr, $builder:expr, $fn:ident) => {{
-        let Self { body, opts } = $self;
-        opts.$fn(body.$fn($builder))
+        let Self {
+            body,
+            opts,
+            attachments,
+        } = $self;
+        opts.$fn(body.$fn($builder)).files(attachments)
     }};
 }
 
-impl From<MessageBody> for Message {
+impl<'a> From<MessageBody> for Message<'a> {
     fn from(body: MessageBody) -> Self {
         Self {
             body,
             opts: MessageOpts::default(),
+            attachments: vec![],
         }
     }
 }
 
-#[builder(trait_name = "MessageExt")]
-impl Message {
+impl<'a> Message<'a> {
     #[inline]
     pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
         MessageBody::rich(f).into()
@@ -166,22 +185,39 @@ impl Message {
     pub fn plain(c: impl Into<serenity::utils::Content>) -> Self { MessageBody::plain(c).into() }
 
     #[inline]
-    pub fn from_parts(body: MessageBody, opts: MessageOpts) -> Self { Self { body, opts } }
+    pub fn from_parts(
+        body: MessageBody,
+        opts: MessageOpts,
+        attachments: Vec<AttachmentType<'a>>,
+    ) -> Self {
+        Self {
+            body,
+            opts,
+            attachments,
+        }
+    }
 
-    pub fn build_followup<'a, 'b>(
+    pub fn build_followup<'b>(
         self,
-        fup: &'a mut CreateInteractionResponseFollowup<'b>,
-    ) -> &'a mut CreateInteractionResponseFollowup<'b> {
+        fup: &'b mut CreateInteractionResponseFollowup<'a>,
+    ) -> &'b mut CreateInteractionResponseFollowup<'a> {
         build_msg!(self, fup, build_followup)
     }
 }
 
-impl ResponseData for Message {
+#[builder(trait_name = "MessageExt")]
+impl<'a> Message<'a> {
+    pub fn attach(&mut self, attachments: impl IntoIterator<Item = AttachmentType<'a>>) {
+        self.attachments.extend(attachments);
+    }
+}
+
+impl<'a> ResponseData<'a> for Message<'a> {
     #[inline]
-    fn build_response_data<'a, 'b>(
+    fn build_response_data<'b>(
         self,
-        data: &'a mut CreateInteractionResponseData<'b>,
-    ) -> &'a mut CreateInteractionResponseData<'b> {
+        data: &'b mut CreateInteractionResponseData<'a>,
+    ) -> &'b mut CreateInteractionResponseData<'a> {
         build_msg!(self, data, build_response_data)
     }
 }

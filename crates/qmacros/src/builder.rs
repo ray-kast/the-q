@@ -1,7 +1,10 @@
+use std::borrow::Cow;
+
 use syn::fold::Fold;
 
 use crate::prelude::*;
 
+// TODO: probably gonna remove darling
 #[derive(darling::FromMeta)]
 struct Args {
     // TODO: why is this a literal
@@ -14,73 +17,123 @@ pub(super) fn run(args: syn::AttributeArgs, mut body: syn::ItemImpl) -> TokenStr
         Err(e) => return e.write_errors(),
     };
 
-    // TODO: drain_filter Please
-    let mut remove: Vec<_> = body
-        .items
-        .iter()
-        .enumerate()
-        .filter_map(|(i, t)| is_builder_method(t).then_some(i))
-        .collect();
-    remove.sort_unstable();
+    if let Some(t) = body.trait_ {
+        return t
+            .1
+            .span()
+            .error("#[builder] must be used on a non-trait impl block")
+            .emit_as_item_tokens();
+    }
 
-    let mut methods = vec![];
-    for i in remove.into_iter().rev() {
-        let m = body.items.remove(i);
-        methods.push(make_builder_method(m, body.self_ty.span()));
+    let mut diag = TokenStream::new();
+    let mut vis = None;
+    for item in &body.items {
+        if let Err((span, err)) = is_builder_method(item, &mut vis) {
+            diag.extend(span.error(err).emit_as_item_tokens());
+        }
+    }
+
+    if !diag.is_empty() {
+        return diag;
+    }
+
+    if !(body.generics.params.is_empty() || body.generics.params.trailing_punct()) {
+        body.generics
+            .params
+            .push_punct(syn::token::Comma::default());
     }
 
     // TODO: come up with a cleaner way to select methods
-    let methods = methods.into_iter().fold(TokenStream::new(), |mut t, m| {
-        m.to_tokens(&mut t);
-        t
-    });
+    let impl_generic_params = &body.generics.params;
+    let impl_generic_where = &body.generics.where_clause;
+    let ty_generics = match &*body.self_ty {
+        syn::Type::Path(p) => match p.path.segments.last().unwrap().arguments {
+            syn::PathArguments::AngleBracketed(ref a) => Some(a),
+            _ => None,
+        },
+        _ => None,
+    };
+    let methods = body
+        .items
+        .into_iter()
+        .map(|i| make_builder_method(i, &mut diag))
+        .fold(TokenStream::new(), |mut t, m| {
+            m.to_tokens(&mut t);
+            t
+        });
     let ty_name = &body.self_ty;
     quote_spanned! { body.brace_token.span =>
-        #body
-        pub trait #trait_name: ::std::borrow::BorrowMut<#ty_name> + ::std::marker::Sized {
+        #diag
+        #vis trait #trait_name <#impl_generic_params>:
+            ::std::borrow::BorrowMut<#ty_name> + ::std::marker::Sized
+            where #impl_generic_where
+        {
             #methods
         }
 
-        // TODO: generics
-        impl<T: ::std::borrow::BorrowMut<#ty_name> + ::std::marker::Sized> #trait_name for T {}
+        impl<
+            #impl_generic_params
+            #[allow(non_camel_case_types)]
+            __Builder_T: ::std::borrow::BorrowMut<#ty_name> + ::std::marker::Sized
+        > #trait_name #ty_generics for __Builder_T #impl_generic_where {}
     }
 }
 
-fn is_builder_method(m: &syn::ImplItem) -> bool {
-    let syn::ImplItem::Method(m) = m else { return false };
+fn is_builder_method(
+    m: &syn::ImplItem,
+    vis: &mut Option<syn::Visibility>,
+) -> Result<(), (Span, Cow<'static, str>)> {
+    let syn::ImplItem::Method(m) = m else {
+        return Err((m.span(), "Builder impl can only contain methods".into()));
+    };
 
     match m.sig.output {
         syn::ReturnType::Default => (),
         syn::ReturnType::Type(_, ref t) => match **t {
             syn::Type::Tuple(ref t) if t.elems.is_empty() => (),
-            _ => return false,
+            _ => return Err((m.span(), "Builder method must return ()".into())),
         },
     }
 
-    let Some(syn::FnArg::Receiver(r)) = m.sig.inputs.first() else { return false };
+    let Some(syn::FnArg::Receiver(r)) = m.sig.inputs.first() else {
+        return Err((m.span(), "Builder method must have a &mut self param".into()));
+    };
 
     if r.reference.is_none() || r.mutability.is_none() {
-        return false;
+        return Err((
+            m.span(),
+            "Builder method's self param must be &mut self".into(),
+        ));
     }
 
-    if !matches!(m.vis, syn::Visibility::Public(_)) {
-        m.span()
-            .warning("Non-public method looks like a builder method");
-        return false;
+    match (vis, &m.vis) {
+        (v @ None, w) => *v = Some(w.clone()),
+        (Some(v), w) if *v == *w => (),
+        (Some(v), w) => {
+            return Err((
+                w.span(),
+                format!(
+                    "Visibility must be {} to match previous methods",
+                    v.to_token_stream()
+                )
+                .into(),
+            ));
+        },
     }
 
-    true
+    Ok(())
 }
 
-fn make_builder_method(m: syn::ImplItem, ty_span: Span) -> syn::ImplItemMethod {
+fn make_builder_method(m: syn::ImplItem, diag: &mut TokenStream) -> syn::ImplItemMethod {
     let syn::ImplItem::Method(mut m) = m else { unreachable!() };
 
     m.vis = syn::Visibility::Inherited;
 
+    let span = m.span();
     let Some(syn::FnArg::Receiver(r)) = m.sig.inputs.first_mut() else { unreachable!() };
     r.reference = None;
 
-    m.sig.output = syn::parse_quote_spanned! { ty_span => -> Self };
+    m.sig.output = syn::parse_quote_spanned! { span => -> Self };
 
     let this: syn::ExprPath = syn::parse_quote_spanned! { r.span() =>
         self
@@ -98,6 +151,7 @@ fn make_builder_method(m: syn::ImplItem, ty_span: Span) -> syn::ImplItemMethod {
             },
             {
                 let block = Folder {
+                    diag,
                     this: this.clone(),
                     repl,
                 }
@@ -111,12 +165,13 @@ fn make_builder_method(m: syn::ImplItem, ty_span: Span) -> syn::ImplItemMethod {
     m
 }
 
-struct Folder {
+struct Folder<'a> {
+    diag: &'a mut TokenStream,
     this: syn::ExprPath,
     repl: syn::ExprPath,
 }
 
-impl syn::fold::Fold for Folder {
+impl<'a> syn::fold::Fold for Folder<'a> {
     fn fold_item(&mut self, i: syn::Item) -> syn::Item { i }
 
     fn fold_expr_path(&mut self, e: syn::ExprPath) -> syn::ExprPath {
@@ -129,7 +184,11 @@ impl syn::fold::Fold for Folder {
 
     fn fold_expr_return(&mut self, mut e: syn::ExprReturn) -> syn::ExprReturn {
         if let Some(ref x) = e.expr {
-            x.span().error("Unexpected return value");
+            self.diag.extend(
+                x.span()
+                    .error("Unexpected return value")
+                    .emit_as_item_tokens(),
+            );
             return e;
         }
 

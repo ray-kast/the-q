@@ -13,6 +13,7 @@ build = "build.rs"
 anyhow = "1.0.68"
 async-trait = "0.1.60"
 base64k = { version = "=0.1.0", path = "../base64k" }
+chrono = "0.4.23"
 clap = { version = "4.0.32", features = ["env", "cargo", "derive"] }
 dotenv = "0.15.0"
 futures-util = "0.3.25"

@@ -13,7 +13,9 @@ pub(self) mod prelude {
         handler::{
             CommandError, CommandHandler as Handler, CommandResponder, CommandResult, IntoErr,
         },
-        response::{prelude::*, Message, MessageBody, MessageOpts, Modal, ResponseData},
+        response::{
+            prelude::*, Component, Embed, Message, MessageBody, MessageOpts, Modal, ResponseData,
+        },
         visitor,
         visitor::Visitor,
     };

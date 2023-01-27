@@ -4,19 +4,19 @@ use serenity::builder::{
 
 use super::ResponseData;
 
+#[derive(Debug, Default)]
+pub(super) struct Components(Vec<Component>);
+
 macro_rules! build_components {
     ($self:expr, $builder:expr) => {{
-        let Self {} = $self;
-        $builder
+        let Self(components) = $self;
+        $builder // TODO
     }};
 }
 
-#[derive(Debug, Default)]
-pub struct Components {}
-
 impl Components {
     #[inline]
-    pub fn build_edit_response(
+    pub(super) fn build_edit_response(
         self,
         res: &mut EditInteractionResponse,
     ) -> &mut EditInteractionResponse {
@@ -24,7 +24,7 @@ impl Components {
     }
 
     #[inline]
-    pub fn build_followup<'a, 'b>(
+    pub(super) fn build_followup<'a, 'b>(
         self,
         fup: &'a mut CreateInteractionResponseFollowup<'b>,
     ) -> &'a mut CreateInteractionResponseFollowup<'b> {
@@ -32,11 +32,14 @@ impl Components {
     }
 }
 
-impl ResponseData for Components {
-    fn build_response_data<'a, 'b>(
+impl<'a> ResponseData<'a> for Components {
+    fn build_response_data<'b>(
         self,
-        data: &'a mut CreateInteractionResponseData<'b>,
-    ) -> &'a mut CreateInteractionResponseData<'b> {
+        data: &'b mut CreateInteractionResponseData<'a>,
+    ) -> &'b mut CreateInteractionResponseData<'a> {
         build_components!(self, data)
     }
 }
+
+#[derive(Debug, Default)]
+pub struct Component {}
