@@ -104,14 +104,14 @@ mod test {
         let s = "1234";
         let id = super::write(&Msg { s: s.to_owned() }).context("Error writing short message")?;
 
-        let Msg { s: s2 } = super::read(id.as_ref()).context("Error reading short message")?;
+        let Msg { s: s2 } = super::read(&id).context("Error reading short message")?;
         assert_eq!(s, s2);
 
         let mut s = String::new();
         (0..1000).for_each(|_| s.push_str("0123456789"));
         let id = super::write(&Msg { s: s.clone() }).context("Error writing long message")?;
 
-        let Msg { s: s2 } = super::read(id.as_ref()).context("Error reading long message")?;
+        let Msg { s: s2 } = super::read(&id).context("Error reading long message")?;
         assert_eq!(s, s2);
         Ok(())
     }

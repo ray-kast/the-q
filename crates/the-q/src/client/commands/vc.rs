@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use super::prelude::*;
 
 #[derive(Debug)]
@@ -6,7 +8,11 @@ pub struct VcCommand;
 #[async_trait]
 impl Handler for VcCommand {
     fn register_global(&self, opts: &handler::Opts) -> CommandInfo {
-        CommandInfo::slash(&opts.command_base, ";)", Args::default())
+        CommandInfo::build_slash(&opts.command_base, ";)", |a| {
+            a.string("path", "Path to the file to play", true, ..)
+                .autocomplete(true, ["path"])
+        })
+        .unwrap()
     }
 
     async fn respond<'a>(
@@ -17,6 +23,7 @@ impl Handler for VcCommand {
     ) -> CommandResult<'a> {
         let (gid, _memb) = visitor.guild().required()?;
         let user = visitor.user();
+        let path = visitor.visit_string("path")?.required()?;
 
         let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;
 
@@ -40,7 +47,7 @@ impl Handler for VcCommand {
             .await
             .context("Missing songbird context")?;
 
-        let (call, res) = sb.join(gid, voice_chan).await;
+        let (call_lock, res) = sb.join(gid, voice_chan).await;
 
         if let Err(err) = res {
             warn!(?err, "Unable to join voice channel");
@@ -52,11 +59,45 @@ impl Handler for VcCommand {
             return Err(responder.into_err("Error joining call (missing permissions?)"));
         }
 
-        call.lock()
+        let mut call = call_lock.lock().await;
+
+        let path = {
+            const PREFIX: &str = "etc/samples";
+            let mut p = PathBuf::from(PREFIX);
+
+            p.push(path);
+
+            if !p.starts_with(PREFIX) {
+                responder
+                    .edit(MessageBody::plain("Oops!  That's not a valid path."))
+                    .await
+                    .context("Error sending bad path error")?;
+
+                return Err(responder.into_err("Path error - escaped sample directory"));
+            }
+
+            p
+        };
+
+        if tokio::fs::metadata(&path).await.is_err() {
+            responder
+                .edit(MessageBody::plain("That isn't a valid file."))
+                .await
+                .context("Error sending bad stat error")?;
+
+            return Err(responder.into_err("Stat error for file"));
+        }
+
+        let source = songbird::ffmpeg(path)
             .await
-            .leave()
-            .await
-            .context("Error leaving call")?;
+            .context("Error opening sample")?;
+
+        call.play_source(source)
+            .add_event(
+                songbird::Event::Track(songbird::TrackEvent::End),
+                SongbirdHandler(Arc::clone(&call_lock)),
+            )
+            .context("Error hooking track stop")?;
 
         responder
             .edit(MessageBody::plain(";)").build_row(|c| {
@@ -70,5 +111,29 @@ impl Handler for VcCommand {
             .context("Error updating deferred response")?;
 
         Ok(responder.into())
+    }
+}
+
+struct SongbirdHandler(Arc<tokio::sync::Mutex<songbird::Call>>);
+
+#[async_trait]
+impl songbird::EventHandler for SongbirdHandler {
+    async fn act(&self, ctx: &songbird::EventContext<'_>) -> Option<songbird::Event> {
+        match *ctx {
+            songbird::EventContext::Track(t) => {
+                if t.iter().all(|(s, _)| s.playing.is_done()) {
+                    self.0
+                        .lock()
+                        .await
+                        .leave()
+                        .await
+                        .map_err(|err| error!(%err, "Error leaving call"))
+                        .ok();
+                }
+
+                None
+            },
+            _ => None,
+        }
     }
 }

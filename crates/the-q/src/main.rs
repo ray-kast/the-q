@@ -4,6 +4,7 @@
     clippy::disallowed_methods,
     clippy::suspicious,
     clippy::style,
+    clippy::clone_on_ref_ptr,
     missing_debug_implementations,
     missing_copy_implementations
 )]

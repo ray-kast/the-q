@@ -1,5 +1,6 @@
-use std::fmt::Write;
+use std::{collections::BinaryHeap, fmt::Write};
 
+use ordered_float::OrderedFloat;
 use serenity::{
     client::Context,
     model::{
@@ -21,6 +22,7 @@ use serenity::{
 };
 
 use super::{
+    command,
     command::RegisteredCommand,
     handler,
     response::{
@@ -232,11 +234,47 @@ impl Registry {
             unpaired_new.insert(name.clone());
         }
 
+        // (sim, existing, new)
+        let mut sims: BinaryHeap<_> = unpaired_existing
+            .iter()
+            .flat_map(|(existing, &reg)| {
+                let new = &new;
+                unpaired_new.iter().map(move |n| {
+                    let (_, new) = new.get(n).unwrap_or_else(|| unreachable!());
+
+                    (
+                        OrderedFloat(command::similarity(existing, new)),
+                        reg,
+                        n.clone(),
+                    )
+                })
+            })
+            .collect();
+
+        while let Some((sim, existing, name)) = sims.pop() {
+            let (cmd, inf) = new.remove(&name).unwrap_or_else(|| unreachable!());
+            debug!(
+                ?sim,
+                id = ?existing.id,
+                old = ?existing.info.name(),
+                "Updating global command {name:?}"
+            );
+            let res =
+                Command::edit_global_application_command(&ctx.http, existing.id, |c| inf.build(c))
+                    .await
+                    .with_context(|| format!("Error updating command {name:?}"))?;
+            assert_eq!(existing.id, res.id);
+            assert!(handlers.insert(res.id, Arc::clone(cmd)).is_none());
+
+            unpaired_new.remove(&name);
+            unpaired_existing.remove(&existing.info);
+        }
+
         // TODO: pair up and upsert similar commands
-        // assert!(unpaired_new.is_empty() || unpaired_existing.is_empty());
+        assert!(unpaired_new.is_empty() || unpaired_existing.is_empty());
 
         for name in unpaired_new {
-            let (cmd, inf) = new.remove(&name).unwrap();
+            let (cmd, inf) = new.remove(&name).unwrap_or_else(|| unreachable!());
             debug!("Creating global command {name:?}");
             let res = Command::create_global_application_command(&ctx.http, |c| inf.build(c))
                 .await
@@ -256,7 +294,7 @@ impl Registry {
                 .with_context(|| format!("Error deleting command {:?}", inf.name()))?;
         }
 
-        assert!(handlers.len() == new.len());
+        assert_eq!(handlers.len(), list.len());
         Ok(handlers)
     }
 

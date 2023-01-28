@@ -65,7 +65,7 @@ fn try_impl(
                 for nested in l.nested {
                     match nested {
                         syn::NestedMeta::Meta(syn::Meta::Path(p)) if p.is_ident("mut") => {
-                            mutable = Some(p.span())
+                            mutable = Some(p.span());
                         },
                         _ => (),
                     }
@@ -124,7 +124,7 @@ fn borrow(args: BorrowArgs, span: Span, mutable: Option<Span>) -> TokenStream {
 
     let field = field.map_or_else(
         || quote_spanned! { span => #field_id },
-        |f| f.to_token_stream(),
+        syn::Ident::to_token_stream,
     );
 
     quote_spanned! { span =>

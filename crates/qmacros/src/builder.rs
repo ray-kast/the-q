@@ -13,8 +13,8 @@ struct Args {
 
 // TODO(design): Refactor builder interface to handle errors better
 
-pub(super) fn run(args: syn::AttributeArgs, mut body: syn::ItemImpl) -> TokenStream {
-    let Args { trait_name } = match darling::FromMeta::from_list(&args) {
+pub(super) fn run(args: &syn::AttributeArgs, mut body: syn::ItemImpl) -> TokenStream {
+    let Args { trait_name } = match darling::FromMeta::from_list(args) {
         Ok(a) => a,
         Err(e) => return e.write_errors(),
     };
