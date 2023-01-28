@@ -234,7 +234,6 @@ impl Registry {
             unpaired_new.insert(name.clone());
         }
 
-        // (sim, existing, new)
         let mut sims: BinaryHeap<_> = unpaired_existing
             .iter()
             .flat_map(|(existing, &reg)| {
@@ -251,26 +250,27 @@ impl Registry {
             })
             .collect();
 
-        while let Some((sim, existing, name)) = sims.pop() {
-            let (cmd, inf) = new.remove(&name).unwrap_or_else(|| unreachable!());
+        while let Some((sim, existing, new_name)) = sims.pop() {
+            if !unpaired_new.remove(&new_name) || unpaired_existing.remove(&existing.info).is_none()
+            {
+                continue;
+            }
+
+            let (cmd, inf) = new.remove(&new_name).unwrap_or_else(|| unreachable!());
             debug!(
                 ?sim,
                 id = ?existing.id,
                 old = ?existing.info.name(),
-                "Updating global command {name:?}"
+                "Updating global command {new_name:?}"
             );
             let res =
                 Command::edit_global_application_command(&ctx.http, existing.id, |c| inf.build(c))
                     .await
-                    .with_context(|| format!("Error updating command {name:?}"))?;
+                    .with_context(|| format!("Error updating command {new_name:?}"))?;
             assert_eq!(existing.id, res.id);
             assert!(handlers.insert(res.id, Arc::clone(cmd)).is_none());
-
-            unpaired_new.remove(&name);
-            unpaired_existing.remove(&existing.info);
         }
 
-        // TODO: pair up and upsert similar commands
         assert!(unpaired_new.is_empty() || unpaired_existing.is_empty());
 
         for name in unpaired_new {
