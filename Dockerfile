@@ -53,6 +53,7 @@ WORKDIR /opt/the-q
 
 RUN apt-get update -y && \
   apt-get install -y --no-install-recommends \
+    ffmpeg \
   && \
   rm -rf /var/lib/apt/lists/*
 

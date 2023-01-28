@@ -47,20 +47,6 @@ impl Handler for VcCommand {
             .await
             .context("Missing songbird context")?;
 
-        let (call_lock, res) = sb.join(gid, voice_chan).await;
-
-        if let Err(err) = res {
-            warn!(?err, "Unable to join voice channel");
-            responder
-                .edit(MessageBody::plain("Couldn't join that channel, sorry."))
-                .await
-                .context("Error sending channel join error")?;
-
-            return Err(responder.into_err("Error joining call (missing permissions?)"));
-        }
-
-        let mut call = call_lock.lock().await;
-
         let path = {
             const PREFIX: &str = "etc/samples";
             let mut p = PathBuf::from(PREFIX);
@@ -76,7 +62,7 @@ impl Handler for VcCommand {
                 return Err(responder.into_err("Path error - escaped sample directory"));
             }
 
-            p
+            p.canonicalize().unwrap_or(p)
         };
 
         if tokio::fs::metadata(&path).await.is_err() {
@@ -88,9 +74,23 @@ impl Handler for VcCommand {
             return Err(responder.into_err("Stat error for file"));
         }
 
-        let source = songbird::ffmpeg(path)
+        let source = songbird::ffmpeg(&path)
             .await
-            .context("Error opening sample")?;
+            .with_context(|| format!("Error opening sample {path:?}"))?;
+
+        let (call_lock, res) = sb.join(gid, voice_chan).await;
+
+        if let Err(err) = res {
+            warn!(?err, "Unable to join voice channel");
+            responder
+                .edit(MessageBody::plain("Couldn't join that channel, sorry."))
+                .await
+                .context("Error sending channel join error")?;
+
+            return Err(responder.into_err("Error joining call (missing permissions?)"));
+        }
+
+        let mut call = call_lock.lock().await;
 
         call.play_source(source)
             .add_event(

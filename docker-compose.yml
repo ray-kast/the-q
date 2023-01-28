@@ -43,6 +43,9 @@ services:
         source: ./.env.local
         target: /opt/the-q/.env.local
         read_only: true
+      - type: bind
+        source: ./etc/samples
+        target: /opt/the-q/etc/samples
     restart: unless-stopped
 
 volumes:
