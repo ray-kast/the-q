@@ -1,4 +1,14 @@
-#![allow(clippy::all, dead_code)]
+//! Test bed for Discord API features
+
+#![deny(
+    clippy::disallowed_methods,
+    clippy::suspicious,
+    clippy::style,
+    clippy::clone_on_ref_ptr,
+    missing_debug_implementations,
+    missing_copy_implementations
+)]
+#![warn(clippy::pedantic, missing_docs)]
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -55,8 +65,7 @@ impl FlowType {
 
     fn initial_interaction(self) -> InteractionType {
         match self {
-            Self::TopLevel(i) => i,
-            Self::ModalSubmit(i) => i,
+            Self::TopLevel(i) | Self::ModalSubmit(i) => i,
         }
     }
 }
@@ -118,15 +127,6 @@ enum CommandOpt {
     String(String, bool),
     Subcommand(String, Vec<CommandOpt>),
     Group(String, Vec<CommandOpt>),
-}
-
-fn command_opt(
-    opt: &mut CreateApplicationCommandOption,
-    ty: command::CommandOptionType,
-    name: String,
-    req: bool,
-) -> &mut CreateApplicationCommandOption {
-    opt.kind(ty).name(name).description("foo").required(req)
 }
 
 impl CommandOpt {
@@ -193,6 +193,8 @@ impl CommandOpt {
     }
 }
 
+type CrudResults = BTreeMap<(FlowType, Box<[CrudOp<ResponseType>]>), bool>;
+
 enum TestMode {
     Cartesian {
         untried: BTreeSet<(InteractionType, interaction::InteractionResponseType)>,
@@ -202,7 +204,7 @@ enum TestMode {
     CrudBrute {
         to_try: BTreeSet<Arc<[CrudOp<usize>]>>,
         untried: BTreeMap<FlowType, Vec<Arc<[CrudOp<usize>]>>>,
-        results: BTreeMap<(FlowType, Box<[CrudOp<ResponseType>]>), bool>,
+        results: CrudResults,
     },
     PingPong,
     CommandReg {
@@ -245,8 +247,8 @@ fn sample_create_response<'a, 'b>(
                     })
                 })
             }),
-        interaction::InteractionResponseType::DeferredChannelMessageWithSource => builder,
-        interaction::InteractionResponseType::DeferredUpdateMessage => builder,
+        interaction::InteractionResponseType::DeferredChannelMessageWithSource
+        | interaction::InteractionResponseType::DeferredUpdateMessage => builder,
         interaction::InteractionResponseType::UpdateMessage => {
             builder.interaction_response_data(|d| d.content("bar").ephemeral(true))
         },
@@ -267,9 +269,9 @@ fn sample_create_response<'a, 'b>(
     }
 }
 
-fn sample_edit_response<'a>(
-    builder: &'a mut serenity::builder::EditInteractionResponse,
-) -> &'a mut serenity::builder::EditInteractionResponse {
+fn sample_edit_response(
+    builder: &mut serenity::builder::EditInteractionResponse,
+) -> &mut serenity::builder::EditInteractionResponse {
     builder.content("foo").components(|c| {
         c.create_action_row(|r| {
             r.create_button(|b| {
@@ -305,19 +307,19 @@ where
     }
 }
 
-async fn get_response<F>(
-    int: &interaction::Interaction,
-    http: impl AsRef<serenity::http::Http>,
-) -> serenity::Result<Message> {
-    match int {
-        interaction::Interaction::ApplicationCommand(aci) => {
-            aci.get_interaction_response(http).await
-        },
-        interaction::Interaction::MessageComponent(mc) => mc.get_interaction_response(http).await,
-        interaction::Interaction::ModalSubmit(ms) => ms.get_interaction_response(http).await,
-        _ => unreachable!(),
-    }
-}
+// async fn get_response<F>(
+//     int: &interaction::Interaction,
+//     http: impl AsRef<serenity::http::Http>,
+// ) -> serenity::Result<Message> {
+//     match int {
+//         interaction::Interaction::ApplicationCommand(aci) => {
+//             aci.get_interaction_response(http).await
+//         },
+//         interaction::Interaction::MessageComponent(mc) => mc.get_interaction_response(http).await,
+//         interaction::Interaction::ModalSubmit(ms) => ms.get_interaction_response(http).await,
+//         _ => unreachable!(),
+//     }
+// }
 
 async fn edit_response<F>(
     int: &interaction::Interaction,
@@ -597,9 +599,7 @@ fn pick_random<T, R: IntoIterator<Item = T>>(from: &mut Vec<T>, refill: impl FnO
     from.remove(i)
 }
 
-fn print_crud_results(
-    results: &BTreeMap<(FlowType, Box<[CrudOp<ResponseType>]>), bool>,
-) -> MessageBuilder {
+fn print_crud_results(results: &CrudResults) -> MessageBuilder {
     use std::fmt::Write;
 
     let mut mb = MessageBuilder::new();
@@ -617,7 +617,7 @@ fn print_crud_results(
             .push(": ")
             .push_bold_line(success);
 
-        write!(s, "\n{flow:<32} {ops:<62}  {}", success).unwrap();
+        write!(s, "\n{flow:<32} {ops:<62}  {success}").unwrap();
     }
 
     tracing::info!("{s}");
@@ -627,6 +627,7 @@ fn print_crud_results(
 
 #[async_trait::async_trait]
 impl EventHandler for Handler {
+    #[allow(clippy::too_many_lines)]
     async fn interaction_create(&self, ctx: Context, int: interaction::Interaction) {
         let mut state = self.state.write().await;
 
@@ -642,7 +643,7 @@ impl EventHandler for Handler {
                 modals,
             } => match (flow, modals) {
                 (FlowType::TopLevel(int_ty), false) => {
-                    try_pair(&int, &ctx.http, int_ty, untried, results).await
+                    try_pair(&int, &ctx.http, int_ty, untried, results).await;
                 },
                 (FlowType::ModalSubmit(int_ty), false) => {
                     create_response(&int, &ctx.http, |res| {
@@ -669,7 +670,7 @@ impl EventHandler for Handler {
                     .ok();
                 },
                 (FlowType::ModalSubmit(int_ty), true) => {
-                    try_pair(&int, &ctx.http, int_ty, untried, results).await
+                    try_pair(&int, &ctx.http, int_ty, untried, results).await;
                 },
             },
             TestMode::CrudBrute {
@@ -677,19 +678,19 @@ impl EventHandler for Handler {
                 ref mut untried,
                 ref mut results,
             } => {
-                let untried = untried.entry(flow).or_default();
-                let ops = pick_random(untried, || to_try.iter().cloned());
-
                 const TYPES: [ResponseType; 3] = [
                     ResponseType::Message,
                     ResponseType::UpdateMessage,
                     ResponseType::Modal,
                 ];
 
+                let untried = untried.entry(flow).or_default();
+                let ops = pick_random(untried, || to_try.iter().cloned());
+
                 let mut types = vec![];
                 let mut rem_types = vec![];
                 let ops = ops
-                    .into_iter()
+                    .iter()
                     .map(|op| {
                         let defer = matches!(op, CrudOp::Defer(_));
                         op.map(|i| {
@@ -713,7 +714,7 @@ impl EventHandler for Handler {
 
                 let mut last_type = None;
                 let mut res = Ok(());
-                for (i, op) in ops.into_iter().enumerate() {
+                for (i, op) in ops.iter().enumerate() {
                     let ty = match op {
                         CrudOp::Create(t) | CrudOp::Defer(t) => {
                             last_type = Some(t);
@@ -781,7 +782,7 @@ impl EventHandler for Handler {
                         .ok();
                 }
                 .instrument(span)
-                .await
+                .await;
             },
 
             TestMode::PingPong => {
@@ -919,7 +920,7 @@ async fn main() {
             }
         },
         Subcommand::CrudBrute => {
-            use CrudOp::*;
+            use CrudOp::{Create, Defer, Delete, Edit};
 
             let op_lists = [
                 vec![Edit],
@@ -953,6 +954,9 @@ async fn main() {
                 // vec![Opt::str("s", true)],
                 // vec![Opt::str("s", false)],
                 vec![Opt::subcmd("c", [Opt::str("s", true)])],
+                vec![Opt::group("hi", [Opt::subcmd("there", [Opt::str(
+                    "s", true,
+                )])])],
             ]
             .into_iter()
             .collect();
@@ -975,5 +979,5 @@ async fn main() {
         r = client.start() => r.unwrap(),
     }
 
-    client.shard_manager.lock_owned().await.shutdown_all().await
+    client.shard_manager.lock_owned().await.shutdown_all().await;
 }

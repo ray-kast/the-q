@@ -1,3 +1,4 @@
+//! Tool for checking compatibility of `ProtoBuf` schemas
 // TODO: coverage tests
 #![deny(
     clippy::disallowed_methods,
@@ -7,7 +8,7 @@
     missing_debug_implementations,
     missing_copy_implementations
 )]
-#![warn(clippy::pedantic)]
+#![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
 
 mod check_compat;
