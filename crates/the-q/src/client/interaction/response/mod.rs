@@ -15,6 +15,9 @@ pub use responder::*;
 
 pub mod prelude {
     pub use super::{
+        component::{
+            ComponentsExt as _, MessageActionRow as _, ModalActionRow as _, TextInputExt as _,
+        },
         embed::EmbedExt as _,
         message::{MessageBodyExt as _, MessageExt as _, MessageOptsExt as _},
     };

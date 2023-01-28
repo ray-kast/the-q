@@ -10,16 +10,18 @@ use serenity::{
     utils::MessageBuilder,
 };
 
-use super::{Components, Embed, Embeds, ResponseData};
+use super::{Components, Embed, Embeds, MessageComponent, ResponseData};
+use crate::prelude::*;
 
-#[derive(Debug)]
-pub struct MessageBody {
+#[derive(Debug, qcore::Borrow)]
+pub struct MessageBody<E> {
     content: MessageBuilder,
     embeds: Embeds,
     ping_replied: bool,
     ping_users: Vec<UserId>,
     ping_roles: Vec<RoleId>,
-    components: Components,
+    #[borrow(mut)]
+    components: Components<MessageComponent, E>,
 }
 
 macro_rules! build_body {
@@ -40,7 +42,7 @@ macro_rules! build_body {
     }};
 }
 
-impl MessageBody {
+impl<E> MessageBody<E> {
     #[inline]
     pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
         let mut content = MessageBuilder::new();
@@ -61,6 +63,28 @@ impl MessageBody {
     }
 
     #[inline]
+    pub fn prepare(self) -> Result<MessageBody<Infallible>, E> {
+        let Self {
+            content,
+            embeds,
+            ping_replied,
+            ping_users,
+            ping_roles,
+            components,
+        } = self;
+        Ok(MessageBody {
+            content,
+            embeds,
+            ping_replied,
+            ping_users,
+            ping_roles,
+            components: components.prepare()?,
+        })
+    }
+}
+
+impl MessageBody<Infallible> {
+    #[inline]
     pub fn build_edit_response(
         self,
         res: &mut EditInteractionResponse,
@@ -78,7 +102,7 @@ impl MessageBody {
 }
 
 #[builder(trait_name = "MessageBodyExt")]
-impl MessageBody {
+impl<E> MessageBody<E> {
     pub fn ping_replied(&mut self, ping_replied: bool) { self.ping_replied = ping_replied; }
 
     pub fn ping_users(&mut self, ping_users: Vec<UserId>) { self.ping_users = ping_users; }
@@ -92,7 +116,7 @@ impl MessageBody {
     }
 }
 
-impl<'a> ResponseData<'a> for MessageBody {
+impl<'a> ResponseData<'a> for MessageBody<Infallible> {
     #[inline]
     fn build_response_data<'b>(
         self,
@@ -146,12 +170,20 @@ impl<'a> ResponseData<'a> for MessageOpts {
 }
 
 #[derive(Debug, qcore::Borrow)]
-pub struct Message<'a> {
+pub struct Message<'a, E> {
     #[borrow(mut)]
-    body: MessageBody,
+    body: MessageBody<E>,
     #[borrow(mut)]
     opts: MessageOpts,
     attachments: Vec<AttachmentType<'a>>,
+}
+
+impl<'a, E> Borrow<Components<MessageComponent, E>> for Message<'a, E> {
+    fn borrow(&self) -> &Components<MessageComponent, E> { &self.body.components }
+}
+
+impl<'a, E> BorrowMut<Components<MessageComponent, E>> for Message<'a, E> {
+    fn borrow_mut(&mut self) -> &mut Components<MessageComponent, E> { &mut self.body.components }
 }
 
 macro_rules! build_msg {
@@ -165,8 +197,8 @@ macro_rules! build_msg {
     }};
 }
 
-impl<'a> From<MessageBody> for Message<'a> {
-    fn from(body: MessageBody) -> Self {
+impl<'a, E> From<MessageBody<E>> for Message<'a, E> {
+    fn from(body: MessageBody<E>) -> Self {
         Self {
             body,
             opts: MessageOpts::default(),
@@ -175,7 +207,7 @@ impl<'a> From<MessageBody> for Message<'a> {
     }
 }
 
-impl<'a> Message<'a> {
+impl<'a, E> Message<'a, E> {
     #[inline]
     pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
         MessageBody::rich(f).into()
@@ -186,7 +218,7 @@ impl<'a> Message<'a> {
 
     #[inline]
     pub fn from_parts(
-        body: MessageBody,
+        body: MessageBody<E>,
         opts: MessageOpts,
         attachments: Vec<AttachmentType<'a>>,
     ) -> Self {
@@ -197,6 +229,22 @@ impl<'a> Message<'a> {
         }
     }
 
+    #[inline]
+    pub fn prepare(self) -> Result<Message<'a, Infallible>, E> {
+        let Self {
+            body,
+            opts,
+            attachments,
+        } = self;
+        Ok(Message {
+            body: body.prepare()?,
+            opts,
+            attachments,
+        })
+    }
+}
+
+impl<'a> Message<'a, Infallible> {
     pub fn build_followup<'b>(
         self,
         fup: &'b mut CreateInteractionResponseFollowup<'a>,
@@ -206,13 +254,13 @@ impl<'a> Message<'a> {
 }
 
 #[builder(trait_name = "MessageExt")]
-impl<'a> Message<'a> {
+impl<'a, E> Message<'a, E> {
     pub fn attach(&mut self, attachments: impl IntoIterator<Item = AttachmentType<'a>>) {
         self.attachments.extend(attachments);
     }
 }
 
-impl<'a> ResponseData<'a> for Message<'a> {
+impl<'a> ResponseData<'a> for Message<'a, Infallible> {
     #[inline]
     fn build_response_data<'b>(
         self,

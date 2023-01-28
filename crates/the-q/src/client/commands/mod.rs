@@ -14,15 +14,22 @@ pub(self) mod prelude {
             CommandError, CommandHandler as Handler, CommandResponder, CommandResult, IntoErr,
         },
         response::{
-            prelude::*, Component, Embed, Message, MessageBody, MessageOpts, Modal, ResponseData,
+            prelude::*, ButtonStyle, Embed, Message, MessageBody, MessageComponent, MessageOpts,
+            Modal, ResponseData, TextInput,
         },
         visitor,
         visitor::Visitor,
     };
     pub use crate::{
         prelude::*,
-        proto::{component, modal},
+        proto::{
+            component, component::component::Payload as ComponentPayload, modal,
+            modal::modal::Payload as ModalPayload,
+        },
     };
+
+    #[inline]
+    pub fn id<T>(t: T) -> T { t }
 }
 
 pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler>> {

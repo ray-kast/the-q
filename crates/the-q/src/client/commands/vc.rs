@@ -59,7 +59,13 @@ impl Handler for VcCommand {
             .context("Error leaving call")?;
 
         responder
-            .edit(MessageBody::plain(";)"))
+            .edit(MessageBody::plain(";)").build_row(|c| {
+                c.link_button(
+                    Url::parse("https://youtu.be/dQw4w9WgXcQ").unwrap(),
+                    "See More",
+                    false,
+                )
+            }))
             .await
             .context("Error updating deferred response")?;
 

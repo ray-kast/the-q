@@ -19,10 +19,11 @@ pub(crate) mod util;
 pub(crate) mod prelude {
     pub use std::{
         borrow::{
-            Borrow, Cow,
+            Borrow, BorrowMut, Cow,
             Cow::{Borrowed, Owned},
         },
         collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+        convert::Infallible,
         fmt,
         future::Future,
         hash::Hash,

@@ -14,7 +14,11 @@ impl Handler for TestCommand {
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         Ok(responder
-            .modal(|s| Modal::new(s, modal::modal::Payload::Rename(modal::Rename {}), "Hi!"))
+            .modal(|s| {
+                Modal::new(s, ModalPayload::Rename(modal::Rename {}), "Hi!").build_row(|r| {
+                    r.build_text_long(ComponentPayload::Role(component::Role {}), "foo", id)
+                })
+            })
             .await
             .context("Error creating modal")?
             .into())

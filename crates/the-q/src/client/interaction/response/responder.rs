@@ -261,29 +261,45 @@ use serenity::{http::Http, model::application::interaction::InteractionResponseT
 use super::{id, Message, MessageBody, MessageOpts, Modal, ModalSource, ResponseData};
 use crate::prelude::*;
 
+#[derive(Debug, thiserror::Error)]
+pub enum ResponseError {
+    #[error("Serenity error")]
+    Serenity(#[from] serenity::Error),
+    #[error("Custom ID error for component or modal")]
+    Id(#[from] id::Error),
+}
+
 #[repr(transparent)]
 pub struct Followup(serenity::model::channel::Message);
 
 #[async_trait]
 pub trait ResponderExt: private::Responder {
     #[inline]
-    async fn create_followup(&self, msg: Message<'_>) -> Result<Followup, serenity::Error>
-    where Self: private::CreateFollowup {
+    async fn create_followup(
+        &self,
+        msg: Message<'_, id::Error>,
+    ) -> Result<Followup, ResponseError>
+    where
+        Self: private::CreateFollowup,
+    {
+        let msg = msg.prepare()?;
         let ResponderCore { http, int } = self.core();
-        int.create_followup_message(http, |f| msg.build_followup(f))
+        Ok(int
+            .create_followup_message(http, |f| msg.build_followup(f))
             .await
-            .map(Followup)
+            .map(Followup)?)
     }
 
     #[inline]
     async fn edit_followup(
         &self,
         fup: &mut Followup,
-        msg: Message<'_>,
-    ) -> Result<(), serenity::Error>
+        msg: Message<'_, id::Error>,
+    ) -> Result<(), ResponseError>
     where
         Self: private::CreateFollowup,
     {
+        let msg = msg.prepare()?;
         let ResponderCore { http, int } = self.core();
         *fup = Followup(
             int.edit_followup_message(http, fup.0.id, |f| msg.build_followup(f))
@@ -302,14 +318,6 @@ pub trait ResponderExt: private::Responder {
 }
 
 impl<R: private::Responder> ResponderExt for R {}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ModalError {
-    #[error("Serenity error")]
-    Serenity(#[from] serenity::Error),
-    #[error("Modal ID error")]
-    Id(#[from] id::Error),
-}
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -345,14 +353,16 @@ impl<'a, I: private::Interaction> InitResponder<'a, I> {
     #[inline]
     pub async fn create_message(
         self,
-        msg: Message<'_>,
-    ) -> Result<CreatedResponder<'a, I>, serenity::Error> {
-        self.create(
-            InteractionResponseType::ChannelMessageWithSource,
-            msg,
-            CreatedResponder,
-        )
-        .await
+        msg: Message<'_, id::Error>,
+    ) -> Result<CreatedResponder<'a, I>, ResponseError> {
+        let msg = msg.prepare()?;
+        Ok(self
+            .create(
+                InteractionResponseType::ChannelMessageWithSource,
+                msg,
+                CreatedResponder,
+            )
+            .await?)
     }
 
     #[inline]
@@ -373,14 +383,16 @@ impl<'a, I: private::CreateUpdate> InitResponder<'a, I> {
     #[inline]
     pub async fn update_message(
         self,
-        msg: Message<'_>, // TODO: is opts necessary?
-    ) -> Result<CreatedResponder<'a, I>, serenity::Error> {
-        self.create(
-            InteractionResponseType::UpdateMessage,
-            msg,
-            CreatedResponder,
-        )
-        .await
+        msg: Message<'_, id::Error>, // TODO: is opts necessary?
+    ) -> Result<CreatedResponder<'a, I>, ResponseError> {
+        let msg = msg.prepare()?;
+        Ok(self
+            .create(
+                InteractionResponseType::UpdateMessage,
+                msg,
+                CreatedResponder,
+            )
+            .await?)
     }
 
     #[inline]
@@ -401,14 +413,11 @@ impl<'a, I: private::CreateModal> InitResponder<'a, I> {
     #[inline]
     pub async fn modal(
         self,
-        modal: impl FnOnce(ModalSource) -> Result<Modal, id::Error>,
-    ) -> Result<VoidResponder<'a, I>, ModalError> {
+        modal: impl FnOnce(ModalSource) -> Modal<id::Error>,
+    ) -> Result<VoidResponder<'a, I>, ResponseError> {
+        let modal = modal(ModalSource(I::MODAL_SOURCE)).prepare()?;
         Ok(self
-            .create(
-                InteractionResponseType::Modal,
-                modal(ModalSource(I::MODAL_SOURCE))?,
-                VoidResponder,
-            )
+            .create(InteractionResponseType::Modal, modal, VoidResponder)
             .await?)
     }
 }
@@ -425,12 +434,14 @@ impl<'a, I: private::Interaction> CreatedResponder<'a, I> {
     #[inline]
     pub async fn edit(
         &self,
-        res: MessageBody,
-    ) -> Result<serenity::model::channel::Message, serenity::Error> {
-        self.0
+        res: MessageBody<id::Error>,
+    ) -> Result<serenity::model::channel::Message, ResponseError> {
+        let res = res.prepare()?;
+        Ok(self
+            .0
             .int
             .edit_response(self.0.http, |e| res.build_edit_response(e))
-            .await
+            .await?)
     }
 
     #[inline]
@@ -476,8 +487,8 @@ impl<'a, I> BorrowedResponder<'a, I> {
 impl<'a, I: private::Interaction> BorrowedResponder<'a, I> {
     pub async fn upsert_message(
         &mut self,
-        msg: Message<'_>,
-    ) -> Result<Option<Followup>, serenity::Error> {
+        msg: Message<'_, id::Error>,
+    ) -> Result<Option<Followup>, ResponseError> {
         match self {
             Self::Init(_) => {
                 let Self::Init(resp) = mem::replace(self, Self::Poison) else {
@@ -517,9 +528,8 @@ impl<'a, 'b, I> BorrowingResponder<'a, 'b, I> {
         self,
         f: impl FnOnce(InitResponder<'b, I>) -> F,
     ) -> Result<T, E> {
-        let init = match mem::replace(self.0, BorrowedResponder::Poison) {
-            BorrowedResponder::Init(i) => i,
-            _ => unreachable!(),
+        let BorrowedResponder::Init(init) = mem::replace(self.0, BorrowedResponder::Poison) else {
+            unreachable!();
         };
 
         let core = init.0;
@@ -538,8 +548,8 @@ impl<'a, 'b, I: private::Interaction> BorrowingResponder<'a, 'b, I> {
     #[inline]
     pub async fn create_message(
         self,
-        msg: Message<'_>,
-    ) -> Result<CreatedResponder<'b, I>, serenity::Error> {
+        msg: Message<'_, id::Error>,
+    ) -> Result<CreatedResponder<'b, I>, ResponseError> {
         // SAFETY: this is a create response endpoint
         unsafe { self.take(|i| i.create_message(msg)).await }
     }
@@ -558,8 +568,8 @@ impl<'a, 'b, I: private::CreateUpdate> BorrowingResponder<'a, 'b, I> {
     #[inline]
     pub async fn update_message(
         self,
-        msg: Message<'_>,
-    ) -> Result<CreatedResponder<'b, I>, serenity::Error> {
+        msg: Message<'_, id::Error>,
+    ) -> Result<CreatedResponder<'b, I>, ResponseError> {
         // SAFETY: this is a create response endpoint
         unsafe { self.take(|i| i.update_message(msg)).await }
     }
@@ -578,8 +588,8 @@ impl<'a, 'b, I: private::CreateModal> BorrowingResponder<'a, 'b, I> {
     #[inline]
     pub async fn modal(
         self,
-        f: impl FnOnce(ModalSource) -> Result<Modal, id::Error>,
-    ) -> Result<VoidResponder<'b, I>, ModalError> {
+        f: impl FnOnce(ModalSource) -> Modal<id::Error>,
+    ) -> Result<VoidResponder<'b, I>, ResponseError> {
         // SAFETY: this is a create response endpoint
         unsafe { self.take(|i| i.modal(f)).await }
     }

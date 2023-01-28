@@ -25,6 +25,7 @@ use super::{
     handler,
     response::{
         prelude::*, BorrowedResponder, BorrowingResponder, InitResponder, Message, MessageOpts,
+        ResponseError,
     },
     visitor,
 };
@@ -293,7 +294,7 @@ impl Registry {
         &self,
         ctx: &Context,
         aci: ApplicationCommandInteraction,
-    ) -> Result<(), serenity::Error> {
+    ) -> Result<(), ResponseError> {
         trace!("Handling application command");
 
         let map = self.map.read().await;

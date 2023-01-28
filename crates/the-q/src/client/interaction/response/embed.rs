@@ -53,12 +53,9 @@ macro_rules! build_embeds {
 fn visit<V: IntoIterator>(
     vals: V,
     embed: &mut CreateEmbed,
-    mut f: impl FnMut(&mut CreateEmbed, V::Item) -> &mut CreateEmbed,
+    f: impl FnMut(&mut CreateEmbed, V::Item) -> &mut CreateEmbed,
 ) -> &mut CreateEmbed {
-    for v in vals {
-        f(embed, v);
-    }
-    embed
+    vals.into_iter().fold(embed, f)
 }
 
 #[inline]
@@ -113,11 +110,11 @@ pub struct Embed {
     fields: Vec<EmbedField>,
 }
 
-impl From<Embed> for MessageBody {
+impl<E> From<Embed> for MessageBody<E> {
     fn from(embed: Embed) -> Self { MessageBody::plain("").embed(embed) }
 }
 
-impl<'a> From<Embed> for Message<'a> {
+impl<'a, E> From<Embed> for Message<'a, E> {
     fn from(value: Embed) -> Self { MessageBody::from(value).into() }
 }
 

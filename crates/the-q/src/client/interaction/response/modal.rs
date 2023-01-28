@@ -1,10 +1,11 @@
 use serenity::builder::CreateInteractionResponseData;
 
-use super::{id, Components, ResponseData};
+use super::{id, Components, ResponseData, TextInput};
 use crate::{prelude::*, proto::modal};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ModalSource(pub(super) Source);
+
 #[derive(Debug, Clone, Copy)]
 #[doc(hidden)]
 pub enum Source {
@@ -21,32 +22,49 @@ impl From<Source> for modal::ModalSource {
     }
 }
 
-#[derive(Debug)]
-pub struct Modal {
-    id: String,
+#[derive(Debug, qcore::Borrow)]
+pub struct Modal<E> {
+    id: Result<id::Id<'static>, E>,
     title: String,
-    components: Components,
+    #[borrow(mut)]
+    components: Components<TextInput, E>,
 }
 
-impl Modal {
+impl Modal<id::Error> {
     #[inline]
     pub fn new(
         source: ModalSource,
         payload: modal::modal::Payload,
         title: impl Into<String>,
-    ) -> Result<Self, id::Error> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             id: id::write(&modal::Modal {
                 source: modal::ModalSource::from(source.0) as i32,
                 payload: Some(payload),
-            })?,
+            }),
             title: title.into(),
             components: Components::default(),
+        }
+    }
+}
+
+impl<E> Modal<E> {
+    #[inline]
+    pub fn prepare(self) -> Result<Modal<Infallible>, E> {
+        let Self {
+            id,
+            title,
+            components,
+        } = self;
+        Ok(Modal {
+            id: Ok(id?),
+            title,
+            components: components.prepare()?,
         })
     }
 }
 
-impl<'a> ResponseData<'a> for Modal {
+impl<'a> ResponseData<'a> for Modal<Infallible> {
     #[inline]
     fn build_response_data<'b>(
         self,
@@ -57,6 +75,10 @@ impl<'a> ResponseData<'a> for Modal {
             title,
             components,
         } = self;
-        components.build_response_data(data.custom_id(id).title(title))
+        components.build_response_data(
+            // TODO: use into_ok
+            data.custom_id(id.unwrap_or_else(|_| unreachable!()))
+                .title(title),
+        )
     }
 }

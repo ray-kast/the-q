@@ -52,7 +52,7 @@ pub trait CommandHandler: fmt::Debug + Send + Sync {
     fn register_guild(&self, opts: &Opts, id: GuildId) -> Option<CommandInfo> {
         // Use the variables to give the trait args a nice name without getting
         // dead code warnings
-        #[allow(clippy::let_underscore_drop)]
+        #[allow(let_underscore_drop)]
         let _ = (opts, id);
         None
     }

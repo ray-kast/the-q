@@ -5,7 +5,7 @@ use std::{
 };
 
 use ordered_float::{NotNan, OrderedFloat};
-use qcore::builder;
+use qcore::{build_range::BuildRange, builder};
 use serde_json::{Number, Value};
 use serenity::{
     builder::{CreateApplicationCommand, CreateApplicationCommandOption},
@@ -394,6 +394,7 @@ impl Arg {
             ),
             ArgType::IntChoice(c) => Self::build_choices(
                 opt.kind(CommandOptionType::Integer),
+                #[allow(clippy::cast_possible_truncation)] // serenity type error
                 c.into_iter().map(|Choice { name, val }| Choice {
                     name,
                     val: val as i32,
@@ -746,7 +747,7 @@ impl ArgBuilder {
         name: impl Into<String>,
         desc: impl Into<String>,
         required: bool,
-        len: impl private::BuildRange<u16>,
+        len: impl BuildRange<u16>,
     ) {
         let (min_len, max_len) = len.build_range().into_inner();
         self.arg_parts(name, desc, required, ArgType::String {
@@ -774,7 +775,7 @@ impl ArgBuilder {
         name: impl Into<String>,
         desc: impl Into<String>,
         required: bool,
-        range: impl private::BuildRange<i64>,
+        range: impl BuildRange<i64>,
     ) {
         let (min, max) = range.build_range().into_inner();
         self.arg_parts(name, desc, required, ArgType::Int {
@@ -829,8 +830,9 @@ impl ArgBuilder {
         name: impl Into<String>,
         desc: impl Into<String>,
         required: bool,
-        range: impl private::BuildRange<f64>,
+        range: impl BuildRange<f64>,
     ) {
+        #![allow(clippy::manual_let_else)] // syn doesn't support let-else
         let (min, max) = range.build_range().into_inner();
         let (min, max) = if let Ok(t) = min
             .map(NotNan::new)
@@ -931,33 +933,6 @@ impl ArgBuilder {
                 self.subcmd(name, desc, a);
             },
             Err(TryFromError(e)) => self.0 = ArgBuilderState::Error(e),
-        }
-    }
-}
-
-mod private {
-    use std::ops::RangeInclusive;
-
-    pub trait BuildRange<T> {
-        fn build_range(self) -> RangeInclusive<Option<T>>;
-    }
-
-    impl<T> BuildRange<T> for std::ops::RangeFull {
-        fn build_range(self) -> RangeInclusive<Option<T>> { None..=None }
-    }
-
-    impl<T> BuildRange<T> for std::ops::RangeFrom<T> {
-        fn build_range(self) -> RangeInclusive<Option<T>> { Some(self.start)..=None }
-    }
-
-    impl<T> BuildRange<T> for std::ops::RangeToInclusive<T> {
-        fn build_range(self) -> RangeInclusive<Option<T>> { None..=Some(self.end) }
-    }
-
-    impl<T> BuildRange<T> for RangeInclusive<T> {
-        fn build_range(self) -> RangeInclusive<Option<T>> {
-            let (start, end) = self.into_inner();
-            Some(start)..=Some(end)
         }
     }
 }

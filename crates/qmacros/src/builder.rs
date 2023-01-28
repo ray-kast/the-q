@@ -11,6 +11,8 @@ struct Args {
     trait_name: syn::Ident,
 }
 
+// TODO(design): Refactor builder interface to handle errors better
+
 pub(super) fn run(args: syn::AttributeArgs, mut body: syn::ItemImpl) -> TokenStream {
     let Args { trait_name } = match darling::FromMeta::from_list(&args) {
         Ok(a) => a,
@@ -37,21 +39,53 @@ pub(super) fn run(args: syn::AttributeArgs, mut body: syn::ItemImpl) -> TokenStr
         return diag;
     }
 
-    if !(body.generics.params.is_empty() || body.generics.params.trailing_punct()) {
+    if !body.generics.params.empty_or_trailing() {
         body.generics
             .params
             .push_punct(syn::token::Comma::default());
     }
 
-    // TODO: come up with a cleaner way to select methods
     let impl_generic_params = &body.generics.params;
     let impl_generic_where = &body.generics.where_clause;
-    let ty_generics = match &*body.self_ty {
-        syn::Type::Path(p) => match p.path.segments.last().unwrap().arguments {
-            syn::PathArguments::AngleBracketed(ref a) => Some(a),
-            _ => None,
-        },
-        _ => None,
+    let trait_generics: syn::punctuated::Punctuated<_, syn::token::Comma> = {
+        impl_generic_params
+            .iter()
+            .cloned()
+            .map(|i| match i {
+                syn::GenericParam::Type(syn::TypeParam { ident, .. }) => {
+                    syn::GenericArgument::Type(syn::Type::Path(syn::TypePath {
+                        qself: None,
+                        path: syn::Path {
+                            leading_colon: None,
+                            segments: [syn::PathSegment {
+                                ident,
+                                arguments: syn::PathArguments::None,
+                            }]
+                            .into_iter()
+                            .collect(),
+                        },
+                    }))
+                },
+                syn::GenericParam::Lifetime(syn::LifetimeDef { lifetime, .. }) => {
+                    syn::GenericArgument::Lifetime(lifetime)
+                },
+                syn::GenericParam::Const(syn::ConstParam { ident, .. }) => {
+                    syn::GenericArgument::Const(syn::Expr::Path(syn::ExprPath {
+                        attrs: vec![],
+                        qself: None,
+                        path: syn::Path {
+                            leading_colon: None,
+                            segments: [syn::PathSegment {
+                                ident,
+                                arguments: syn::PathArguments::None,
+                            }]
+                            .into_iter()
+                            .collect(),
+                        },
+                    }))
+                },
+            })
+            .collect()
     };
     let methods = body
         .items
@@ -75,7 +109,7 @@ pub(super) fn run(args: syn::AttributeArgs, mut body: syn::ItemImpl) -> TokenStr
             #impl_generic_params
             #[allow(non_camel_case_types)]
             __Builder_T: ::std::borrow::BorrowMut<#ty_name> + ::std::marker::Sized
-        > #trait_name #ty_generics for __Builder_T #impl_generic_where {}
+        > #trait_name <#trait_generics> for __Builder_T #impl_generic_where {}
     }
 }
 
@@ -156,7 +190,9 @@ fn make_builder_method(m: syn::ImplItem, diag: &mut TokenStream) -> syn::ImplIte
                     repl,
                 }
                 .fold_block(m.block);
-                syn::parse_quote_spanned! { block.span() => { #block; }; }
+                syn::parse_quote_spanned! { block.span() =>
+                    #[allow(clippy::unnecessary_operation)] { #block; };
+                }
             },
             syn::Stmt::Expr(syn::Expr::Path(this)),
         ],

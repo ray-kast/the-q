@@ -1,3 +1,10 @@
+// For generated code
+#![allow(
+    clippy::doc_markdown,
+    clippy::module_inception,
+    clippy::trivially_copy_pass_by_ref
+)]
+
 macro_rules! proto_mod {
     ($vis:vis $name:ident, $package:literal) => {
         $vis mod $name {
