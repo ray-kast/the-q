@@ -9,7 +9,11 @@ pub struct Schema;
 
 impl rpc::Schema for Schema {
     type Component = component::Component;
+    type ComponentKey = ComponentKey;
+    type ComponentPayload = ComponentPayload;
     type Modal = modal::Modal;
+    type ModalKey = ModalKey;
+    type ModalPayload = ModalPayload;
 }
 
 impl rpc::ComponentId for component::Component {
@@ -22,7 +26,10 @@ impl rpc::ComponentId for component::Component {
         }
     }
 
-    fn into_parts(self) -> Self::Payload { todo!() }
+    fn try_into_parts(self) -> Option<Self::Payload> {
+        let Self { payload } = self;
+        payload
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -53,7 +60,16 @@ impl rpc::ModalId for modal::Modal {
         }
     }
 
-    fn into_parts(self) -> (ModalSource, Self::Payload) { todo!() }
+    fn try_into_parts(self) -> Option<(ModalSource, Self::Payload)> {
+        let Self { source, payload } = self;
+        modal::ModalSource::from_i32(source)
+            .and_then(|s| match s {
+                modal::ModalSource::Unknown => None,
+                modal::ModalSource::Command => Some(ModalSource::Command),
+                modal::ModalSource::Component => Some(ModalSource::Component),
+            })
+            .zip(payload)
+    }
 }
 
 impl rpc::Key for ComponentKey {

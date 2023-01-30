@@ -55,14 +55,13 @@ pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler<Schema>>> {
     ]
 }
 
-pub fn components()
--> Vec<prelude::Arc<dyn prelude::RpcHandler<Schema, prelude::component::Component>>> {
+pub fn components() -> Vec<prelude::Arc<dyn prelude::RpcHandler<Schema, ComponentKey>>> {
     use prelude::Arc;
 
     vec![]
 }
 
-pub fn modals() -> Vec<prelude::Arc<dyn prelude::RpcHandler<Schema, prelude::modal::Modal>>> {
+pub fn modals() -> Vec<prelude::Arc<dyn prelude::RpcHandler<Schema, ModalKey>>> {
     use prelude::Arc;
 
     vec![]

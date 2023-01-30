@@ -27,10 +27,10 @@ use super::{
     command::RegisteredCommand,
     handler,
     response::{
-        prelude::*, BorrowedResponder, BorrowingResponder, InitResponder, Message, MessageOpts,
+        id, prelude::*, BorrowedResponder, BorrowingResponder, InitResponder, Message, ModalSource,
         ResponseError,
     },
-    rpc::Schema,
+    rpc::{ComponentId, Key, ModalId, Schema},
     visitor,
 };
 use crate::prelude::*;
@@ -182,20 +182,30 @@ type CommandHandlerMap<S> = HashMap<CommandId, CommandHandler<S>>;
 type RpcHandler<S, K> = Arc<dyn handler::RpcHandler<S, K>>;
 type RpcHandlerMap<S, K> = HashMap<K, RpcHandler<S, K>>;
 
+type ComponentInfo<'a, S> = (
+    &'a RpcHandler<S, <S as Schema>::ComponentKey>,
+    <S as Schema>::ComponentPayload,
+);
+type ModalInfo<'a, S> = (
+    &'a RpcHandler<S, <S as Schema>::ModalKey>,
+    ModalSource,
+    <S as Schema>::ModalPayload,
+);
+
 #[derive(Debug)]
 struct RegistryInit<S: Schema> {
     opts: handler::Opts,
     commands: Vec<CommandHandler<S>>,
-    components: Vec<RpcHandler<S, S::Component>>,
-    modals: Vec<RpcHandler<S, S::Modal>>,
+    components: Vec<RpcHandler<S, S::ComponentKey>>,
+    modals: Vec<RpcHandler<S, S::ModalKey>>,
 }
 
 #[derive(Debug)]
 pub struct Registry<S: Schema> {
     init: RegistryInit<S>,
     commands: RwLock<Option<CommandHandlerMap<S>>>,
-    components: RwLock<Option<RpcHandlerMap<S, S::Component>>>,
-    modals: RwLock<Option<RpcHandlerMap<S, S::Modal>>>,
+    components: RwLock<Option<RpcHandlerMap<S, S::ComponentKey>>>,
+    modals: RwLock<Option<RpcHandlerMap<S, S::ModalKey>>>,
 }
 
 impl<S: Schema> Registry<S> {
@@ -306,6 +316,18 @@ impl<S: Schema> Registry<S> {
         Ok(handlers)
     }
 
+    fn collate_rpc<K: Key>(handlers: &[RpcHandler<S, K>]) -> RpcHandlerMap<S, K> {
+        let mut map = HashMap::new();
+
+        for handler in handlers {
+            for key in handler.register_keys().iter().copied() {
+                assert!(map.insert(key, Arc::clone(handler)).is_none());
+            }
+        }
+
+        map
+    }
+
     fn resolve_command<'a>(
         map: &'a tokio::sync::RwLockReadGuard<'a, Option<CommandHandlerMap<S>>>,
         id: CommandId,
@@ -324,11 +346,77 @@ impl<S: Schema> Registry<S> {
         Ok(handler)
     }
 
+    fn resolve_component<'a>(
+        map: &'a tokio::sync::RwLockReadGuard<'a, Option<RpcHandlerMap<S, S::ComponentKey>>>,
+        id: &id::Id<'_>,
+    ) -> Result<ComponentInfo<'a, S>, &'static str> {
+        let Some(ref map) = **map else {
+            warn!("Rejecting component due to uninitialized registry");
+            return Err("Still starting!  Please try again later.");
+        };
+
+        let payload = match id::read::<S::Component>(id)
+            .map_err(Some)
+            .and_then(|i| i.try_into_parts().ok_or(None))
+        {
+            Ok(p) => p,
+            Err(Some(err)) => {
+                error!(%err, "Unable to parse component ID");
+                return Err("Unrecognized component ID format - this is a bug.");
+            },
+            Err(None) => {
+                warn!("Rejecting unknown (deprecated?) component ID");
+                return Err("Invalid component ID - this feature may have been removed.");
+            },
+        };
+
+        let Some(handler) = map.get(&(&payload).into()) else {
+            warn!("Rejecting unknown component");
+            return Err("Unknown component - this may be a bug.");
+        };
+
+        debug!(?handler, ?payload, "Component handler selected");
+        Ok((handler, payload))
+    }
+
+    fn resolve_modal<'a>(
+        map: &'a tokio::sync::RwLockReadGuard<'a, Option<RpcHandlerMap<S, S::ModalKey>>>,
+        id: &id::Id<'_>,
+    ) -> Result<ModalInfo<'a, S>, &'static str> {
+        let Some(ref map) = **map else {
+            warn!("Rejecting modal due to uninitialized registry");
+            return Err("Still starting!  Please try again later.");
+        };
+
+        let (source, payload) = match id::read::<S::Modal>(id)
+            .map_err(Some)
+            .and_then(|i| i.try_into_parts().ok_or(None))
+        {
+            Ok(p) => p,
+            Err(Some(err)) => {
+                error!(%err, "Unable to parse modal ID");
+                return Err("Unrecognized modal ID format - this is a bug.");
+            },
+            Err(None) => {
+                warn!("Rejecting unknown (deprecated?) modal ID");
+                return Err("Invalid modal ID - this feature may have been removed.");
+            },
+        };
+
+        let Some(handler) = map.get(&(&payload).into()) else {
+            warn!("Rejecting unknown modal");
+            return Err("Unknown modal - this may be a bug.");
+        };
+
+        debug!(?handler, ?source, ?payload, "Modal handler selected");
+        Ok((handler, source, payload))
+    }
+
     pub fn new(
         opts: handler::Opts,
         commands: Vec<CommandHandler<S>>,
-        components: Vec<RpcHandler<S, S::Component>>,
-        modals: Vec<RpcHandler<S, S::Modal>>,
+        components: Vec<RpcHandler<S, S::ComponentKey>>,
+        modals: Vec<RpcHandler<S, S::ModalKey>>,
     ) -> Self {
         Self {
             init: RegistryInit {
@@ -345,9 +433,13 @@ impl<S: Schema> Registry<S> {
 
     #[inline]
     pub async fn init(&self, ctx: &Context) -> Result {
-        let mut state = self.commands.write().await;
+        let mut commands = self.commands.write().await;
+        let mut components = self.components.write().await;
+        let mut modals = self.modals.write().await;
 
-        *state = Some(Self::patch_commands(ctx, &self.init, None).await?);
+        *commands = Some(Self::patch_commands(ctx, &self.init, None).await?);
+        *components = Some(Self::collate_rpc(&self.init.components));
+        *modals = Some(Self::collate_rpc(&self.init.modals));
 
         // TODO: handle guild commands
 
@@ -458,16 +550,47 @@ impl<S: Schema> Registry<S> {
         &self,
         ctx: &Context,
         mc: MessageComponentInteraction,
-    ) -> Result<(), serenity::Error> {
+    ) -> Result<(), ResponseError> {
         trace!("Handling message component");
-        // TODO: remove type params
-        let responder = InitResponder::<S, _>::new(&ctx.http, &mc);
 
-        // TODO
-        responder
-            .defer_update(MessageOpts::default())
-            .await
-            .map(|_| ())
+        let map = self.components.read().await;
+        let responder = InitResponder::new(&ctx.http, &mc);
+        let (handler, payload) = match Self::resolve_component(&map, unsafe {
+            &id::Id::from_inner(mc.data.custom_id.as_str().into())
+        }) {
+            Ok(h) => h,
+            Err(e) => {
+                return responder
+                    .create_message(Message::plain(e).ephemeral(true))
+                    .await
+                    .map(|_| ());
+            },
+        };
+
+        let mut responder = BorrowedResponder::Init(responder);
+        let res = handler
+            .respond(ctx, payload, BorrowingResponder::new(&mut responder))
+            .await;
+
+        let msg = match res {
+            Ok(_res) => None,
+            Err(handler::RpcError::User(err, _res)) => {
+                debug!(err, "Component responded to user with error");
+                None
+            },
+            Err(handler::RpcError::Other(err)) => {
+                error!(?err, "Unexpected error handling component");
+                Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
+                    .ephemeral(true)
+                    .into()
+            },
+        };
+
+        if let Some(msg) = msg {
+            responder.upsert_message(msg).await?;
+        }
+
+        Ok(())
     }
 
     #[instrument(
@@ -533,17 +656,47 @@ impl<S: Schema> Registry<S> {
         &self,
         ctx: &Context,
         ms: ModalSubmitInteraction,
-    ) -> Result<(), serenity::Error> {
+    ) -> Result<(), ResponseError> {
         trace!("Handling modal submit");
 
-        // TODO: remove type params
-        let responder = InitResponder::<S, _>::new(&ctx.http, &ms);
+        let map = self.modals.read().await;
+        let responder = InitResponder::new(&ctx.http, &ms);
+        let (handler, src, payload) = match Self::resolve_modal(&map, unsafe {
+            &id::Id::from_inner(ms.data.custom_id.as_str().into())
+        }) {
+            Ok(p) => p,
+            Err(e) => {
+                return responder
+                    .create_message(Message::plain(e).ephemeral(true))
+                    .await
+                    .map(|_| ());
+            },
+        };
 
-        // TODO
-        responder
-            .defer_update(MessageOpts::default())
-            .await
-            .map(|_| ())
+        let mut responder = BorrowedResponder::Init(responder);
+        let res = handler
+            .respond(ctx, payload, BorrowingResponder::new(&mut responder))
+            .await;
+
+        let msg = match res {
+            Ok(_res) => None,
+            Err(handler::RpcError::User(err, _res)) => {
+                debug!(err, "Modal responded to user with error");
+                None
+            },
+            Err(handler::RpcError::Other(err)) => {
+                error!(?err, "Unexpected error handling modal");
+                Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
+                    .ephemeral(true)
+                    .into()
+            },
+        };
+
+        if let Some(msg) = msg {
+            responder.upsert_message(msg).await?;
+        }
+
+        Ok(())
     }
 
     #[inline]

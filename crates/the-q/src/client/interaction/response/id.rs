@@ -22,6 +22,8 @@ impl<'a> fmt::Display for Id<'a> {
 }
 
 impl<'a> Id<'a> {
+    pub unsafe fn from_inner(s: Cow<'a, str>) -> Self { Self(s) }
+
     pub fn as_ref(&self) -> Id<'_> { Id(Cow::Borrowed(self.0.as_ref())) }
 }
 
