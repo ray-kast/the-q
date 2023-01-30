@@ -141,15 +141,26 @@ impl Handler for VcCommand {
         let files = self.files().await?;
         let files = files.files.read().await;
 
-        let mut heap: BinaryHeap<_> = files
-            .keys()
-            .map(|s| {
-                (
-                    OrderedFloat(strsim::normalized_damerau_levenshtein(path, s)),
-                    s,
-                )
-            })
-            .collect();
+        #[allow(clippy::cast_precision_loss)]
+        let mut heap: BinaryHeap<_> = {
+            let all = once_cell::unsync::OnceCell::new();
+            files
+                .keys()
+                .map(|s| {
+                    (
+                        OrderedFloat(strsim::normalized_damerau_levenshtein(
+                            path,
+                            &s.to_lowercase(),
+                        )),
+                        s,
+                    )
+                })
+                .filter(|(s, _)| {
+                    let matching = s.0 >= 0.07;
+                    *all.get_or_init(|| !matching) || matching
+                })
+                .collect()
+        };
 
         debug!(?heap, "File completion list accumulated");
 
