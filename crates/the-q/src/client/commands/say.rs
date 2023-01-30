@@ -1,6 +1,6 @@
 use super::prelude::*;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SayCommand;
 
 #[async_trait]

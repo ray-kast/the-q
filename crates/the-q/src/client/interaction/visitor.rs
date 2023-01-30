@@ -2,8 +2,7 @@ use serenity::model::{
     application::{
         command::{CommandOptionType, CommandType},
         interaction::application_command::{
-            ApplicationCommandInteraction, CommandDataOption, CommandDataOptionValue,
-            CommandDataResolved,
+            CommandDataOption, CommandDataOptionValue, CommandDataResolved,
         },
     },
     channel::{Attachment, Message, PartialChannel},
@@ -11,6 +10,51 @@ use serenity::model::{
     id::GuildId,
     user::User,
 };
+
+mod private {
+    use serenity::model::{
+        application::interaction::{application_command, autocomplete},
+        guild, id, user,
+    };
+
+    pub trait CommandInteraction {
+        fn data(&self) -> &application_command::CommandData;
+
+        fn guild_id(&self) -> &Option<id::GuildId>;
+
+        fn member(&self) -> &Option<guild::Member>;
+
+        fn user(&self) -> &user::User;
+    }
+
+    impl CommandInteraction for application_command::ApplicationCommandInteraction {
+        #[inline]
+        fn data(&self) -> &application_command::CommandData { &self.data }
+
+        #[inline]
+        fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
+
+        #[inline]
+        fn member(&self) -> &Option<guild::Member> { &self.member }
+
+        #[inline]
+        fn user(&self) -> &user::User { &self.user }
+    }
+
+    impl CommandInteraction for autocomplete::AutocompleteInteraction {
+        #[inline]
+        fn data(&self) -> &application_command::CommandData { &self.data }
+
+        #[inline]
+        fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
+
+        #[inline]
+        fn member(&self) -> &Option<guild::Member> { &self.member }
+
+        #[inline]
+        fn user(&self) -> &user::User { &self.user }
+    }
+}
 
 use crate::prelude::*;
 
@@ -90,8 +134,8 @@ enum VisitorState<'a> {
     SlashCommand(OptionMap<'a>),
 }
 
-pub struct Visitor<'a> {
-    aci: &'a ApplicationCommandInteraction,
+pub struct Visitor<'a, I> {
+    int: &'a I,
     state: VisitorState<'a>,
 }
 
@@ -134,7 +178,16 @@ macro_rules! visit_basic {
     };
 }
 
-impl<'a> Visitor<'a> {
+impl<'a, I> Visitor<'a, I> {
+    pub fn new(int: &'a I) -> Self {
+        Self {
+            int,
+            state: VisitorState::Init,
+        }
+    }
+}
+
+impl<'a, I: private::CommandInteraction> Visitor<'a, I> {
     visit_basic! {
         ///a string
         pub fn visit_string() -> &'a String { String(s) => s }
@@ -163,25 +216,18 @@ impl<'a> Visitor<'a> {
         pub fn visit_attachment() -> &'a Attachment { Attachment(a) => a }
     }
 
-    pub fn new(aci: &'a ApplicationCommandInteraction) -> Self {
-        Self {
-            aci,
-            state: VisitorState::Init,
-        }
-    }
-
     fn visit_opts(&mut self) -> Result<&mut OptionMap<'a>> {
         if let VisitorState::SlashCommand(ref mut m) = self.state {
             return Ok(m);
         }
 
-        if !matches!(self.aci.data.kind, CommandType::ChatInput) {
+        if !matches!(self.int.data().kind, CommandType::ChatInput) {
             return Err(Error::NotChatInput);
         }
 
         let map = self
-            .aci
-            .data
+            .int
+            .data()
             .options
             .iter()
             .map(|o| (&*o.name, o))
@@ -218,26 +264,26 @@ impl<'a> Visitor<'a> {
 
     #[inline]
     pub fn guild(&self) -> GuildVisitor {
-        assert_eq!(self.aci.guild_id.is_some(), self.aci.member.is_some());
-        GuildVisitor(self.aci.guild_id.zip(self.aci.member.as_ref()))
+        assert_eq!(self.int.guild_id().is_some(), self.int.member().is_some());
+        GuildVisitor(self.int.guild_id().zip(self.int.member().as_ref()))
     }
 
     #[inline]
-    pub fn user(&self) -> &'a User { &self.aci.user }
+    pub fn user(&self) -> &'a User { self.int.user() }
 
     #[inline]
     pub fn target(&self) -> TargetVisitor<'a> {
-        TargetVisitor(self.aci.data.kind, &self.aci.data.resolved)
+        TargetVisitor(self.int.data().kind, &self.int.data().resolved)
     }
 
     pub(super) fn finish(self) -> Result<()> {
-        let Self { aci, state } = self;
+        let Self { int, state } = self;
 
         match state {
             VisitorState::Init => {
-                if aci.data.kind == CommandType::ChatInput && !aci.data.options.is_empty() {
+                if int.data().kind == CommandType::ChatInput && !int.data().options.is_empty() {
                     return Err(Error::Trailing(
-                        aci.data.options.iter().map(|o| o.name.clone()).collect(),
+                        int.data().options.iter().map(|o| o.name.clone()).collect(),
                     ));
                 }
             },

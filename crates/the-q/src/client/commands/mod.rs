@@ -9,16 +9,17 @@ pub(self) mod prelude {
 
     pub use super::super::interaction::{
         command::{prelude::*, Args, CommandInfo},
+        completion::Completion,
         handler,
         handler::{
-            CommandError, CommandHandler as Handler, CommandResponder, CommandResult, IntoErr,
+            CommandError, CommandHandler as Handler, CommandResponder, CommandResult,
+            CompletionResult, CompletionVisitor, IntoErr, Visitor,
         },
         response::{
             prelude::*, ButtonStyle, Embed, Message, MessageBody, MessageComponent, MessageOpts,
             Modal, ResponseData, TextInput,
         },
         visitor,
-        visitor::Visitor,
     };
     pub use crate::{
         prelude::*,
@@ -36,10 +37,10 @@ pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler>> {
     use prelude::Arc;
 
     vec![
-        Arc::new(explode::ExplodeCommand),
-        Arc::new(point::PointCommand),
-        Arc::new(say::SayCommand),
-        Arc::new(test::TestCommand),
-        Arc::new(vc::VcCommand),
+        Arc::new(explode::ExplodeCommand::default()),
+        Arc::new(point::PointCommand::default()),
+        Arc::new(say::SayCommand::default()),
+        Arc::new(test::TestCommand::default()),
+        Arc::new(vc::VcCommand::default()),
     ]
 }

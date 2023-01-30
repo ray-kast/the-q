@@ -36,7 +36,7 @@ pub(crate) mod prelude {
 
     pub use anyhow::{anyhow, bail, ensure, Context as _, Error};
     pub use async_trait::async_trait;
-    pub use futures_util::{FutureExt, StreamExt};
+    pub use futures_util::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
     pub use tracing::{
         debug, debug_span, error, error_span, info, info_span, instrument, trace, trace_span, warn,
         warn_span, Instrument,

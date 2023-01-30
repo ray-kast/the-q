@@ -298,6 +298,24 @@ impl Registry {
         Ok(handlers)
     }
 
+    fn resolve_command<'a>(
+        map: &'a tokio::sync::RwLockReadGuard<'a, Option<HandlerMap>>,
+        id: CommandId,
+    ) -> Result<&'a Handler, &'static str> {
+        let Some(ref map) = **map else {
+            warn!("Rejecting command due to uninitialized registry");
+            return Err("Still starting!  Please try again later.");
+        };
+
+        let Some(handler) = map.get(&id) else {
+            warn!("Rejecting unknown command");
+            return Err("Unknown command - this may be a bug.");
+        };
+
+        debug!(?handler, "Command handler selected");
+        Ok(handler)
+    }
+
     pub fn new(opts: handler::Opts, list: Vec<Handler>) -> Self {
         Self {
             init: RegistryInit { opts, list },
@@ -337,32 +355,15 @@ impl Registry {
 
         let map = self.map.read().await;
         let responder = InitResponder::new(&ctx.http, &aci);
-
-        let Some(ref map) = *map else {
-            warn!("Rejecting command due to uninitialized registry");
-
-            return responder
-                .create_message(
-                    Message::plain("Still starting!  Please try again later.")
-                        .ephemeral(true),
-                )
-                .await
-                .map(|_| ());
+        let handler = match Self::resolve_command(&map, aci.data.id) {
+            Ok(h) => h,
+            Err(e) => {
+                return responder
+                    .create_message(Message::plain(e).ephemeral(true))
+                    .await
+                    .map(|_| ());
+            },
         };
-
-        let Some(handler) = map.get(&aci.data.id) else {
-            warn!("Rejecting unknown command");
-
-            return responder
-                .create_message(
-                    Message::plain("Unknown command - this may be a bug.")
-                        .ephemeral(true),
-                )
-                .await
-                .map(|_| ());
-        };
-
-        debug!(?handler, "Command handler selected");
 
         let mut vis = visitor::Visitor::new(&aci);
         let mut responder = BorrowedResponder::Init(responder);
@@ -467,8 +468,30 @@ impl Registry {
     ) -> Result<(), serenity::Error> {
         trace!("Handling command autocomplete");
 
+        let map = self.map.read().await;
+        let handler = Self::resolve_command(&map, ac.data.id).ok();
+
+        let mut vis = visitor::Visitor::new(&ac);
+        let choices = if let Some(handler) = handler {
+            handler
+                .complete(ctx, &mut vis)
+                .await
+                .map_err(|err| error!(%err, "Error in command completion"))
+                .and_then(|c| {
+                    serde_json::to_value(c)
+                        .map_err(|err| error!(%err, "Error serializing command completions"))
+                })
+                .ok()
+        } else {
+            None
+        };
+
         ac.create_autocomplete_response(&ctx.http, |ac| {
-            ac // TODO
+            if let Some(choices) = choices {
+                ac.set_choices(choices)
+            } else {
+                ac
+            }
         })
         .await
     }

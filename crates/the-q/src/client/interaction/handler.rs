@@ -5,7 +5,7 @@ use serenity::{
     },
 };
 
-use super::{command::CommandInfo, response, visitor};
+use super::{command::CommandInfo, completion::Completion, response, visitor};
 use crate::prelude::*;
 
 // TODO: can argument/config parsing be (easily) included in the Handler trait?
@@ -16,6 +16,15 @@ pub struct Opts {
     #[arg(long, env, default_value = "q")]
     pub command_base: String,
 }
+
+pub type Visitor<'a> = visitor::Visitor<
+    'a,
+    serenity::model::application::interaction::application_command::ApplicationCommandInteraction,
+>;
+pub type CompletionVisitor<'a> = visitor::Visitor<
+    'a,
+    serenity::model::application::interaction::autocomplete::AutocompleteInteraction,
+>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CommandError<'a> {
@@ -31,6 +40,18 @@ pub type CommandResult<'a> = Result<AckedCommandResponder<'a>, CommandError<'a>>
 pub type CommandResponder<'a, 'b> =
     response::BorrowingResponder<'a, 'b, ApplicationCommandInteraction>;
 pub type AckedCommandResponder<'a> = response::AckedResponder<'a, ApplicationCommandInteraction>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum CompletionError {
+    #[error("Error parsing command: {0}")]
+    Parse(#[from] visitor::Error),
+    #[error("Bot responded with error: {0}")]
+    User(&'static str),
+    #[error("Unexpected error: {0}")]
+    Other(#[from] anyhow::Error),
+}
+
+pub type CompletionResult = Result<Vec<Completion>, CompletionError>;
 
 pub trait IntoErr<E> {
     fn into_err(self, msg: &'static str) -> E;
@@ -57,11 +78,22 @@ pub trait CommandHandler: fmt::Debug + Send + Sync {
         None
     }
 
+    #[inline]
+    async fn complete(
+        &self,
+        ctx: &Context,
+        visitor: &mut CompletionVisitor<'_>,
+    ) -> CompletionResult {
+        #[allow(let_underscore_drop)]
+        let _ = (ctx, visitor);
+        Ok(vec![])
+    }
+
     // TODO: set timeout for non-deferred commands?
     async fn respond<'a>(
         &self,
         ctx: &Context,
-        visitor: &mut visitor::Visitor<'_>,
+        visitor: &mut Visitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a>;
 }

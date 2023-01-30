@@ -1,9 +1,124 @@
-use std::path::PathBuf;
+use std::{collections::BinaryHeap, path::PathBuf};
+
+use ordered_float::OrderedFloat;
+use tokio::sync::{mpsc, oneshot, RwLock};
 
 use super::prelude::*;
 
+// TODO: make this configurable
+const SAMPLE_DIR: &str = "etc/samples";
+
 #[derive(Debug)]
-pub struct VcCommand;
+struct FileMap {
+    files: RwLock<HashMap<String, PathBuf>>,
+    task_handle: oneshot::Sender<Infallible>,
+}
+
+#[derive(Debug, Default)]
+pub struct VcCommand {
+    files: tokio::sync::Mutex<std::sync::Weak<FileMap>>,
+    notify_handle: RwLock<Option<oneshot::Sender<()>>>,
+}
+
+impl VcCommand {
+    async fn files(&self) -> Result<Arc<FileMap>> {
+        let mut guard = self.files.lock().await;
+        if let Some(files) = guard.upgrade() {
+            return Ok(files);
+        }
+
+        let (task_handle, handle_rx) = oneshot::channel();
+
+        let files = Arc::new(FileMap {
+            files: RwLock::default(),
+            task_handle,
+        });
+
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let map = Arc::clone(&files);
+        tokio::task::spawn(
+            async move {
+                let mut ready_tx = Some(ready_tx);
+                let (watch_tx, mut watch_rx) = mpsc::channel(8);
+
+                watch_tx
+                    .try_send(Ok(notify::Event::new(notify::EventKind::Any)))
+                    .unwrap_or_else(|_| unreachable!());
+
+                let watcher = tokio::task::spawn_blocking(move || {
+                    use notify::Watcher;
+
+                    let mut w = notify::recommended_watcher(move |r| {
+                        // TODO: how to gracefully handle send error?
+                        watch_tx.blocking_send(r).unwrap();
+                    })
+                    .context("Error creating filesystem watcher")?;
+
+                    w.watch(SAMPLE_DIR.as_ref(), notify::RecursiveMode::Recursive)?;
+
+                    Result::<_>::Ok(w)
+                })
+                .await
+                .unwrap()?;
+
+                let recv = async move {
+                    while let Some(evt) = watch_rx.recv().await {
+                        let evt = evt?;
+
+                        info!(?evt, "Scanning sample table...");
+
+                        let files = walkdir::WalkDir::new(SAMPLE_DIR)
+                            .same_file_system(true)
+                            .into_iter()
+                            .filter_map(|f| {
+                                f.map(|f| {
+                                    (f.file_name()
+                                        .to_str()
+                                        .map_or(false, |s| !s.starts_with('.'))
+                                        && f.metadata().map_or(false, |m| m.is_file()))
+                                    .then(|| {
+                                        let f = f.into_path();
+                                        let s = f.display().to_string();
+                                        let s = s.strip_prefix(SAMPLE_DIR).unwrap();
+                                        let s = s.strip_prefix('/').unwrap_or(s);
+                                        (s.into(), f)
+                                    })
+                                })
+                                .transpose()
+                            })
+                            .collect::<Result<_, _>>()
+                            .context("Error enumerating files")?;
+
+                        info!(?files, "Sample table scan completed");
+
+                        *map.files.write().await = files;
+                        if let Some(tx) = ready_tx.take() {
+                            tx.send(()).ok();
+                        }
+                    }
+
+                    mem::drop((watcher, map, ready_tx));
+
+                    Result::<_>::Ok(())
+                };
+
+                tokio::select! {
+                    r = recv => r,
+                    _ = handle_rx => Ok(()),
+                }
+            }
+            .map_err(|err| error!(%err, "Sample watcher crashed"))
+            .instrument(error_span!("watch_samples")),
+        );
+
+        ready_rx
+            .await
+            .context("Error getting initial sample table")?;
+        *guard = Arc::downgrade(&files);
+
+        Ok(files)
+    }
+}
 
 #[async_trait]
 impl Handler for VcCommand {
@@ -15,12 +130,45 @@ impl Handler for VcCommand {
         .unwrap()
     }
 
+    async fn complete(&self, _: &Context, visitor: &mut CompletionVisitor<'_>) -> CompletionResult {
+        // TODO: CompletionVisitor should probably have a better API
+        // TODO: unicase?
+        let path = visitor
+            .visit_string("path")?
+            .optional()
+            .map(|s| s.to_lowercase());
+        let path = path.as_deref().unwrap_or("");
+        let files = self.files().await?;
+        let files = files.files.read().await;
+
+        let mut heap: BinaryHeap<_> = files
+            .keys()
+            .map(|s| {
+                (
+                    OrderedFloat(strsim::normalized_damerau_levenshtein(path, s)),
+                    s,
+                )
+            })
+            .collect();
+
+        debug!(?heap, "File completion list accumulated");
+
+        Ok(std::iter::from_fn(move || heap.pop())
+            .map(|(_, s)| Completion {
+                name: s.into(),
+                value: s.into(),
+            })
+            .collect())
+    }
+
     async fn respond<'a>(
         &self,
         ctx: &Context,
         visitor: &mut Visitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
+        const PATH_ERR: &str = "That isn't a valid file.";
+
         let (gid, _memb) = visitor.guild().required()?;
         let user = visitor.user();
         let path = visitor.visit_string("path")?.required()?;
@@ -47,27 +195,19 @@ impl Handler for VcCommand {
             .await
             .context("Missing songbird context")?;
 
-        let path = {
-            const PREFIX: &str = "etc/samples";
-            let mut p = PathBuf::from(PREFIX);
+        let files = self.files().await.context("Error getting sample list")?;
+        let files = files.files.read().await;
+        let path = files.get(path);
 
-            p.push(path);
+        let Some(path) = path else {
+            responder.edit(MessageBody::plain(PATH_ERR)).await.context("Error sending no path error")?;
 
-            if !p.starts_with(PREFIX) {
-                responder
-                    .edit(MessageBody::plain("Oops!  That's not a valid path."))
-                    .await
-                    .context("Error sending bad path error")?;
-
-                return Err(responder.into_err("Path error - escaped sample directory"));
-            }
-
-            p.canonicalize().unwrap_or(p)
+            return Err(responder.into_err("File not in sample table"));
         };
 
         if tokio::fs::metadata(&path).await.is_err() {
             responder
-                .edit(MessageBody::plain("That isn't a valid file."))
+                .edit(MessageBody::plain(PATH_ERR))
                 .await
                 .context("Error sending bad stat error")?;
 
