@@ -20,6 +20,7 @@ use serenity::{
         user::User,
     },
 };
+use tokio::sync::RwLock;
 
 use super::{
     command,
@@ -29,6 +30,7 @@ use super::{
         prelude::*, BorrowedResponder, BorrowingResponder, InitResponder, Message, MessageOpts,
         ResponseError,
     },
+    rpc::Schema,
     visitor,
 };
 use crate::prelude::*;
@@ -175,33 +177,39 @@ fn ms_issuer(ms: &ModalSubmitInteraction) -> String {
     })
 }
 
-type Handler = Arc<dyn handler::CommandHandler>;
-type HandlerMap = HashMap<CommandId, Handler>;
+type CommandHandler<S> = Arc<dyn handler::CommandHandler<S>>;
+type CommandHandlerMap<S> = HashMap<CommandId, CommandHandler<S>>;
+type RpcHandler<S, K> = Arc<dyn handler::RpcHandler<S, K>>;
+type RpcHandlerMap<S, K> = HashMap<K, RpcHandler<S, K>>;
 
 #[derive(Debug)]
-struct RegistryInit {
+struct RegistryInit<S: Schema> {
     opts: handler::Opts,
-    list: Vec<Handler>,
+    commands: Vec<CommandHandler<S>>,
+    components: Vec<RpcHandler<S, S::Component>>,
+    modals: Vec<RpcHandler<S, S::Modal>>,
 }
 
 #[derive(Debug)]
-pub struct Registry {
-    init: RegistryInit,
-    map: tokio::sync::RwLock<Option<HandlerMap>>,
+pub struct Registry<S: Schema> {
+    init: RegistryInit<S>,
+    commands: RwLock<Option<CommandHandlerMap<S>>>,
+    components: RwLock<Option<RpcHandlerMap<S, S::Component>>>,
+    modals: RwLock<Option<RpcHandlerMap<S, S::Modal>>>,
 }
 
-impl Registry {
+impl<S: Schema> Registry<S> {
     #[instrument(level = "debug", skip(ctx))]
     async fn patch_commands(
         ctx: &Context,
-        init: &RegistryInit,
+        init: &RegistryInit<S>,
         guild: Option<GuildId>,
-    ) -> Result<HandlerMap> {
+    ) -> Result<CommandHandlerMap<S>> {
         if let Some(guild) = guild {
             todo!("handle guild {guild}");
         }
 
-        let RegistryInit { opts, list } = init;
+        let RegistryInit { opts, commands, .. } = init;
         let mut handlers = HashMap::new();
 
         let existing = Command::get_global_application_commands(&ctx.http)
@@ -214,14 +222,14 @@ impl Registry {
 
         let mut unpaired_existing: HashMap<_, _> = existing.iter().map(|r| (&r.info, r)).collect();
 
-        let mut new: HashMap<_, _> = list
+        let mut new: HashMap<_, _> = commands
             .iter()
             .map(|c| {
                 let inf = c.register_global(opts);
                 (inf.name().clone(), (c, inf))
             })
             .collect();
-        assert_eq!(new.len(), list.len());
+        assert_eq!(new.len(), commands.len());
 
         let mut unpaired_new: HashSet<_> = HashSet::new();
 
@@ -294,14 +302,14 @@ impl Registry {
                 .with_context(|| format!("Error deleting command {:?}", inf.name()))?;
         }
 
-        assert_eq!(handlers.len(), list.len());
+        assert_eq!(handlers.len(), commands.len());
         Ok(handlers)
     }
 
     fn resolve_command<'a>(
-        map: &'a tokio::sync::RwLockReadGuard<'a, Option<HandlerMap>>,
+        map: &'a tokio::sync::RwLockReadGuard<'a, Option<CommandHandlerMap<S>>>,
         id: CommandId,
-    ) -> Result<&'a Handler, &'static str> {
+    ) -> Result<&'a CommandHandler<S>, &'static str> {
         let Some(ref map) = **map else {
             warn!("Rejecting command due to uninitialized registry");
             return Err("Still starting!  Please try again later.");
@@ -316,16 +324,28 @@ impl Registry {
         Ok(handler)
     }
 
-    pub fn new(opts: handler::Opts, list: Vec<Handler>) -> Self {
+    pub fn new(
+        opts: handler::Opts,
+        commands: Vec<CommandHandler<S>>,
+        components: Vec<RpcHandler<S, S::Component>>,
+        modals: Vec<RpcHandler<S, S::Modal>>,
+    ) -> Self {
         Self {
-            init: RegistryInit { opts, list },
-            map: None.into(),
+            init: RegistryInit {
+                opts,
+                commands,
+                components,
+                modals,
+            },
+            commands: None.into(),
+            components: None.into(),
+            modals: None.into(),
         }
     }
 
     #[inline]
     pub async fn init(&self, ctx: &Context) -> Result {
-        let mut state = self.map.write().await;
+        let mut state = self.commands.write().await;
 
         *state = Some(Self::patch_commands(ctx, &self.init, None).await?);
 
@@ -353,7 +373,7 @@ impl Registry {
     ) -> Result<(), ResponseError> {
         trace!("Handling application command");
 
-        let map = self.map.read().await;
+        let map = self.commands.read().await;
         let responder = InitResponder::new(&ctx.http, &aci);
         let handler = match Self::resolve_command(&map, aci.data.id) {
             Ok(h) => h,
@@ -440,7 +460,8 @@ impl Registry {
         mc: MessageComponentInteraction,
     ) -> Result<(), serenity::Error> {
         trace!("Handling message component");
-        let responder = InitResponder::new(&ctx.http, &mc);
+        // TODO: remove type params
+        let responder = InitResponder::<S, _>::new(&ctx.http, &mc);
 
         // TODO
         responder
@@ -468,7 +489,7 @@ impl Registry {
     ) -> Result<(), serenity::Error> {
         trace!("Handling command autocomplete");
 
-        let map = self.map.read().await;
+        let map = self.commands.read().await;
         let handler = Self::resolve_command(&map, ac.data.id).ok();
 
         let mut vis = visitor::Visitor::new(&ac);
@@ -515,7 +536,8 @@ impl Registry {
     ) -> Result<(), serenity::Error> {
         trace!("Handling modal submit");
 
-        let responder = InitResponder::new(&ctx.http, &ms);
+        // TODO: remove type params
+        let responder = InitResponder::<S, _>::new(&ctx.http, &ms);
 
         // TODO
         responder

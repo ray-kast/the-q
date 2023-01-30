@@ -1,14 +1,18 @@
 use serenity::{
     client::Context,
     model::{
-        application::interaction::application_command::ApplicationCommandInteraction, id::GuildId,
+        application::interaction::{
+            application_command::ApplicationCommandInteraction,
+            message_component::MessageComponentInteraction, modal::ModalSubmitInteraction,
+        },
+        id::GuildId,
     },
 };
 
-use super::{command::CommandInfo, completion::Completion, response, visitor};
+use super::{command::CommandInfo, completion::Completion, response, rpc, visitor};
 use crate::prelude::*;
 
-// TODO: can argument/config parsing be (easily) included in the Handler trait?
+// TODO: make this type generic
 #[derive(Debug, clap::Args)]
 #[group(skip)] // hate hate hate clap please let me rename groups
 pub struct Opts {
@@ -27,19 +31,20 @@ pub type CompletionVisitor<'a> = visitor::Visitor<
 >;
 
 #[derive(Debug, thiserror::Error)]
-pub enum CommandError<'a> {
+pub enum CommandError<'a, S> {
     #[error("Error parsing command: {0}")]
     Parse(#[from] visitor::Error),
     #[error("Bot responded with error: {0}")]
-    User(&'static str, AckedCommandResponder<'a>),
+    User(&'static str, AckedCommandResponder<'a, S>),
     #[error("Unexpected error: {0}")]
     Other(#[from] anyhow::Error),
 }
 
-pub type CommandResult<'a> = Result<AckedCommandResponder<'a>, CommandError<'a>>;
-pub type CommandResponder<'a, 'b> =
-    response::BorrowingResponder<'a, 'b, ApplicationCommandInteraction>;
-pub type AckedCommandResponder<'a> = response::AckedResponder<'a, ApplicationCommandInteraction>;
+pub type CommandResult<'a, S> = Result<AckedCommandResponder<'a, S>, CommandError<'a, S>>;
+pub type CommandResponder<'a, 'b, S> =
+    response::BorrowingResponder<'a, 'b, S, ApplicationCommandInteraction>;
+pub type AckedCommandResponder<'a, S> =
+    response::AckedResponder<'a, S, ApplicationCommandInteraction>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompletionError {
@@ -57,16 +62,16 @@ pub trait IntoErr<E> {
     fn into_err(self, msg: &'static str) -> E;
 }
 
-impl<'a> IntoErr<CommandError<'a>>
-    for response::CreatedResponder<'a, ApplicationCommandInteraction>
+impl<'a, S> IntoErr<CommandError<'a, S>>
+    for response::CreatedResponder<'a, S, ApplicationCommandInteraction>
 {
-    fn into_err(self, msg: &'static str) -> CommandError<'a> {
+    fn into_err(self, msg: &'static str) -> CommandError<'a, S> {
         CommandError::User(msg, self.into())
     }
 }
 
 #[async_trait]
-pub trait CommandHandler: fmt::Debug + Send + Sync {
+pub trait CommandHandler<S>: fmt::Debug + Send + Sync {
     fn register_global(&self, opts: &Opts) -> CommandInfo;
 
     #[inline]
@@ -94,6 +99,37 @@ pub trait CommandHandler: fmt::Debug + Send + Sync {
         &self,
         ctx: &Context,
         visitor: &mut Visitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a>;
+        responder: CommandResponder<'_, 'a, S>,
+    ) -> CommandResult<'a, S>;
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RpcError<'a, S, I> {
+    #[error("Bot responded with error: {0}")]
+    User(&'static str, response::AckedResponder<'a, S, I>),
+    #[error("Unexpected error: {0}")]
+    Other(#[from] anyhow::Error),
+}
+
+pub type RpcResult<'a, S, I> = Result<(), RpcError<'a, S, I>>;
+pub type ComponentResult<'a, S> = RpcResult<'a, S, MessageComponentInteraction>;
+pub type ModalResult<'a, S> = RpcResult<'a, S, ModalSubmitInteraction>;
+pub type ComponentResponder<'a, 'b, S> =
+    response::BorrowingResponder<'a, 'b, S, MessageComponentInteraction>;
+pub type AckedComponentResponder<'a, S> =
+    response::AckedResponder<'a, S, MessageComponentInteraction>;
+pub type ModalResponder<'a, 'b, S> =
+    response::BorrowingResponder<'a, 'b, S, ModalSubmitInteraction>;
+pub type AckedModalResponder<'a, S> = response::AckedResponder<'a, S, ModalSubmitInteraction>;
+
+#[async_trait]
+pub trait RpcHandler<S, K: rpc::Key>: fmt::Debug + Send + Sync {
+    fn register_keys(&self) -> &'static [K];
+
+    async fn respond<'a>(
+        &self,
+        ctx: &Context,
+        payload: K::Payload,
+        responder: response::BorrowingResponder<'_, 'a, S, K::Interaction>,
+    ) -> RpcResult<S, K::Interaction>;
 }

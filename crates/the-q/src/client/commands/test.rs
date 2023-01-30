@@ -4,7 +4,7 @@ use super::prelude::*;
 pub struct TestCommand;
 
 #[async_trait]
-impl Handler for TestCommand {
+impl Handler<Schema> for TestCommand {
     fn register_global(&self, _: &handler::Opts) -> CommandInfo { CommandInfo::user("Test") }
 
     async fn respond<'a>(

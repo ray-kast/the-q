@@ -4,7 +4,7 @@ use super::prelude::*;
 pub struct ExplodeCommand;
 
 #[async_trait]
-impl Handler for ExplodeCommand {
+impl Handler<Schema> for ExplodeCommand {
     fn register_global(&self, _: &handler::Opts) -> CommandInfo {
         CommandInfo::user("Blender Explode")
     }

@@ -4,7 +4,7 @@ use super::prelude::*;
 pub struct PointCommand;
 
 #[async_trait]
-impl Handler for PointCommand {
+impl Handler<Schema> for PointCommand {
     fn register_global(&self, _: &handler::Opts) -> CommandInfo {
         CommandInfo::message("Point and Laugh")
     }

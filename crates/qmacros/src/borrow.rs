@@ -127,8 +127,9 @@ fn borrow(args: BorrowArgs, span: Span, mutable: Option<Span>) -> TokenStream {
         syn::Ident::to_token_stream,
     );
 
+    let (impl_gen, ty_gen, where_toks) = generics.split_for_impl();
     quote_spanned! { span =>
-        impl #generics ::std::borrow::#trait_name<#out_ty> for #ty #generics {
+        impl #impl_gen ::std::borrow::#trait_name<#out_ty> for #ty #ty_gen #where_toks {
             fn #fn_name(&#mutbl self) -> &#mutbl #out_ty { &#mutbl self.#field }
         }
     }

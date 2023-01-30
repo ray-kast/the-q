@@ -121,7 +121,7 @@ impl VcCommand {
 }
 
 #[async_trait]
-impl Handler for VcCommand {
+impl Handler<Schema> for VcCommand {
     fn register_global(&self, opts: &handler::Opts) -> CommandInfo {
         CommandInfo::build_slash(&opts.command_base, ";)", |a| {
             a.string("path", "Path to the file to play", true, ..)

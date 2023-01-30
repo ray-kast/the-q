@@ -7,13 +7,18 @@ use super::{commands, interaction};
 use crate::prelude::*;
 
 pub struct Handler {
-    registry: interaction::Registry,
+    registry: interaction::Registry<commands::Schema>,
 }
 
 impl Handler {
     pub fn new_rc(command_opts: interaction::handler::Opts) -> Arc<Self> {
         Arc::new(Self {
-            registry: interaction::Registry::new(command_opts, commands::list()),
+            registry: interaction::Registry::new(
+                command_opts,
+                commands::list(),
+                commands::components(),
+                commands::modals(),
+            ),
         })
     }
 }

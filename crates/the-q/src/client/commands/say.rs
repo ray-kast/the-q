@@ -4,7 +4,7 @@ use super::prelude::*;
 pub struct SayCommand;
 
 #[async_trait]
-impl Handler for SayCommand {
+impl Handler<Schema> for SayCommand {
     fn register_global(&self, _: &handler::Opts) -> CommandInfo {
         CommandInfo::build_slash("qsay", "say something!", |a| {
             a.string("message", "The message to send", true, ..)

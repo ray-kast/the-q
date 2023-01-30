@@ -11,8 +11,8 @@ use serenity::{
     },
 };
 
-use super::{id, ResponseData};
-use crate::{prelude::*, proto::component};
+use super::{super::rpc::ComponentId, id, ResponseData};
+use crate::prelude::*;
 
 mod private {
     use serenity::builder::CreateActionRow;
@@ -23,9 +23,9 @@ mod private {
 }
 
 #[derive(Debug)]
-pub struct Components<T, E>(pub(super) Vec<ActionRow<T, E>>);
+pub struct Components<I, T, E>(pub(super) Vec<ActionRow<I, T, E>>);
 
-impl<T, E> Default for Components<T, E> {
+impl<I, T, E> Default for Components<I, T, E> {
     fn default() -> Self { Self(vec![]) }
 }
 
@@ -34,7 +34,11 @@ macro_rules! build_components {
         let Self(rows) = $self;
         $builder.components(|b| {
             rows.into_iter().fold(b, |b, r| {
-                let ActionRow { err, components } = r;
+                let ActionRow {
+                    err,
+                    components,
+                    id: _,
+                } = r;
                 assert!(err.0.is_none());
                 b.create_action_row(|b| components.into_iter().fold(b, |b, c| c.build_component(b)))
             })
@@ -42,9 +46,9 @@ macro_rules! build_components {
     }};
 }
 
-impl<T, E> Components<T, E> {
+impl<I, T, E> Components<I, T, E> {
     #[inline]
-    pub fn prepare(self) -> Result<Components<T, Infallible>, E> {
+    pub fn prepare(self) -> Result<Components<I, T, Infallible>, E> {
         let Self(rows) = self;
         Ok(Components(
             rows.into_iter()
@@ -54,7 +58,7 @@ impl<T, E> Components<T, E> {
     }
 }
 
-impl<T: private::BuildComponent> Components<T, Infallible> {
+impl<I, T: private::BuildComponent> Components<I, T, Infallible> {
     #[inline]
     pub(super) fn build_edit_response(
         self,
@@ -73,16 +77,16 @@ impl<T: private::BuildComponent> Components<T, Infallible> {
 }
 
 #[builder(trait_name = "ComponentsExt")]
-impl<T, E> Components<T, E> {
-    pub fn row(&mut self, row: ActionRow<T, E>) { self.0.push(row); }
+impl<I, T, E> Components<I, T, E> {
+    pub fn row(&mut self, row: ActionRow<I, T, E>) { self.0.push(row); }
 
     #[inline]
-    pub fn build_row(&mut self, f: impl FnOnce(ActionRow<T, E>) -> ActionRow<T, E>) {
+    pub fn build_row(&mut self, f: impl FnOnce(ActionRow<I, T, E>) -> ActionRow<I, T, E>) {
         self.row(f(ActionRow::default()));
     }
 }
 
-impl<'a, T: private::BuildComponent> ResponseData<'a> for Components<T, Infallible> {
+impl<'a, I, T: private::BuildComponent> ResponseData<'a> for Components<I, T, Infallible> {
     fn build_response_data<'b>(
         self,
         data: &'b mut CreateInteractionResponseData<'a>,
@@ -105,24 +109,30 @@ impl<E> RowError<E> {
 }
 
 #[derive(Debug)]
-pub struct ActionRow<T, E> {
+pub struct ActionRow<I, T, E> {
     err: RowError<E>,
     components: Vec<T>,
+    id: PhantomData<fn(I)>,
 }
 
-impl<T, E> Default for ActionRow<T, E> {
+impl<I, T, E> Default for ActionRow<I, T, E> {
     fn default() -> Self {
         Self {
             err: RowError(None),
             components: vec![],
+            id: PhantomData::default(),
         }
     }
 }
 
-impl<T, E> ActionRow<T, E> {
+impl<I, T, E> ActionRow<I, T, E> {
     #[inline]
-    fn prepare(self) -> Result<ActionRow<T, Infallible>, E> {
-        let Self { err, components } = self;
+    fn prepare(self) -> Result<ActionRow<I, T, Infallible>, E> {
+        let Self {
+            err,
+            components,
+            id,
+        } = self;
         if let RowError(Some(err)) = err {
             return Err(err);
         }
@@ -130,14 +140,15 @@ impl<T, E> ActionRow<T, E> {
         Ok(ActionRow {
             err: RowError(None),
             components,
+            id,
         })
     }
 }
 
-impl ActionRow<MessageComponent, id::Error> {
+impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
     fn menu_parts(
         &mut self,
-        id: component::component::Payload,
+        payload: I::Payload,
         ty: Result<MenuType, id::Error>,
         placeholder: impl Into<Option<String>>,
         count: impl BuildRange<u8>,
@@ -147,7 +158,7 @@ impl ActionRow<MessageComponent, id::Error> {
             let (min_count, max_count) = count.build_range().into_inner();
             self.components.push(MessageComponent {
                 ty: MessageComponentType::Menu {
-                    id: id::write(&component::Component { payload: Some(id) })?,
+                    id: id::write(&I::from_parts(payload))?,
                     ty: ty?,
                     placeholder: placeholder.into(),
                     min_count: min_count.unwrap_or(0),
@@ -162,10 +173,10 @@ impl ActionRow<MessageComponent, id::Error> {
 }
 
 #[builder(trait_name = "MessageActionRow")]
-impl ActionRow<MessageComponent, id::Error> {
+impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
     pub fn button(
         &mut self,
-        id: component::component::Payload,
+        payload: I::Payload,
         style: ButtonStyle,
         label: impl Into<ButtonLabel>,
         disabled: bool,
@@ -175,7 +186,7 @@ impl ActionRow<MessageComponent, id::Error> {
                 ty: MessageComponentType::Button {
                     label: label.into(),
                     ty: ButtonType::Custom {
-                        id: id::write(&component::Component { payload: Some(id) })?,
+                        id: id::write(&I::from_parts(payload))?,
                         style,
                     },
                 },
@@ -201,20 +212,19 @@ impl ActionRow<MessageComponent, id::Error> {
         });
     }
 
-    pub fn menu<I: Into<MenuItem>>(
+    pub fn menu<J: Into<MenuItem>>(
         &mut self,
-        id: component::component::Payload,
+        payload: I::Payload,
         placeholder: impl Into<Option<String>>,
         count: impl BuildRange<u8>,
         disabled: bool,
         default: impl IntoIterator<Item = usize>,
-        // TODO: this payload should probably be generic
-        options: impl IntoIterator<Item = (component::component::Payload, I)>,
+        options: impl IntoIterator<Item = (I::Payload, J)>,
     ) {
         let res = options.into_iter().try_fold(
             (HashMap::new(), vec![]),
-            |(mut items, mut order), (id, item)| {
-                let id = id::write(&component::Component { payload: Some(id) })?;
+            |(mut items, mut order), (payload, item)| {
+                let id = id::write(&I::from_parts(payload))?;
 
                 order.push(id.clone());
                 assert!(items.insert(id, item.into()).is_none());
@@ -229,7 +239,7 @@ impl ActionRow<MessageComponent, id::Error> {
         }
 
         self.menu_parts(
-            id,
+            payload,
             res.map(|(items, order)| MenuType::String {
                 items,
                 order,
@@ -244,47 +254,47 @@ impl ActionRow<MessageComponent, id::Error> {
     #[inline]
     pub fn user_menu(
         &mut self,
-        id: component::component::Payload,
+        payload: I::Payload,
         placeholder: impl Into<Option<String>>,
         count: impl BuildRange<u8>,
         disabled: bool,
     ) {
-        self.menu_parts(id, Ok(MenuType::User), placeholder, count, disabled);
+        self.menu_parts(payload, Ok(MenuType::User), placeholder, count, disabled);
     }
 
     #[inline]
     pub fn role_menu(
         &mut self,
-        id: component::component::Payload,
+        payload: I::Payload,
         placeholder: impl Into<Option<String>>,
         count: impl BuildRange<u8>,
         disabled: bool,
     ) {
-        self.menu_parts(id, Ok(MenuType::Role), placeholder, count, disabled);
+        self.menu_parts(payload, Ok(MenuType::Role), placeholder, count, disabled);
     }
 
     #[inline]
     pub fn mention_menu(
         &mut self,
-        id: component::component::Payload,
+        payload: I::Payload,
         placeholder: impl Into<Option<String>>,
         count: impl BuildRange<u8>,
         disabled: bool,
     ) {
-        self.menu_parts(id, Ok(MenuType::Mention), placeholder, count, disabled);
+        self.menu_parts(payload, Ok(MenuType::Mention), placeholder, count, disabled);
     }
 
     #[inline]
     pub fn channel_menu(
         &mut self,
-        id: component::component::Payload,
+        payload: I::Payload,
         placeholder: impl Into<Option<String>>,
         count: impl BuildRange<u8>,
         disabled: bool,
         tys: impl IntoIterator<Item = ChannelType>,
     ) {
         self.menu_parts(
-            id,
+            payload,
             Ok(MenuType::Channel(tys.into_iter().collect())),
             placeholder,
             count,
@@ -294,16 +304,16 @@ impl ActionRow<MessageComponent, id::Error> {
 }
 
 #[builder(trait_name = "ModalActionRow")]
-impl ActionRow<TextInput, id::Error> {
+impl<I: ComponentId> ActionRow<I, TextInput<I>, id::Error> {
     #[inline]
-    pub fn text(&mut self, input: TextInput) { self.components.push(input); }
+    pub fn text(&mut self, input: TextInput<I>) { self.components.push(input); }
 
     #[inline]
     pub fn build_text_short(
         &mut self,
-        payload: component::component::Payload,
+        payload: I::Payload,
         label: impl Into<String>,
-        f: impl FnOnce(TextInput) -> TextInput,
+        f: impl FnOnce(TextInput<I>) -> TextInput<I>,
     ) {
         self.err.catch(|| {
             self.components.push(f(TextInput::short(payload, label)?));
@@ -314,9 +324,9 @@ impl ActionRow<TextInput, id::Error> {
     #[inline]
     pub fn build_text_long(
         &mut self,
-        payload: component::component::Payload,
+        payload: I::Payload,
         label: impl Into<String>,
-        f: impl FnOnce(TextInput) -> TextInput,
+        f: impl FnOnce(TextInput<I>) -> TextInput<I>,
     ) {
         self.err.catch(|| {
             self.components.push(f(TextInput::long(payload, label)?));
@@ -334,6 +344,7 @@ fn visit<T, V: IntoIterator>(
     vals.into_iter().fold(row, f)
 }
 
+// TODO: add constructors and an ID type parameter
 #[derive(Debug)]
 pub struct MessageComponent {
     ty: MessageComponentType,
@@ -506,7 +517,7 @@ impl From<&str> for MenuItem {
 }
 
 #[derive(Debug)]
-pub struct TextInput {
+pub struct TextInput<I> {
     id: id::Id<'static>,
     style: InputTextStyle,
     label: String,
@@ -515,19 +526,18 @@ pub struct TextInput {
     required: bool,
     value: String,
     placeholder: Option<String>,
+    rpc_id: PhantomData<fn(I)>,
 }
 
-impl TextInput {
+impl<I: ComponentId> TextInput<I> {
     #[inline]
     fn new(
-        payload: component::component::Payload,
+        payload: I::Payload,
         style: InputTextStyle,
         label: impl Into<String>,
     ) -> Result<Self, id::Error> {
         Ok(Self {
-            id: id::write(&component::Component {
-                payload: Some(payload),
-            })?,
+            id: id::write(&I::from_parts(payload))?,
             style,
             label: label.into(),
             min_len: None,
@@ -535,28 +545,23 @@ impl TextInput {
             required: true,
             value: String::new(),
             placeholder: None,
+            rpc_id: PhantomData::default(),
         })
     }
 
     #[inline]
-    pub fn short(
-        payload: component::component::Payload,
-        label: impl Into<String>,
-    ) -> Result<Self, id::Error> {
+    pub fn short(payload: I::Payload, label: impl Into<String>) -> Result<Self, id::Error> {
         Self::new(payload, InputTextStyle::Short, label)
     }
 
     #[inline]
-    pub fn long(
-        payload: component::component::Payload,
-        label: impl Into<String>,
-    ) -> Result<Self, id::Error> {
+    pub fn long(payload: I::Payload, label: impl Into<String>) -> Result<Self, id::Error> {
         Self::new(payload, InputTextStyle::Paragraph, label)
     }
 }
 
 #[builder(trait_name = "TextInputExt")]
-impl TextInput {
+impl<I> TextInput<I> {
     pub fn len(&mut self, len: impl BuildRange<u64>) {
         let (min_len, max_len) = len.build_range().into_inner();
         self.min_len = min_len;
@@ -572,7 +577,7 @@ impl TextInput {
     }
 }
 
-impl private::BuildComponent for TextInput {
+impl<I> private::BuildComponent for TextInput<I> {
     fn build_component(self, row: &mut CreateActionRow) -> &mut CreateActionRow {
         let Self {
             id,
@@ -583,6 +588,7 @@ impl private::BuildComponent for TextInput {
             required,
             value,
             placeholder,
+            rpc_id: _,
         } = self;
         row.create_input_text(|t| {
             t.custom_id(id).style(style).label(label);

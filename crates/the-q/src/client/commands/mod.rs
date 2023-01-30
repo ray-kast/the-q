@@ -1,5 +1,6 @@
 mod explode;
 mod point;
+mod rpc;
 mod say;
 mod test;
 mod vc;
@@ -7,19 +8,23 @@ mod vc;
 pub(self) mod prelude {
     pub(super) use serenity::client::Context;
 
-    pub use super::super::interaction::{
-        command::{prelude::*, Args, CommandInfo},
-        completion::Completion,
-        handler,
-        handler::{
-            CommandError, CommandHandler as Handler, CommandResponder, CommandResult,
-            CompletionResult, CompletionVisitor, IntoErr, Visitor,
+    pub use super::{
+        super::interaction::{
+            command::{prelude::*, Args, CommandInfo},
+            completion::Completion,
+            handler,
+            handler::{
+                CommandError, CommandHandler as Handler, CompletionResult, CompletionVisitor,
+                ComponentResponder, ComponentResult, IntoErr, ModalResponder, ModalResult,
+                RpcError, RpcHandler, Visitor,
+            },
+            response::{
+                prelude::*, ButtonStyle, Embed, Message, MessageBody, MessageComponent,
+                MessageOpts, Modal, ModalSource, ResponseData, TextInput,
+            },
+            rpc, visitor,
         },
-        response::{
-            prelude::*, ButtonStyle, Embed, Message, MessageBody, MessageComponent, MessageOpts,
-            Modal, ResponseData, TextInput,
-        },
-        visitor,
+        Schema,
     };
     pub use crate::{
         prelude::*,
@@ -29,11 +34,16 @@ pub(self) mod prelude {
         },
     };
 
+    pub type CommandResponder<'a, 'b> = handler::CommandResponder<'a, 'b, Schema>;
+    pub type CommandResult<'a> = handler::CommandResult<'a, Schema>;
+
     #[inline]
     pub fn id<T>(t: T) -> T { t }
 }
 
-pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler>> {
+pub use rpc::*;
+
+pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler<Schema>>> {
     use prelude::Arc;
 
     vec![
@@ -43,4 +53,17 @@ pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler>> {
         Arc::new(test::TestCommand::default()),
         Arc::new(vc::VcCommand::default()),
     ]
+}
+
+pub fn components()
+-> Vec<prelude::Arc<dyn prelude::RpcHandler<Schema, prelude::component::Component>>> {
+    use prelude::Arc;
+
+    vec![]
+}
+
+pub fn modals() -> Vec<prelude::Arc<dyn prelude::RpcHandler<Schema, prelude::modal::Modal>>> {
+    use prelude::Arc;
+
+    vec![]
 }

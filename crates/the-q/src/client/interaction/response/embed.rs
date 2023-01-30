@@ -110,11 +110,11 @@ pub struct Embed {
     fields: Vec<EmbedField>,
 }
 
-impl<E> From<Embed> for MessageBody<E> {
+impl<I, E> From<Embed> for MessageBody<I, E> {
     fn from(embed: Embed) -> Self { MessageBody::plain("").embed(embed) }
 }
 
-impl<'a, E> From<Embed> for Message<'a, E> {
+impl<'a, I, E> From<Embed> for Message<'a, I, E> {
     fn from(value: Embed) -> Self { MessageBody::from(value).into() }
 }
 
