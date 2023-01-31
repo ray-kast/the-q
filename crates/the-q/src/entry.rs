@@ -86,12 +86,25 @@ pub fn main() {
     mem::drop(span);
     let span = error_span!("boot", ?opts).entered();
 
+    let hostname = hostname::get()
+        .context("Error loading hostname")
+        .and_then(|h| {
+            h.into_string()
+                .map_err(|s| anyhow!("Couldn't parse hostname {s:?}"))
+        })
+        .unwrap_or_else(|e| init_error!("Error getting system hostname: {e}"));
+
     let log_filter = opts.log_filter.as_deref().unwrap_or("info");
 
     let loki_task = if let Some(endpoint) = &opts.loki_endpoint {
         let (layer, task) = tracing_loki::layer(
             endpoint.clone(),
-            [].into_iter().collect(),
+            [
+                ("host".into(), hostname),
+                ("crate".into(), env!("CARGO_PKG_NAME").into()),
+            ]
+            .into_iter()
+            .collect(),
             [].into_iter().collect(),
         )
         .unwrap_or_else(|err| init_error!(%err, "Error initializing Loki exporter"));

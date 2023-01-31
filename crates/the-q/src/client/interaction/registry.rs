@@ -201,7 +201,7 @@ pub struct Registry<S: Schema> {
 }
 
 impl<S: Schema> Registry<S> {
-    #[instrument(level = "debug", skip(ctx))]
+    #[instrument(level = "info", skip(ctx))]
     async fn patch_commands(
         ctx: &Context,
         init: &handler::Handlers<S>,
@@ -267,7 +267,7 @@ impl<S: Schema> Registry<S> {
             }
 
             let (cmd, inf) = new.remove(&new_name).unwrap_or_else(|| unreachable!());
-            debug!(
+            info!(
                 ?sim,
                 id = ?existing.id,
                 old = ?existing.info.name(),
@@ -285,7 +285,7 @@ impl<S: Schema> Registry<S> {
 
         for name in unpaired_new {
             let (cmd, inf) = new.remove(&name).unwrap_or_else(|| unreachable!());
-            debug!("Creating global command {name:?}");
+            info!("Creating global command {name:?}");
             let res = Command::create_global_application_command(&ctx.http, |c| inf.build(c))
                 .await
                 .with_context(|| format!("Error creating command {name:?}"))?;
@@ -294,7 +294,7 @@ impl<S: Schema> Registry<S> {
         }
 
         for (inf, reg) in unpaired_existing {
-            debug!(
+            info!(
                 "Deleting unregistered command {:?} (ID {:?})",
                 inf.name(),
                 reg.id,
@@ -445,7 +445,7 @@ impl<S: Schema> Registry<S> {
         ctx: &Context,
         aci: ApplicationCommandInteraction,
     ) -> Result<(), ResponseError> {
-        trace!("Handling application command");
+        info!("Handling application command");
 
         let map = self.commands.read().await;
         let responder = InitResponder::new(&ctx.http, &aci);
@@ -533,7 +533,7 @@ impl<S: Schema> Registry<S> {
         ctx: &Context,
         mc: MessageComponentInteraction,
     ) -> Result<(), ResponseError> {
-        trace!("Handling message component");
+        info!("Handling message component");
 
         let map = self.components.read().await;
         let responder = InitResponder::new(&ctx.http, &mc);
@@ -639,7 +639,7 @@ impl<S: Schema> Registry<S> {
         ctx: &Context,
         ms: ModalSubmitInteraction,
     ) -> Result<(), ResponseError> {
-        trace!("Handling modal submit");
+        info!("Handling modal submit");
 
         let map = self.modals.read().await;
         let responder = InitResponder::new(&ctx.http, &ms);
