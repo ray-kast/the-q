@@ -1,12 +1,22 @@
 use super::prelude::*;
 
-#[derive(Debug, Default)]
-pub struct SayCommand;
+#[derive(Debug)]
+pub struct SayCommand {
+    name: String,
+}
+
+impl From<&CommandOpts> for SayCommand {
+    fn from(opts: &CommandOpts) -> Self {
+        Self {
+            name: format!("{}say", opts.command_base),
+        }
+    }
+}
 
 #[async_trait]
 impl Handler<Schema> for SayCommand {
-    fn register_global(&self, _: &handler::Opts) -> CommandInfo {
-        CommandInfo::build_slash("qsay", "say something!", |a| {
+    fn register_global(&self) -> CommandInfo {
+        CommandInfo::build_slash(&self.name, "Say something!", |a| {
             a.string("message", "The message to send", true, ..)
         })
         .unwrap()

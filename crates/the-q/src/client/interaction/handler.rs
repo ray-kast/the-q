@@ -12,13 +12,11 @@ use serenity::{
 use super::{command::CommandInfo, completion::Completion, response, rpc, visitor};
 use crate::prelude::*;
 
-// TODO: make this type generic
-#[derive(Debug, clap::Args)]
-#[group(skip)] // hate hate hate clap please let me rename groups
-pub struct Opts {
-    /// Base command name to prefix all slash commands with
-    #[arg(long, env, default_value = "q")]
-    pub command_base: String,
+#[derive(Debug)]
+pub struct Handlers<S: rpc::Schema> {
+    pub commands: Vec<Arc<dyn CommandHandler<S>>>,
+    pub components: Vec<Arc<dyn RpcHandler<S, S::ComponentKey>>>,
+    pub modals: Vec<Arc<dyn RpcHandler<S, S::ModalKey>>>,
 }
 
 pub type Visitor<'a> = visitor::Visitor<
@@ -72,14 +70,14 @@ impl<'a, S> IntoErr<CommandError<'a, S>>
 
 #[async_trait]
 pub trait CommandHandler<S>: fmt::Debug + Send + Sync {
-    fn register_global(&self, opts: &Opts) -> CommandInfo;
+    fn register_global(&self) -> CommandInfo;
 
     #[inline]
-    fn register_guild(&self, opts: &Opts, id: GuildId) -> Option<CommandInfo> {
+    fn register_guild(&self, id: GuildId) -> Option<CommandInfo> {
         // Use the variables to give the trait args a nice name without getting
         // dead code warnings
         #[allow(let_underscore_drop)]
-        let _ = (opts, id);
+        let _ = (id,);
         None
     }
 
@@ -131,5 +129,5 @@ pub trait RpcHandler<S, K: rpc::Key>: fmt::Debug + Send + Sync {
         ctx: &Context,
         payload: K::Payload,
         responder: response::BorrowingResponder<'_, 'a, S, K::Interaction>,
-    ) -> RpcResult<S, K::Interaction>;
+    ) -> RpcResult<'a, S, K::Interaction>;
 }

@@ -1,13 +1,21 @@
 use super::prelude::*;
 
-#[derive(Debug, Default)]
-pub struct PointCommand;
+#[derive(Debug)]
+pub struct PointCommand {
+    name: String,
+}
+
+impl From<&CommandOpts> for PointCommand {
+    fn from(opts: &CommandOpts) -> Self {
+        Self {
+            name: format!("{}Point and Laugh", opts.context_menu_base),
+        }
+    }
+}
 
 #[async_trait]
 impl Handler<Schema> for PointCommand {
-    fn register_global(&self, _: &handler::Opts) -> CommandInfo {
-        CommandInfo::message("Point and Laugh")
-    }
+    fn register_global(&self) -> CommandInfo { CommandInfo::message(&self.name) }
 
     async fn respond<'a>(
         &self,

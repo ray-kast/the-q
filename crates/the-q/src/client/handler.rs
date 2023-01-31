@@ -11,14 +11,9 @@ pub struct Handler {
 }
 
 impl Handler {
-    pub fn new_rc(command_opts: interaction::handler::Opts) -> Arc<Self> {
+    pub fn new_rc(command_opts: &commands::CommandOpts) -> Arc<Self> {
         Arc::new(Self {
-            registry: interaction::Registry::new(
-                command_opts,
-                commands::list(),
-                commands::components(),
-                commands::modals(),
-            ),
+            registry: interaction::Registry::new(commands::handlers(command_opts)),
         })
     }
 }

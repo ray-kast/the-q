@@ -15,8 +15,7 @@ pub(self) mod prelude {
             handler,
             handler::{
                 CommandError, CommandHandler as Handler, CompletionResult, CompletionVisitor,
-                ComponentResponder, ComponentResult, IntoErr, ModalResponder, ModalResult,
-                RpcError, RpcHandler, Visitor,
+                IntoErr, ModalResponder, ModalResult, RpcError, RpcHandler, Visitor,
             },
             response::{
                 prelude::*, ButtonStyle, Embed, Message, MessageBody, MessageComponent,
@@ -24,7 +23,7 @@ pub(self) mod prelude {
             },
             rpc, visitor,
         },
-        Schema,
+        CommandOpts, ComponentKey, ModalKey, Schema,
     };
     pub use crate::{
         prelude::*,
@@ -36,6 +35,8 @@ pub(self) mod prelude {
 
     pub type CommandResponder<'a, 'b> = handler::CommandResponder<'a, 'b, Schema>;
     pub type CommandResult<'a> = handler::CommandResult<'a, Schema>;
+    pub type ComponentResponder<'a, 'b> = handler::ComponentResponder<'a, 'b, Schema>;
+    pub type ComponentResult<'a> = handler::ComponentResult<'a, Schema>;
 
     #[inline]
     pub fn id<T>(t: T) -> T { t }
@@ -43,26 +44,37 @@ pub(self) mod prelude {
 
 pub use rpc::*;
 
-pub fn list() -> Vec<prelude::Arc<dyn prelude::Handler<Schema>>> {
-    use prelude::Arc;
+pub type Handlers = prelude::handler::Handlers<Schema>;
 
-    vec![
-        Arc::new(explode::ExplodeCommand::default()),
-        Arc::new(point::PointCommand::default()),
-        Arc::new(say::SayCommand::default()),
-        Arc::new(test::TestCommand::default()),
-        Arc::new(vc::VcCommand::default()),
-    ]
+// TODO: set up command names
+#[derive(Debug, clap::Args)]
+pub struct CommandOpts {
+    #[arg(long, env, default_value = "q")]
+    command_base: String,
+
+    #[arg(long, env, default_value = "")]
+    context_menu_base: String,
 }
 
-pub fn components() -> Vec<prelude::Arc<dyn prelude::RpcHandler<Schema, ComponentKey>>> {
+// TODO: can this be attribute-macro-ified?
+pub fn handlers(opts: &CommandOpts) -> Handlers {
     use prelude::Arc;
 
-    vec![]
-}
+    let explode = Arc::new(explode::ExplodeCommand::from(opts));
+    let point = Arc::new(point::PointCommand::from(opts));
+    let say = Arc::new(say::SayCommand::from(opts));
+    let test = Arc::new(test::TestCommand::from(opts));
+    let vc = Arc::new(vc::VcCommand::from(opts));
 
-pub fn modals() -> Vec<prelude::Arc<dyn prelude::RpcHandler<Schema, ModalKey>>> {
-    use prelude::Arc;
-
-    vec![]
+    Handlers {
+        commands: vec![
+            explode,
+            point,
+            say,
+            test,
+            Arc::clone(&vc) as Arc<dyn prelude::Handler<Schema>>,
+        ],
+        components: vec![vc],
+        modals: vec![],
+    }
 }

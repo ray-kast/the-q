@@ -39,14 +39,14 @@ pub fn read<M: prost::Message + Default>(i: &Id<'_>) -> Result<M, Error> {
     let mut fmt_buf = [0];
     match dec.read_exact(&mut fmt_buf) {
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(M::default()),
-        r => r.unwrap(),
+        r => r?,
     }
 
     // Format byte
     let mut msg_buf = vec![];
     match fmt_buf[0] {
         FORMAT_RAW => {
-            dec.read_to_end(&mut msg_buf).unwrap();
+            dec.read_to_end(&mut msg_buf)?;
         },
         FORMAT_ZSTD => {
             let mut z_dec = zstd::stream::Decoder::new(dec)?;
@@ -54,7 +54,13 @@ pub fn read<M: prost::Message + Default>(i: &Id<'_>) -> Result<M, Error> {
             z_dec.window_log_max(ZSTD_WINDOW_LOG)?;
             z_dec.read_to_end(&mut msg_buf)?;
         },
-        _ => return Ok(M::default()),
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Unrecognized format byte",
+            )
+            .into());
+        },
     }
 
     M::decode(&*msg_buf).map_err(Error::Protobuf)
@@ -80,11 +86,11 @@ pub fn write(id: &impl prost::Message) -> Result<Id<'static>, Error> {
         FORMAT_RAW
     };
 
-    enc.write_all(&[format]).unwrap();
+    enc.write_all(&[format])?;
 
     match format {
-        FORMAT_RAW => enc.write_all(&raw).unwrap(),
-        FORMAT_ZSTD => enc.write_all(&compressed).unwrap(),
+        FORMAT_RAW => enc.write_all(&raw)?,
+        FORMAT_ZSTD => enc.write_all(&compressed)?,
         _ => unreachable!(),
     }
 

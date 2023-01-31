@@ -1,11 +1,21 @@
 use super::prelude::*;
 
-#[derive(Debug, Default)]
-pub struct TestCommand;
+#[derive(Debug)]
+pub struct TestCommand {
+    name: String,
+}
+
+impl From<&CommandOpts> for TestCommand {
+    fn from(opts: &CommandOpts) -> Self {
+        Self {
+            name: format!("{}Test", opts.context_menu_base),
+        }
+    }
+}
 
 #[async_trait]
 impl Handler<Schema> for TestCommand {
-    fn register_global(&self, _: &handler::Opts) -> CommandInfo { CommandInfo::user("Test") }
+    fn register_global(&self) -> CommandInfo { CommandInfo::user(&self.name) }
 
     async fn respond<'a>(
         &self,

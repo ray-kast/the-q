@@ -1,7 +1,7 @@
 use std::{collections::BinaryHeap, path::PathBuf};
 
 use ordered_float::OrderedFloat;
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 
 use super::prelude::*;
 
@@ -14,10 +14,21 @@ struct FileMap {
     task_handle: oneshot::Sender<Infallible>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct VcCommand {
-    files: tokio::sync::Mutex<std::sync::Weak<FileMap>>,
+    name: String,
+    files: Mutex<std::sync::Weak<FileMap>>,
     notify_handle: RwLock<Option<oneshot::Sender<()>>>,
+}
+
+impl From<&CommandOpts> for VcCommand {
+    fn from(opts: &CommandOpts) -> Self {
+        Self {
+            name: format!("{}play", opts.command_base),
+            files: Mutex::default(),
+            notify_handle: RwLock::default(),
+        }
+    }
 }
 
 impl VcCommand {
@@ -122,8 +133,8 @@ impl VcCommand {
 
 #[async_trait]
 impl Handler<Schema> for VcCommand {
-    fn register_global(&self, opts: &handler::Opts) -> CommandInfo {
-        CommandInfo::build_slash(&opts.command_base, ";)", |a| {
+    fn register_global(&self) -> CommandInfo {
+        CommandInfo::build_slash(&self.name, ";)", |a| {
             a.string("path", "Path to the file to play", true, ..)
                 .autocomplete(true, ["path"])
         })
@@ -265,7 +276,24 @@ impl Handler<Schema> for VcCommand {
     }
 }
 
-struct SongbirdHandler(Arc<tokio::sync::Mutex<songbird::Call>>);
+#[async_trait]
+impl RpcHandler<Schema, ComponentKey> for VcCommand {
+    fn register_keys(&self) -> &'static [ComponentKey] {
+        // TODO
+        &[]
+    }
+
+    async fn respond<'a>(
+        &self,
+        ctx: &Context,
+        payload: ComponentPayload,
+        responder: ComponentResponder<'_, 'a>,
+    ) -> ComponentResult<'a> {
+        todo!()
+    }
+}
+
+struct SongbirdHandler(Arc<Mutex<songbird::Call>>);
 
 #[async_trait]
 impl songbird::EventHandler for SongbirdHandler {

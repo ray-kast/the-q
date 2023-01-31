@@ -1,13 +1,21 @@
 use super::prelude::*;
 
-#[derive(Debug, Default)]
-pub struct ExplodeCommand;
+#[derive(Debug)]
+pub struct ExplodeCommand {
+    name: String,
+}
+
+impl From<&CommandOpts> for ExplodeCommand {
+    fn from(opts: &CommandOpts) -> Self {
+        Self {
+            name: format!("{}Blender Explode", opts.context_menu_base),
+        }
+    }
+}
 
 #[async_trait]
 impl Handler<Schema> for ExplodeCommand {
-    fn register_global(&self, _: &handler::Opts) -> CommandInfo {
-        CommandInfo::user("Blender Explode")
-    }
+    fn register_global(&self) -> CommandInfo { CommandInfo::user(&self.name) }
 
     async fn respond<'a>(
         &self,

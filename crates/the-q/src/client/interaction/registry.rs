@@ -193,16 +193,8 @@ type ModalInfo<'a, S> = (
 );
 
 #[derive(Debug)]
-struct RegistryInit<S: Schema> {
-    opts: handler::Opts,
-    commands: Vec<CommandHandler<S>>,
-    components: Vec<RpcHandler<S, S::ComponentKey>>,
-    modals: Vec<RpcHandler<S, S::ModalKey>>,
-}
-
-#[derive(Debug)]
 pub struct Registry<S: Schema> {
-    init: RegistryInit<S>,
+    handlers: handler::Handlers<S>,
     commands: RwLock<Option<CommandHandlerMap<S>>>,
     components: RwLock<Option<RpcHandlerMap<S, S::ComponentKey>>>,
     modals: RwLock<Option<RpcHandlerMap<S, S::ModalKey>>>,
@@ -212,14 +204,14 @@ impl<S: Schema> Registry<S> {
     #[instrument(level = "debug", skip(ctx))]
     async fn patch_commands(
         ctx: &Context,
-        init: &RegistryInit<S>,
+        init: &handler::Handlers<S>,
         guild: Option<GuildId>,
     ) -> Result<CommandHandlerMap<S>> {
         if let Some(guild) = guild {
             todo!("handle guild {guild}");
         }
 
-        let RegistryInit { opts, commands, .. } = init;
+        let handler::Handlers { commands, .. } = init;
         let mut handlers = HashMap::new();
 
         let existing = Command::get_global_application_commands(&ctx.http)
@@ -235,7 +227,7 @@ impl<S: Schema> Registry<S> {
         let mut new: HashMap<_, _> = commands
             .iter()
             .map(|c| {
-                let inf = c.register_global(opts);
+                let inf = c.register_global();
                 (inf.name().clone(), (c, inf))
             })
             .collect();
@@ -412,19 +404,9 @@ impl<S: Schema> Registry<S> {
         Ok((handler, source, payload))
     }
 
-    pub fn new(
-        opts: handler::Opts,
-        commands: Vec<CommandHandler<S>>,
-        components: Vec<RpcHandler<S, S::ComponentKey>>,
-        modals: Vec<RpcHandler<S, S::ModalKey>>,
-    ) -> Self {
+    pub fn new(handlers: handler::Handlers<S>) -> Self {
         Self {
-            init: RegistryInit {
-                opts,
-                commands,
-                components,
-                modals,
-            },
+            handlers,
             commands: None.into(),
             components: None.into(),
             modals: None.into(),
@@ -437,9 +419,9 @@ impl<S: Schema> Registry<S> {
         let mut components = self.components.write().await;
         let mut modals = self.modals.write().await;
 
-        *commands = Some(Self::patch_commands(ctx, &self.init, None).await?);
-        *components = Some(Self::collate_rpc(&self.init.components));
-        *modals = Some(Self::collate_rpc(&self.init.modals));
+        *commands = Some(Self::patch_commands(ctx, &self.handlers, None).await?);
+        *components = Some(Self::collate_rpc(&self.handlers.components));
+        *modals = Some(Self::collate_rpc(&self.handlers.modals));
 
         // TODO: handle guild commands
 
@@ -528,7 +510,7 @@ impl<S: Schema> Registry<S> {
         };
 
         if let Some(msg) = msg {
-            responder.upsert_message(msg).await?;
+            responder.create_or_followup(msg).await?;
         }
 
         Ok(())
@@ -587,7 +569,7 @@ impl<S: Schema> Registry<S> {
         };
 
         if let Some(msg) = msg {
-            responder.upsert_message(msg).await?;
+            responder.create_or_followup(msg).await?;
         }
 
         Ok(())
@@ -693,7 +675,7 @@ impl<S: Schema> Registry<S> {
         };
 
         if let Some(msg) = msg {
-            responder.upsert_message(msg).await?;
+            responder.create_or_followup(msg).await?;
         }
 
         Ok(())

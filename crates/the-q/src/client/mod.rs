@@ -14,17 +14,17 @@ pub struct ClientOpts {
     discord_token: DebugShim<String>,
 
     #[command(flatten)]
-    interactions: interaction::handler::Opts,
+    commands: commands::CommandOpts,
 }
 
 pub async fn build(opts: ClientOpts) -> Result<Client> {
     let ClientOpts {
         discord_token,
-        interactions,
+        commands,
     } = opts;
 
     let intents = GatewayIntents::non_privileged(); // TODO
-    let handler = handler::Handler::new_rc(interactions);
+    let handler = handler::Handler::new_rc(&commands);
 
     Client::builder(discord_token.0, intents)
         .event_handler_arc(handler)

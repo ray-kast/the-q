@@ -243,7 +243,9 @@ mod private {
 
     pub trait CreateUpdate: Interaction {}
     impl CreateUpdate for MessageComponentInteraction {}
-    impl CreateUpdate for ModalSubmitInteraction {}
+
+    pub trait TryCreateUpdate: Interaction {}
+    impl TryCreateUpdate for ModalSubmitInteraction {}
 
     pub trait CreateModal: Interaction {
         const MODAL_SOURCE: modal::ModalSource;
@@ -443,6 +445,8 @@ impl<'a, S: Schema, I: private::CreateUpdate> InitResponder<'a, S, I> {
     }
 }
 
+impl<'a, S: Schema, I: private::TryCreateUpdate> InitResponder<'a, S, I> {}
+
 impl<'a, S: Schema, I: private::CreateModal> InitResponder<'a, S, I> {
     #[inline]
     pub async fn modal(
@@ -523,7 +527,7 @@ impl<'a, S, I> BorrowedResponder<'a, S, I> {
 }
 
 impl<'a, S: Schema, I: private::Interaction> BorrowedResponder<'a, S, I> {
-    pub async fn upsert_message(
+    pub async fn create_or_followup(
         &mut self,
         msg: Message<'_, S::Component, id::Error>,
     ) -> Result<Option<Followup>, ResponseError> {
@@ -621,6 +625,8 @@ impl<'a, 'b, S: Schema, I: private::CreateUpdate> BorrowingResponder<'a, 'b, S, 
         unsafe { self.take(|i| i.defer_update(opts)).await }
     }
 }
+
+impl<'a, 'b, S: Schema, I: private::TryCreateUpdate> BorrowingResponder<'a, 'b, S, I> {}
 
 impl<'a, 'b, S: Schema, I: private::CreateModal> BorrowingResponder<'a, 'b, S, I> {
     #[inline]

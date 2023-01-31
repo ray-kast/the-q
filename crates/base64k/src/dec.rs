@@ -45,9 +45,11 @@ impl<I: Iterator<Item = char>> io::Read for Decoder<I> {
             let (lo, hi) = (int as u8, (int >> 8) as u8);
             let has_hi = (int & TRAIL_MASK) != TRAIL_MASK;
 
-            #[cfg(debug_assertions)]
-            if !has_hi {
-                assert!(self.it.next().is_none());
+            if !has_hi && self.it.next().is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Trailing chars found after padding",
+                ));
             }
 
             match chunk {
