@@ -60,8 +60,6 @@ pub type AckedCommandResponder<'a, S> =
 pub enum CompletionError {
     #[error("Error parsing command: {0}")]
     Parse(#[from] visitor::Error),
-    #[error("Bot responded with error: {0}")]
-    User(&'static str),
     #[error("Unexpected error: {0}")]
     Other(#[from] anyhow::Error),
 }

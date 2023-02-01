@@ -18,6 +18,7 @@ struct FileMap {
 pub struct SoundCommand {
     name: String,
     files: Mutex<std::sync::Weak<FileMap>>,
+    songbird_handle: Mutex<HashMap<GuildId, std::sync::Weak<()>>>,
     notify_handle: RwLock<Option<oneshot::Sender<()>>>,
 }
 
@@ -26,6 +27,7 @@ impl From<&CommandOpts> for SoundCommand {
         Self {
             name: format!("{}sound", opts.command_base),
             files: Mutex::default(),
+            songbird_handle: Mutex::default(),
             notify_handle: RwLock::default(),
         }
     }
@@ -181,11 +183,28 @@ impl SoundCommand {
         }
 
         let mut call = call_lock.lock().await;
+        let mut handles = self.songbird_handle.lock().await;
+
+        if handles
+            .get(&gid)
+            .and_then(std::sync::Weak::upgrade)
+            .is_some()
+        {
+            return Err(fail(
+                extra,
+                MessageBody::plain("Calm down, buddy"),
+                "Sound already running",
+            )
+            .await);
+        }
+
+        let handle = Arc::new(());
+        handles.insert(gid, Arc::downgrade(&handle));
 
         call.play_source(source)
             .add_event(
                 songbird::Event::Track(songbird::TrackEvent::End),
-                SongbirdHandler(Arc::clone(&call_lock)),
+                SongbirdHandler(handle, Arc::clone(&call_lock)),
             )
             .context("Error hooking track stop")?;
 
@@ -270,44 +289,49 @@ impl Handler<Schema> for SoundCommand {
 
     async fn complete(&self, _: &Context, visitor: &mut CompletionVisitor<'_>) -> CompletionResult {
         // TODO: CompletionVisitor should probably have a better API
-        // TODO: unicase?
-        let path = visitor
-            .visit_string("path")?
-            .optional()
-            .map(|s| s.to_lowercase());
-        let path = path.as_deref().unwrap_or("");
-        let files = self.files().await?;
-        let files = files.files.read().await;
+        match *visitor.visit_subcmd()? {
+            ["play"] => {
+                // TODO: unicase?
+                let path = visitor
+                    .visit_string("path")?
+                    .optional()
+                    .map(|s| s.to_lowercase());
+                let path = path.as_deref().unwrap_or("");
+                let files = self.files().await?;
+                let files = files.files.read().await;
 
-        #[allow(clippy::cast_precision_loss)]
-        let mut heap: BinaryHeap<_> = {
-            let all = once_cell::unsync::OnceCell::new();
-            files
-                .keys()
-                .map(|s| {
-                    (
-                        OrderedFloat(strsim::normalized_damerau_levenshtein(
-                            path,
-                            &s.to_lowercase(),
-                        )),
-                        s,
-                    )
-                })
-                .filter(|(s, _)| {
-                    let matching = s.0 >= 0.07;
-                    *all.get_or_init(|| !matching) || matching
-                })
-                .collect()
-        };
+                #[allow(clippy::cast_precision_loss)]
+                let mut heap: BinaryHeap<_> = {
+                    let all = once_cell::unsync::OnceCell::new();
+                    files
+                        .keys()
+                        .map(|s| {
+                            (
+                                OrderedFloat(strsim::normalized_damerau_levenshtein(
+                                    path,
+                                    &s.to_lowercase(),
+                                )),
+                                s,
+                            )
+                        })
+                        .filter(|(s, _)| {
+                            let matching = s.0 >= 0.07;
+                            *all.get_or_init(|| !matching) || matching
+                        })
+                        .collect()
+                };
 
-        debug!(?heap, "File completion list accumulated");
+                debug!(?heap, "File completion list accumulated");
 
-        Ok(std::iter::from_fn(move || heap.pop())
-            .map(|(_, s)| Completion {
-                name: s.into(),
-                value: s.into(),
-            })
-            .collect())
+                Ok(std::iter::from_fn(move || heap.pop())
+                    .map(|(_, s)| Completion {
+                        name: s.into(),
+                        value: s.into(),
+                    })
+                    .collect())
+            },
+            ref s => Err(anyhow!("Unexpected subcommand {s:?}").into()),
+        }
     }
 
     async fn respond<'a>(
@@ -348,7 +372,7 @@ impl RpcHandler<Schema, ComponentKey> for SoundCommand {
 
                 let responder = self
                     .play_impl(ctx, gid, user, &file, responder, |r, m, e| async move {
-                        match r.edit(m).await {
+                        match r.create_followup(Message::from(m).ephemeral(true)).await {
                             Ok(_) => r.into_err(e),
                             Err(e) => Error::from(e)
                                 .context("Failed to send error message")
@@ -364,7 +388,7 @@ impl RpcHandler<Schema, ComponentKey> for SoundCommand {
     }
 }
 
-struct SongbirdHandler(Arc<Mutex<songbird::Call>>);
+struct SongbirdHandler(Arc<()>, Arc<Mutex<songbird::Call>>);
 
 #[async_trait]
 impl songbird::EventHandler for SongbirdHandler {
@@ -372,7 +396,7 @@ impl songbird::EventHandler for SongbirdHandler {
         match *ctx {
             songbird::EventContext::Track(t) => {
                 if t.iter().all(|(s, _)| s.playing.is_done()) {
-                    self.0
+                    self.1
                         .lock()
                         .await
                         .leave()

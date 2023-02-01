@@ -20,5 +20,6 @@ pub mod prelude {
         },
         embed::EmbedExt as _,
         message::{MessageBodyExt as _, MessageExt as _, MessageOptsExt as _},
+        responder::ResponderExt as _,
     };
 }

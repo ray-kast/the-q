@@ -17,8 +17,9 @@ pub(self) mod prelude {
             completion::Completion,
             handler,
             handler::{
-                CommandHandler as Handler, CommandVisitor, CompletionResult, CompletionVisitor,
-                ComponentVisitor, HandlerError, IntoErr, ModalVisitor, RpcHandler,
+                CommandHandler as Handler, CommandVisitor, CompletionError, CompletionResult,
+                CompletionVisitor, ComponentVisitor, HandlerError, IntoErr, ModalVisitor,
+                RpcHandler,
             },
             response,
             response::{
