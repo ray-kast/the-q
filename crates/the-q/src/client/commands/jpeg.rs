@@ -48,30 +48,33 @@ impl CommandHandler<Schema> for JpegCommand {
             .download()
             .await
             .context("Error downloading attachment from discord")?;
+        let content_type = attachment.content_type.clone();
+        let filename = attachment.filename.clone();
 
-        let format = None
-            .or_else(|| {
-                attachment
-                    .content_type
-                    .as_ref()
-                    .and_then(ImageFormat::from_mime_type)
-            })
-            .or_else(|| ImageFormat::from_path(&attachment.filename).ok())
-            .or_else(|| image::guess_format(&image_data).ok())
-            .context("Error determining format of attached image")?;
+        let bytes = tokio::task::spawn_blocking(move || {
+            let format = None
+                .or_else(|| content_type.as_ref().and_then(ImageFormat::from_mime_type))
+                .or_else(|| ImageFormat::from_path(&filename).ok())
+                .or_else(|| image::guess_format(&image_data).ok())
+                .context("Error determining format of attached image")?;
 
-        let image = image::load_from_memory_with_format(&image_data, format)
-            .context("Error reading image data")?;
-        let jpegged_image = jpeggr::jpeg_dynamic_image(image, 1, quality)
-            .context("Error applying JPEG effect to image")?;
+            let image = image::load_from_memory_with_format(&image_data, format)
+                .context("Error reading image data")?;
+            let jpegged_image = jpeggr::jpeg_dynamic_image(image, 1, quality)
+                .context("Error applying JPEG effect to image")?;
 
-        let mut bytes = Vec::new();
-        jpegged_image
-            .write_to(
-                &mut Cursor::new(&mut bytes),
-                image::ImageOutputFormat::Jpeg(quality),
-            )
-            .context("Error encoding image")?;
+            let mut bytes = Vec::new();
+            jpegged_image
+                .write_to(
+                    &mut Cursor::new(&mut bytes),
+                    image::ImageOutputFormat::Jpeg(quality),
+                )
+                .context("Error encoding image")?;
+
+            Result::<_>::Ok(bytes)
+        })
+        .await
+        .context("Error spawning image task")??;
 
         let attachment = AttachmentType::Bytes {
             data: bytes.into(),
