@@ -9,7 +9,7 @@ mod test;
 pub(self) mod prelude {
     pub(super) use serenity::{
         client::Context,
-        model::{id::GuildId, user::User},
+        model::{channel::Attachment, id::GuildId, user::User},
     };
 
     pub use super::{
@@ -74,6 +74,7 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
 
     let explode = Arc::new(explode::ExplodeCommand::from(opts));
     let jpeg = Arc::new(jpeg::JpegCommand::from(opts));
+    let jpeg_message = Arc::new(jpeg::JpegMessageCommand::from(opts));
     let point = Arc::new(point::PointCommand::from(opts));
     let say = Arc::new(say::SayCommand::from(opts));
     let sound = Arc::new(sound::SoundCommand::from(opts));
@@ -83,6 +84,7 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
         commands: vec![
             explode,
             jpeg,
+            jpeg_message,
             point,
             say,
             test,
