@@ -110,10 +110,8 @@ pub enum Error {
     UnhandledSubcommand(Vec<String>),
 
     // Option visitor errors
-    #[error("Command option {0:?} not provided or already visited")]
+    #[error("Required command option {0:?} missing or already visited")]
     MissingOption(String),
-    #[error("No value for required command option {0:?}")]
-    MissingOptionValue(String),
     #[error("Command option type mismatch - expected {1}, found {2:?}")]
     BadOptionType(String, &'static str, CommandOptionType),
     #[error("Type mismatch in value of command option {0:?} - expected {1}, found {2:?}")]

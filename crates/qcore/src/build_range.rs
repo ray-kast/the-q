@@ -1,8 +1,8 @@
-//! Helper trait for constructing an open range
+//! Helper trait for constructing a closed range
 
 use std::ops::RangeInclusive;
 
-/// A trait representing an open range, with optional bounds on either end
+/// A trait representing a closed range, with optional bounds on either end
 pub trait BuildRange<T> {
     /// Convert this range into a [`RangeInclusive`] with optional bounds
     fn build_range(self) -> RangeInclusive<Option<T>>;

@@ -1,4 +1,5 @@
 mod explode;
+mod jpeg;
 mod point;
 mod rpc;
 mod say;
@@ -72,14 +73,16 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
     use prelude::Arc;
 
     let explode = Arc::new(explode::ExplodeCommand::from(opts));
+    let jpeg = Arc::new(jpeg::JpegCommand::from(opts));
     let point = Arc::new(point::PointCommand::from(opts));
     let say = Arc::new(say::SayCommand::from(opts));
-    let test = Arc::new(test::TestCommand::from(opts));
     let sound = Arc::new(sound::SoundCommand::from(opts));
+    let test = Arc::new(test::TestCommand::from(opts));
 
     Handlers {
         commands: vec![
             explode,
+            jpeg,
             point,
             say,
             test,
