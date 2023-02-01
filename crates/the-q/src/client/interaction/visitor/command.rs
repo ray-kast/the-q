@@ -2,98 +2,16 @@ use serenity::model::{
     application::{
         command::{CommandOptionType, CommandType},
         interaction::application_command::{
-            CommandDataOption, CommandDataOptionValue, CommandDataResolved,
+            CommandData, CommandDataOption, CommandDataOptionValue, CommandDataResolved,
         },
     },
     channel::{Attachment, Message, PartialChannel},
-    guild::{Member, PartialMember, Role},
-    id::GuildId,
+    guild::{PartialMember, Role},
     user::User,
 };
 
-mod private {
-    use serenity::model::{
-        application::interaction::{application_command, autocomplete},
-        guild, id, user,
-    };
-
-    pub trait CommandInteraction {
-        fn data(&self) -> &application_command::CommandData;
-
-        fn guild_id(&self) -> &Option<id::GuildId>;
-
-        fn member(&self) -> &Option<guild::Member>;
-
-        fn user(&self) -> &user::User;
-    }
-
-    impl CommandInteraction for application_command::ApplicationCommandInteraction {
-        #[inline]
-        fn data(&self) -> &application_command::CommandData { &self.data }
-
-        #[inline]
-        fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
-
-        #[inline]
-        fn member(&self) -> &Option<guild::Member> { &self.member }
-
-        #[inline]
-        fn user(&self) -> &user::User { &self.user }
-    }
-
-    impl CommandInteraction for autocomplete::AutocompleteInteraction {
-        #[inline]
-        fn data(&self) -> &application_command::CommandData { &self.data }
-
-        #[inline]
-        fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
-
-        #[inline]
-        fn member(&self) -> &Option<guild::Member> { &self.member }
-
-        #[inline]
-        fn user(&self) -> &user::User { &self.user }
-    }
-}
-
+use super::{BasicVisitor, Describe, Error, Result};
 use crate::prelude::*;
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    // Top-level command type errors
-    #[error("Attempted to read options for a non-slash command")]
-    NotChatInput,
-    #[error("Attempted to read target user for a non-user command")]
-    NotUser,
-    #[error("Attempted to read target message for a non-message command")]
-    NotMessage,
-
-    // Option visitor errors
-    #[error("Command option {0:?} not provided or already visited")]
-    MissingOption(String),
-    #[error("No value for required command option {0:?}")]
-    MissingOptionValue(String),
-    #[error("Command option type mismatch - expected {1}, found {2:?}")]
-    BadOptionType(String, &'static str, CommandOptionType),
-    #[error("Type mismatch in value of command option {0:?} - expected {1}, found {2:?}")]
-    BadOptionValueType(String, &'static str, OptionValueType),
-    #[error("Error parsing value for {0:?}: {1}")]
-    OptionParse(String, Box<dyn std::error::Error + Send + Sync + 'static>),
-    #[error("Trailing arguments: {0:?}")]
-    Trailing(Vec<String>),
-
-    // Guild visitor errors
-    #[error("Guild-only command run inside DM")]
-    GuildRequired,
-    #[error("DM-only command run inside guild")]
-    DmRequired,
-}
-
-trait Describe {
-    type Desc: fmt::Debug;
-
-    fn describe(&self) -> Self::Desc;
-}
 
 #[derive(Debug)]
 pub enum OptionValueType {
@@ -126,7 +44,7 @@ impl Describe for CommandDataOptionValue {
     }
 }
 
-type Result<T> = std::result::Result<T, Error>;
+type Subcommand<'a> = Vec<&'a str>;
 type OptionMap<'a> = HashMap<&'a str, &'a CommandDataOption>;
 
 enum VisitorState<'a> {
@@ -134,9 +52,28 @@ enum VisitorState<'a> {
     SlashCommand(OptionMap<'a>),
 }
 
-pub struct Visitor<'a, I> {
-    int: &'a I,
+pub struct CommandVisitor<'a, I> {
+    base: BasicVisitor<'a, I>,
     state: VisitorState<'a>,
+}
+
+impl<'a, I> CommandVisitor<'a, I> {
+    pub fn new(int: &'a I) -> Self {
+        Self {
+            base: BasicVisitor::new(int),
+            state: VisitorState::Init,
+        }
+    }
+}
+
+impl<'a, I> std::ops::Deref for CommandVisitor<'a, I> {
+    type Target = BasicVisitor<'a, I>;
+
+    fn deref(&self) -> &Self::Target { &self.base }
+}
+
+impl<'a, I> std::ops::DerefMut for CommandVisitor<'a, I> {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.base }
 }
 
 macro_rules! ensure_opt_type {
@@ -178,16 +115,7 @@ macro_rules! visit_basic {
     };
 }
 
-impl<'a, I> Visitor<'a, I> {
-    pub fn new(int: &'a I) -> Self {
-        Self {
-            int,
-            state: VisitorState::Init,
-        }
-    }
-}
-
-impl<'a, I: private::CommandInteraction> Visitor<'a, I> {
+impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, I> {
     visit_basic! {
         ///a string
         pub fn visit_string() -> &'a String { String(s) => s }
@@ -216,74 +144,90 @@ impl<'a, I: private::CommandInteraction> Visitor<'a, I> {
         pub fn visit_attachment() -> &'a Attachment { Attachment(a) => a }
     }
 
-    fn visit_opts(&mut self) -> Result<&mut OptionMap<'a>> {
+    fn visit_opts(&mut self) -> Result<(Option<Subcommand<'a>>, &mut OptionMap<'a>)> {
         if let VisitorState::SlashCommand(ref mut m) = self.state {
-            return Ok(m);
+            return Ok((None, m));
         }
 
-        if !matches!(self.int.data().kind, CommandType::ChatInput) {
+        if !matches!(self.base.int.data().kind, CommandType::ChatInput) {
             return Err(Error::NotChatInput);
         }
 
-        let map = self
-            .int
-            .data()
-            .options
-            .iter()
-            .map(|o| (&*o.name, o))
-            .collect();
+        let mut subcmd = Vec::new();
+        let mut opts = self.base.int.data().options.iter().enumerate().peekable();
+
+        while let Some((_, opt)) = opts.next_if(|(i, o)| {
+            *i == 0
+                && matches!(
+                    o.kind,
+                    CommandOptionType::SubCommand | CommandOptionType::SubCommandGroup
+                )
+        }) {
+            subcmd.push(&*opt.name);
+            if opts.next().is_some() {
+                return Err(Error::Malformed("Found normal option after subcommand"));
+            }
+            opts = opt.options.iter().enumerate().peekable();
+        }
+
+        let map = opts
+            .map(|(_, o)| {
+                if matches!(
+                    o.kind,
+                    CommandOptionType::SubCommand | CommandOptionType::SubCommandGroup
+                ) {
+                    return Err(Error::Malformed("Found subcommand after normal option(s)"));
+                }
+
+                Ok((&*o.name, o))
+            })
+            .collect::<Result<_>>()?;
 
         self.state = VisitorState::SlashCommand(map);
         let VisitorState::SlashCommand(ref mut m) = self.state else { unreachable!(); };
-        Ok(m)
+        Ok(((!subcmd.is_empty()).then_some(subcmd), m))
     }
 
     #[inline]
     fn visit_opt(&mut self, name: &'a str) -> Result<&'a CommandDataOption> {
-        self.visit_opts()?
-            .remove(&name)
+        let (subcmd, opts) = self.visit_opts()?;
+
+        if let Some(subcmd) = subcmd {
+            return Err(Error::UnhandledSubcommand(
+                subcmd.into_iter().map(Into::into).collect(),
+            ));
+        }
+
+        opts.remove(&name)
             .ok_or_else(|| Error::MissingOption(name.into()))
     }
 
-    pub fn visit_subcommand<T: FromStr>(&mut self, name: &'a str) -> Result<OptionVisitor<T>>
-    where T::Err: std::error::Error + Send + Sync + 'static {
-        let opt = self.visit_opt(name)?;
-        ensure_opt_type!(
-            name.into(),
-            opt,
-            CommandOptionType::SubCommand | CommandOptionType::SubCommandGroup,
-            "a subcommand"
-        );
+    pub fn visit_subcmd(&mut self) -> Result<Subcommand<'a>> {
+        let (subcmd, _opts) = self.visit_opts()?;
 
-        let val = resolve_opt!(name, opt, CommandDataOptionValue::String(s) => s, "a string")?;
-
-        val.map(|v| v.parse())
-            .transpose()
-            .map_err(|e: T::Err| Error::OptionParse(name.into(), e.into()))
+        subcmd.ok_or(Error::MissingSubcommand)
     }
-
-    #[inline]
-    pub fn guild(&self) -> GuildVisitor {
-        assert_eq!(self.int.guild_id().is_some(), self.int.member().is_some());
-        GuildVisitor(self.int.guild_id().zip(self.int.member().as_ref()))
-    }
-
-    #[inline]
-    pub fn user(&self) -> &'a User { self.int.user() }
 
     #[inline]
     pub fn target(&self) -> TargetVisitor<'a> {
-        TargetVisitor(self.int.data().kind, &self.int.data().resolved)
+        TargetVisitor(self.base.int.data().kind, &self.base.int.data().resolved)
     }
 
-    pub(super) fn finish(self) -> Result<()> {
-        let Self { int, state } = self;
+    pub(in super::super) fn finish(self) -> Result<()> {
+        let Self { base, state } = self;
 
         match state {
             VisitorState::Init => {
-                if int.data().kind == CommandType::ChatInput && !int.data().options.is_empty() {
+                if base.int.data().kind == CommandType::ChatInput
+                    && !base.int.data().options.is_empty()
+                {
                     return Err(Error::Trailing(
-                        int.data().options.iter().map(|o| o.name.clone()).collect(),
+                        base.int
+                            .data()
+                            .options
+                            .iter()
+                            .map(|o| o.name.clone())
+                            .collect(),
                     ));
                 }
             },
@@ -316,24 +260,6 @@ impl<'a, T> OptionVisitor<'a, T> {
 impl<'a, T, E> OptionVisitor<'a, std::result::Result<T, E>> {
     fn transpose(self) -> std::result::Result<OptionVisitor<'a, T>, E> {
         Ok(OptionVisitor(self.0, self.1.transpose()?))
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct GuildVisitor<'a>(Option<(GuildId, &'a Member)>);
-
-// TODO: handle the dm_permission field
-impl<'a> GuildVisitor<'a> {
-    #[inline]
-    pub fn optional(self) -> Option<(GuildId, &'a Member)> { self.0 }
-
-    #[inline]
-    pub fn required(self) -> Result<(GuildId, &'a Member)> { self.0.ok_or(Error::GuildRequired) }
-
-    #[inline]
-    pub fn require_dm(self) -> Result<()> {
-        self.0.is_none().then_some(()).ok_or(Error::DmRequired)
     }
 }
 

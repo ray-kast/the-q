@@ -3,7 +3,8 @@ use serenity::{
     model::{
         application::interaction::{
             application_command::ApplicationCommandInteraction,
-            message_component::MessageComponentInteraction, modal::ModalSubmitInteraction,
+            autocomplete::AutocompleteInteraction, message_component::MessageComponentInteraction,
+            modal::ModalSubmitInteraction,
         },
         id::GuildId,
     },
@@ -12,6 +13,10 @@ use serenity::{
 use super::{command::CommandInfo, completion::Completion, response, rpc, visitor};
 use crate::prelude::*;
 
+pub trait IntoErr<E> {
+    fn into_err(self, msg: &'static str) -> E;
+}
+
 #[derive(Debug)]
 pub struct Handlers<S: rpc::Schema> {
     pub commands: Vec<Arc<dyn CommandHandler<S>>>,
@@ -19,26 +24,33 @@ pub struct Handlers<S: rpc::Schema> {
     pub modals: Vec<Arc<dyn RpcHandler<S, S::ModalKey>>>,
 }
 
-pub type Visitor<'a> = visitor::Visitor<
-    'a,
-    serenity::model::application::interaction::application_command::ApplicationCommandInteraction,
->;
-pub type CompletionVisitor<'a> = visitor::Visitor<
-    'a,
-    serenity::model::application::interaction::autocomplete::AutocompleteInteraction,
->;
+// TODO: Component and Modal should have dedicated visitors
+pub type CommandVisitor<'a> = visitor::CommandVisitor<'a, ApplicationCommandInteraction>;
+pub type ComponentVisitor<'a> = visitor::BasicVisitor<'a, MessageComponentInteraction>;
+pub type CompletionVisitor<'a> = visitor::CommandVisitor<'a, AutocompleteInteraction>;
+pub type ModalVisitor<'a> = visitor::BasicVisitor<'a, ModalSubmitInteraction>;
 
 #[derive(Debug, thiserror::Error)]
-pub enum CommandError<'a, S> {
+pub enum HandlerError<'a, S, I> {
     #[error("Error parsing command: {0}")]
     Parse(#[from] visitor::Error),
     #[error("Bot responded with error: {0}")]
-    User(&'static str, AckedCommandResponder<'a, S>),
+    User(&'static str, response::AckedResponder<'a, S, I>),
     #[error("Unexpected error: {0}")]
     Other(#[from] anyhow::Error),
 }
 
-pub type CommandResult<'a, S> = Result<AckedCommandResponder<'a, S>, CommandError<'a, S>>;
+impl<'a, S, I> IntoErr<HandlerError<'a, S, I>> for response::CreatedResponder<'a, S, I> {
+    fn into_err(self, msg: &'static str) -> HandlerError<'a, S, I> {
+        HandlerError::User(msg, self.into())
+    }
+}
+
+pub type ResponseResult<'a, S, I> =
+    Result<response::AckedResponder<'a, S, I>, HandlerError<'a, S, I>>;
+
+pub type CommandError<'a, S> = HandlerError<'a, S, ApplicationCommandInteraction>;
+pub type CommandResult<'a, S> = ResponseResult<'a, S, ApplicationCommandInteraction>;
 pub type CommandResponder<'a, 'b, S> =
     response::BorrowingResponder<'a, 'b, S, ApplicationCommandInteraction>;
 pub type AckedCommandResponder<'a, S> =
@@ -55,18 +67,6 @@ pub enum CompletionError {
 }
 
 pub type CompletionResult = Result<Vec<Completion>, CompletionError>;
-
-pub trait IntoErr<E> {
-    fn into_err(self, msg: &'static str) -> E;
-}
-
-impl<'a, S> IntoErr<CommandError<'a, S>>
-    for response::CreatedResponder<'a, S, ApplicationCommandInteraction>
-{
-    fn into_err(self, msg: &'static str) -> CommandError<'a, S> {
-        CommandError::User(msg, self.into())
-    }
-}
 
 #[async_trait]
 pub trait CommandHandler<S>: fmt::Debug + Send + Sync {
@@ -96,22 +96,15 @@ pub trait CommandHandler<S>: fmt::Debug + Send + Sync {
     async fn respond<'a>(
         &self,
         ctx: &Context,
-        visitor: &mut Visitor<'_>,
+        visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a, S>,
     ) -> CommandResult<'a, S>;
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum RpcError<'a, S, I> {
-    #[error("Bot responded with error: {0}")]
-    User(&'static str, response::AckedResponder<'a, S, I>),
-    #[error("Unexpected error: {0}")]
-    Other(#[from] anyhow::Error),
-}
-
-pub type RpcResult<'a, S, I> = Result<(), RpcError<'a, S, I>>;
-pub type ComponentResult<'a, S> = RpcResult<'a, S, MessageComponentInteraction>;
-pub type ModalResult<'a, S> = RpcResult<'a, S, ModalSubmitInteraction>;
+pub type ComponentError<'a, S> = HandlerError<'a, S, MessageComponentInteraction>;
+pub type ModalError<'a, S> = HandlerError<'a, S, ModalSubmitInteraction>;
+pub type ComponentResult<'a, S> = ResponseResult<'a, S, MessageComponentInteraction>;
+pub type ModalResult<'a, S> = ResponseResult<'a, S, ModalSubmitInteraction>;
 pub type ComponentResponder<'a, 'b, S> =
     response::BorrowingResponder<'a, 'b, S, MessageComponentInteraction>;
 pub type AckedComponentResponder<'a, S> =
@@ -128,6 +121,7 @@ pub trait RpcHandler<S, K: rpc::Key>: fmt::Debug + Send + Sync {
         &self,
         ctx: &Context,
         payload: K::Payload,
+        visitor: &mut visitor::BasicVisitor<'_, K::Interaction>,
         responder: response::BorrowingResponder<'_, 'a, S, K::Interaction>,
-    ) -> RpcResult<'a, S, K::Interaction>;
+    ) -> ResponseResult<'a, S, K::Interaction>;
 }

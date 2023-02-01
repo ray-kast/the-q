@@ -25,7 +25,7 @@ impl Handler<Schema> for SayCommand {
     async fn respond<'a>(
         &self,
         ctx: &Context,
-        visitor: &mut Visitor<'_>,
+        visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         let msg = visitor.visit_string("message")?.required()?;

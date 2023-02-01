@@ -35,12 +35,14 @@ impl rpc::ComponentId for component::Component {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ComponentKey {
     Role,
+    Soundboard,
 }
 
 impl From<&ComponentPayload> for ComponentKey {
     fn from(value: &ComponentPayload) -> Self {
         match value {
             ComponentPayload::Role(_) => Self::Role,
+            ComponentPayload::Soundboard(_) => Self::Soundboard,
         }
     }
 }

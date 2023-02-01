@@ -9,7 +9,8 @@ use serenity::{
             component::ComponentType,
             interaction::{
                 application_command::{
-                    ApplicationCommandInteraction, CommandData, CommandDataOptionValue,
+                    ApplicationCommandInteraction, CommandData, CommandDataOption,
+                    CommandDataOptionValue,
                 },
                 autocomplete::AutocompleteInteraction,
                 message_component::MessageComponentInteraction,
@@ -42,12 +43,27 @@ fn write_string(f: impl FnOnce(&mut String) -> fmt::Result) -> String {
     s
 }
 
+fn visit_opts(opts: &[CommandDataOption]) -> impl Iterator<Item = &CommandDataOption> {
+    let mut stk = vec![opts.iter()];
+    std::iter::from_fn(move || {
+        loop {
+            let it = stk.last_mut()?;
+            let Some(next) = it.next() else {
+                let _ = stk.pop().unwrap();
+                continue;
+            };
+            stk.push(next.options.iter());
+            break Some(next);
+        }
+    })
+}
+
 fn command_name(w: &mut impl Write, data: &CommandData) -> fmt::Result {
     match data.kind {
         CommandType::ChatInput => {
             write!(w, "/{}", data.name)?;
 
-            for opt in &data.options {
+            for opt in visit_opts(&data.options) {
                 match opt.kind {
                     CommandOptionType::SubCommand | CommandOptionType::SubCommandGroup => {
                         let cmd = match opt.resolved {
@@ -404,6 +420,59 @@ impl<S: Schema> Registry<S> {
         Ok((handler, source, payload))
     }
 
+    fn pretty_handler_error<'a, I>(
+        err: handler::HandlerError<S, I>,
+        desc: &'static str,
+    ) -> Option<Message<'a, S::Component, id::Error>> {
+        match err {
+            handler::HandlerError::Parse(err) => match err {
+                visitor::Error::GuildRequired => {
+                    debug!(%err, "Responding with guild error");
+                    Message::rich(|b| {
+                        b.push_bold("ERROR:")
+                            .push(" This ")
+                            .push(desc)
+                            .push(" must be run inside a server.")
+                    })
+                    .ephemeral(true)
+                    .into()
+                },
+                visitor::Error::DmRequired => {
+                    debug!(%err, "Responding with non-guild error");
+                    Message::rich(|b| {
+                        b.push_bold("ERROR:")
+                            .push(" This ")
+                            .push(desc)
+                            .push(" cannot be run inside a server.")
+                    })
+                    .ephemeral(true)
+                    .into()
+                },
+                err => {
+                    error!(%err, "Unexpected error parsing {desc}");
+                    Message::rich(|b| {
+                        b.push("Unexpected error parsing ")
+                            .push(desc)
+                            .push(": ")
+                            .push_mono_safe(err)
+                    })
+                    .ephemeral(true)
+                    .into()
+                },
+            },
+            handler::HandlerError::User(err, _res) => {
+                debug!(err, "Handler for {desc} responded to user with error");
+                None
+            },
+            handler::HandlerError::Other(err) => {
+                error!(?err, "Unexpected error handling {desc}");
+                Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
+                    .ephemeral(true)
+                    .into()
+            },
+        }
+    }
+
     pub fn new(handlers: handler::Handlers<S>) -> Self {
         Self {
             handlers,
@@ -459,57 +528,17 @@ impl<S: Schema> Registry<S> {
             },
         };
 
-        let mut vis = visitor::Visitor::new(&aci);
+        let mut vis = visitor::CommandVisitor::new(&aci);
         let mut responder = BorrowedResponder::Init(responder);
         let res = handler
             .respond(ctx, &mut vis, BorrowingResponder::new(&mut responder))
             .await;
-        let res = vis.finish().map_err(Into::into).and(res);
+        let res = res.and_then(|_| vis.finish().map_err(Into::into));
 
-        let msg = match res {
-            Ok(_res) => None,
-            Err(handler::CommandError::Parse(err)) => match err {
-                visitor::Error::GuildRequired => {
-                    debug!(%err, "Responding with guild error");
-                    Message::rich(|b| {
-                        b.push_bold("ERROR:")
-                            .push(" This command must be run inside a server.")
-                    })
-                    .ephemeral(true)
-                    .into()
-                },
-                visitor::Error::DmRequired => {
-                    debug!(%err, "Responding with non-guild error");
-                    Message::rich(|b| {
-                        b.push_bold("ERROR:")
-                            .push(" This command cannot be run inside a server.")
-                    })
-                    .ephemeral(true)
-                    .into()
-                },
-                err => {
-                    error!(%err, "Unexpected error parsing command");
-                    Message::rich(|b| {
-                        b.push("Unexpected error parsing command: ")
-                            .push_mono_safe(err)
-                    })
-                    .ephemeral(true)
-                    .into()
-                },
-            },
-            Err(handler::CommandError::User(err, _res)) => {
-                debug!(err, "Command responded to user with error");
-                None
-            },
-            Err(handler::CommandError::Other(err)) => {
-                error!(?err, "Unexpected error handling command");
-                Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
-                    .ephemeral(true)
-                    .into()
-            },
-        };
-
-        if let Some(msg) = msg {
+        if let Some(msg) = res
+            .err()
+            .and_then(|e| Self::pretty_handler_error(e, "command"))
+        {
             responder.create_or_followup(msg).await?;
         }
 
@@ -549,26 +578,21 @@ impl<S: Schema> Registry<S> {
             },
         };
 
+        let mut vis = visitor::BasicVisitor::new(&mc);
         let mut responder = BorrowedResponder::Init(responder);
         let res = handler
-            .respond(ctx, payload, BorrowingResponder::new(&mut responder))
+            .respond(
+                ctx,
+                payload,
+                &mut vis,
+                BorrowingResponder::new(&mut responder),
+            )
             .await;
 
-        let msg = match res {
-            Ok(_res) => None,
-            Err(handler::RpcError::User(err, _res)) => {
-                debug!(err, "Component responded to user with error");
-                None
-            },
-            Err(handler::RpcError::Other(err)) => {
-                error!(?err, "Unexpected error handling component");
-                Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
-                    .ephemeral(true)
-                    .into()
-            },
-        };
-
-        if let Some(msg) = msg {
+        if let Some(msg) = res
+            .err()
+            .and_then(|e| Self::pretty_handler_error(e, "component"))
+        {
             responder.create_or_followup(msg).await?;
         }
 
@@ -597,7 +621,7 @@ impl<S: Schema> Registry<S> {
         let map = self.commands.read().await;
         let handler = Self::resolve_command(&map, ac.data.id).ok();
 
-        let mut vis = visitor::Visitor::new(&ac);
+        let mut vis = visitor::CommandVisitor::new(&ac);
         let choices = if let Some(handler) = handler {
             handler
                 .complete(ctx, &mut vis)
@@ -655,26 +679,21 @@ impl<S: Schema> Registry<S> {
             },
         };
 
+        let mut vis = visitor::BasicVisitor::new(&ms);
         let mut responder = BorrowedResponder::Init(responder);
         let res = handler
-            .respond(ctx, payload, BorrowingResponder::new(&mut responder))
+            .respond(
+                ctx,
+                payload,
+                &mut vis,
+                BorrowingResponder::new(&mut responder),
+            )
             .await;
 
-        let msg = match res {
-            Ok(_res) => None,
-            Err(handler::RpcError::User(err, _res)) => {
-                debug!(err, "Modal responded to user with error");
-                None
-            },
-            Err(handler::RpcError::Other(err)) => {
-                error!(?err, "Unexpected error handling modal");
-                Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
-                    .ephemeral(true)
-                    .into()
-            },
-        };
-
-        if let Some(msg) = msg {
+        if let Some(msg) = res
+            .err()
+            .and_then(|e| Self::pretty_handler_error(e, "modal"))
+        {
             responder.create_or_followup(msg).await?;
         }
 

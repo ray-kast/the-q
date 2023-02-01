@@ -2,11 +2,14 @@ mod explode;
 mod point;
 mod rpc;
 mod say;
+mod sound;
 mod test;
-mod vc;
 
 pub(self) mod prelude {
-    pub(super) use serenity::client::Context;
+    pub(super) use serenity::{
+        client::Context,
+        model::{id::GuildId, user::User},
+    };
 
     pub use super::{
         super::interaction::{
@@ -14,12 +17,13 @@ pub(self) mod prelude {
             completion::Completion,
             handler,
             handler::{
-                CommandError, CommandHandler as Handler, CompletionResult, CompletionVisitor,
-                IntoErr, ModalResponder, ModalResult, RpcError, RpcHandler, Visitor,
+                CommandHandler as Handler, CommandVisitor, CompletionResult, CompletionVisitor,
+                ComponentVisitor, HandlerError, IntoErr, ModalVisitor, RpcHandler,
             },
+            response,
             response::{
-                prelude::*, ButtonStyle, Embed, Message, MessageBody, MessageComponent,
-                MessageOpts, Modal, ModalSource, ResponseData, TextInput,
+                prelude::*, ButtonStyle, Embed, Message, MessageComponent, MessageOpts, Modal,
+                ModalSource, ResponseData, TextInput,
             },
             rpc, visitor,
         },
@@ -33,10 +37,16 @@ pub(self) mod prelude {
         },
     };
 
-    pub type CommandResponder<'a, 'b> = handler::CommandResponder<'a, 'b, Schema>;
+    pub type MessageBody<E = response::id::Error> = response::MessageBody<component::Component, E>;
+    pub type CommandError<'a> = handler::CommandError<'a, Schema>;
     pub type CommandResult<'a> = handler::CommandResult<'a, Schema>;
-    pub type ComponentResponder<'a, 'b> = handler::ComponentResponder<'a, 'b, Schema>;
+    pub type CommandResponder<'a, 'b> = handler::CommandResponder<'a, 'b, Schema>;
+    pub type ComponentError<'a> = handler::ComponentError<'a, Schema>;
     pub type ComponentResult<'a> = handler::ComponentResult<'a, Schema>;
+    pub type ComponentResponder<'a, 'b> = handler::ComponentResponder<'a, 'b, Schema>;
+    pub type ModalError<'a> = handler::ModalError<'a, Schema>;
+    pub type ModalResult<'a> = handler::ModalResult<'a, Schema>;
+    pub type ModalResponder<'a, 'b> = handler::ModalResponder<'a, 'b, Schema>;
 
     #[inline]
     pub fn id<T>(t: T) -> T { t }
@@ -64,7 +74,7 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
     let point = Arc::new(point::PointCommand::from(opts));
     let say = Arc::new(say::SayCommand::from(opts));
     let test = Arc::new(test::TestCommand::from(opts));
-    let vc = Arc::new(vc::VcCommand::from(opts));
+    let sound = Arc::new(sound::SoundCommand::from(opts));
 
     Handlers {
         commands: vec![
@@ -72,9 +82,9 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
             point,
             say,
             test,
-            Arc::clone(&vc) as Arc<dyn prelude::Handler<Schema>>,
+            Arc::clone(&sound) as Arc<dyn prelude::Handler<Schema>>,
         ],
-        components: vec![vc],
+        components: vec![sound],
         modals: vec![],
     }
 }

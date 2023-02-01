@@ -20,7 +20,7 @@ impl Handler<Schema> for PointCommand {
     async fn respond<'a>(
         &self,
         _: &Context,
-        visitor: &mut Visitor<'_>,
+        visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         let target = visitor.target().message()?;

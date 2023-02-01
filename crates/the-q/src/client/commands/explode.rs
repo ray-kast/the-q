@@ -20,7 +20,7 @@ impl Handler<Schema> for ExplodeCommand {
     async fn respond<'a>(
         &self,
         _: &Context,
-        visitor: &mut Visitor<'_>,
+        visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         let (target, _memb) = visitor.target().user()?;

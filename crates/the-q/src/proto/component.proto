@@ -5,8 +5,13 @@ package component;
 message Component {
   oneof payload {
     Role role = 1;
+    Soundboard soundboard = 2;
   }
 }
 
 message Role {
+}
+
+message Soundboard {
+  string file = 1;
 }

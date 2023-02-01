@@ -15,23 +15,23 @@ struct FileMap {
 }
 
 #[derive(Debug)]
-pub struct VcCommand {
+pub struct SoundCommand {
     name: String,
     files: Mutex<std::sync::Weak<FileMap>>,
     notify_handle: RwLock<Option<oneshot::Sender<()>>>,
 }
 
-impl From<&CommandOpts> for VcCommand {
+impl From<&CommandOpts> for SoundCommand {
     fn from(opts: &CommandOpts) -> Self {
         Self {
-            name: format!("{}play", opts.command_base),
+            name: format!("{}sound", opts.command_base),
             files: Mutex::default(),
             notify_handle: RwLock::default(),
         }
     }
 }
 
-impl VcCommand {
+impl SoundCommand {
     async fn files(&self) -> Result<Arc<FileMap>> {
         let mut guard = self.files.lock().await;
         if let Some(files) = guard.upgrade() {
@@ -129,14 +129,141 @@ impl VcCommand {
 
         Ok(files)
     }
+
+    async fn play_impl<'a, X, E: From<Error>, F: Future<Output = E>>(
+        &self,
+        ctx: &Context,
+        gid: GuildId,
+        user: &User,
+        path: &str,
+        extra: X,
+        fail: impl FnOnce(X, MessageBody, &'static str) -> F,
+    ) -> Result<X, E> {
+        const PATH_ERR: &str = "That isn't a valid file.";
+
+        let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;
+
+        let Some(voice_chan) = guild.voice_states.get(&user.id).and_then(|s| s.channel_id)
+        else {
+            return Err(fail(extra,MessageBody::plain("Please connect to a voice channel first."), "Error getting user voice state").await);
+        };
+
+        let sb = songbird::get(ctx)
+            .await
+            .context("Missing songbird context")?;
+
+        let files = self.files().await.context("Error getting sample list")?;
+        let files = files.files.read().await;
+        let path = files.get(path);
+
+        let Some(path) = path else {
+            return Err(fail(extra,MessageBody::plain(PATH_ERR), "File not in sample table").await);
+        };
+
+        if tokio::fs::metadata(&path).await.is_err() {
+            return Err(fail(extra, MessageBody::plain(PATH_ERR), "Stat error for file").await);
+        }
+
+        let source = songbird::ffmpeg(&path)
+            .await
+            .with_context(|| format!("Error opening sample {path:?}"))?;
+
+        let (call_lock, res) = sb.join(gid, voice_chan).await;
+
+        if let Err(err) = res {
+            warn!(?err, "Unable to join voice channel");
+            return Err(fail(
+                extra,
+                MessageBody::plain("Couldn't join that channel, sorry."),
+                "Error joining call (missing permissions?)",
+            )
+            .await);
+        }
+
+        let mut call = call_lock.lock().await;
+
+        call.play_source(source)
+            .add_event(
+                songbird::Event::Track(songbird::TrackEvent::End),
+                SongbirdHandler(Arc::clone(&call_lock)),
+            )
+            .context("Error hooking track stop")?;
+
+        Ok(extra)
+    }
+
+    #[inline]
+    async fn play<'a>(
+        &self,
+        ctx: &Context,
+        visitor: &mut CommandVisitor<'_>,
+        responder: CommandResponder<'_, 'a>,
+    ) -> CommandResult<'a> {
+        let (gid, _memb) = visitor.guild().required()?;
+        let user = visitor.user();
+        let path = visitor.visit_string("path")?.required()?;
+
+        let responder = responder
+            .defer_message(MessageOpts::default().ephemeral(true))
+            .await
+            .context("Error sending deferred message")?;
+
+        let responder = self
+            .play_impl(ctx, gid, user, path, responder, |r, m, e| async move {
+                match r.edit(m).await.context("Failed to send error message") {
+                    Ok(_) => r.into_err(e),
+                    Err(e) => CommandError::from(e),
+                }
+            })
+            .await?;
+
+        responder
+            .edit(MessageBody::plain(";)").build_row(|c| {
+                c.link_button(
+                    Url::parse("https://youtu.be/dQw4w9WgXcQ").unwrap(),
+                    "See More",
+                    false,
+                )
+            }))
+            .await
+            .context("Error updating deferred response")?;
+
+        Ok(responder.into())
+    }
+
+    async fn board<'a>(
+        &self,
+        _ctx: &Context,
+        _visitor: &mut CommandVisitor<'_>,
+        responder: CommandResponder<'_, 'a>,
+    ) -> CommandResult<'a> {
+        let responder = responder
+            .create_message(Message::plain(":3").build_row(|r| {
+                r.button(
+                    ComponentPayload::Soundboard(component::Soundboard {
+                        file: "BUDDY.flac".into(),
+                    }),
+                    ButtonStyle::Primary,
+                    "BUDDY",
+                    false,
+                )
+            }))
+            .await
+            .context("Error sending soundboard message")?;
+
+        Ok(responder.into())
+    }
 }
 
 #[async_trait]
-impl Handler<Schema> for VcCommand {
+impl Handler<Schema> for SoundCommand {
     fn register_global(&self) -> CommandInfo {
         CommandInfo::build_slash(&self.name, ";)", |a| {
-            a.string("path", "Path to the file to play", true, ..)
-                .autocomplete(true, ["path"])
+            a.build_subcmd("play", "Play a single file", |a| {
+                a.string("path", "Path to the file to play", true, ..)
+                    .autocomplete(true, ["path"])
+            })
+            .build_subcmd("board", "Create a soundboard message", id)
         })
         .unwrap()
     }
@@ -186,110 +313,54 @@ impl Handler<Schema> for VcCommand {
     async fn respond<'a>(
         &self,
         ctx: &Context,
-        visitor: &mut Visitor<'_>,
+        visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
-        const PATH_ERR: &str = "That isn't a valid file.";
-
-        let (gid, _memb) = visitor.guild().required()?;
-        let user = visitor.user();
-        let path = visitor.visit_string("path")?.required()?;
-
-        let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;
-
-        let Some(voice_chan) = guild.voice_states.get(&user.id).and_then(|s| s.channel_id)
-        else {
-            return Err(responder
-                .create_message(
-                    Message::plain("Please connect to a voice channel first.").ephemeral(true),
-                )
-                .await
-                .context("Error sending voice channel error")?
-                .into_err("Error getting user voice state"));
-        };
-
-        let responder = responder
-            .defer_message(MessageOpts::default().ephemeral(true))
-            .await
-            .context("Error sending deferred message")?;
-
-        let sb = songbird::get(ctx)
-            .await
-            .context("Missing songbird context")?;
-
-        let files = self.files().await.context("Error getting sample list")?;
-        let files = files.files.read().await;
-        let path = files.get(path);
-
-        let Some(path) = path else {
-            responder.edit(MessageBody::plain(PATH_ERR)).await.context("Error sending no path error")?;
-
-            return Err(responder.into_err("File not in sample table"));
-        };
-
-        if tokio::fs::metadata(&path).await.is_err() {
-            responder
-                .edit(MessageBody::plain(PATH_ERR))
-                .await
-                .context("Error sending bad stat error")?;
-
-            return Err(responder.into_err("Stat error for file"));
+        match *visitor.visit_subcmd()? {
+            ["play"] => self.play(ctx, visitor, responder).await,
+            ["board"] => self.board(ctx, visitor, responder).await,
+            [..] => unreachable!(), // TODO: visitor should handle this
         }
-
-        let source = songbird::ffmpeg(&path)
-            .await
-            .with_context(|| format!("Error opening sample {path:?}"))?;
-
-        let (call_lock, res) = sb.join(gid, voice_chan).await;
-
-        if let Err(err) = res {
-            warn!(?err, "Unable to join voice channel");
-            responder
-                .edit(MessageBody::plain("Couldn't join that channel, sorry."))
-                .await
-                .context("Error sending channel join error")?;
-
-            return Err(responder.into_err("Error joining call (missing permissions?)"));
-        }
-
-        let mut call = call_lock.lock().await;
-
-        call.play_source(source)
-            .add_event(
-                songbird::Event::Track(songbird::TrackEvent::End),
-                SongbirdHandler(Arc::clone(&call_lock)),
-            )
-            .context("Error hooking track stop")?;
-
-        responder
-            .edit(MessageBody::plain(";)").build_row(|c| {
-                c.link_button(
-                    Url::parse("https://youtu.be/dQw4w9WgXcQ").unwrap(),
-                    "See More",
-                    false,
-                )
-            }))
-            .await
-            .context("Error updating deferred response")?;
-
-        Ok(responder.into())
     }
 }
 
 #[async_trait]
-impl RpcHandler<Schema, ComponentKey> for VcCommand {
-    fn register_keys(&self) -> &'static [ComponentKey] {
-        // TODO
-        &[]
-    }
+impl RpcHandler<Schema, ComponentKey> for SoundCommand {
+    fn register_keys(&self) -> &'static [ComponentKey] { &[ComponentKey::Soundboard] }
 
     async fn respond<'a>(
         &self,
         ctx: &Context,
         payload: ComponentPayload,
+        visitor: &mut ComponentVisitor<'_>,
         responder: ComponentResponder<'_, 'a>,
     ) -> ComponentResult<'a> {
-        todo!()
+        match payload {
+            ComponentPayload::Soundboard(s) => {
+                let component::Soundboard { file } = s;
+                let (gid, _memb) = visitor.guild().required()?;
+                let user = visitor.user();
+
+                let responder = responder
+                    .defer_update(MessageOpts::default().ephemeral(true))
+                    .await
+                    .context("Failed to send deferred update")?;
+
+                let responder = self
+                    .play_impl(ctx, gid, user, &file, responder, |r, m, e| async move {
+                        match r.edit(m).await {
+                            Ok(_) => r.into_err(e),
+                            Err(e) => Error::from(e)
+                                .context("Failed to send error message")
+                                .into(),
+                        }
+                    })
+                    .await?;
+
+                Ok(responder.into())
+            },
+            _ => unreachable!(), // TODO: set up an error for this
+        }
     }
 }
 

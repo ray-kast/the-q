@@ -20,7 +20,7 @@ impl Handler<Schema> for TestCommand {
     async fn respond<'a>(
         &self,
         _: &Context,
-        _: &mut Visitor<'_>,
+        _: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         Ok(responder
