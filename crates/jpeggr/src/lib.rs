@@ -1,3 +1,5 @@
+//! A crate which repeatedly applies a JPEG effect to an image
+
 #![deny(
     clippy::disallowed_methods,
     clippy::suspicious,
@@ -6,7 +8,7 @@
     missing_debug_implementations,
     missing_copy_implementations
 )]
-#![warn(clippy::pedantic, missing_docs)]
+#![warn(clippy::pedantic, /* TODO: missing_docs */)]
 #![allow(clippy::module_name_repetitions)]
 
 use std::fmt::Display;

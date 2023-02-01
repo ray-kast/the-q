@@ -1,71 +1,60 @@
-use serenity::model::prelude::interaction::application_command::{
-    CommandDataOption, CommandDataOptionValue,
-};
+use std::{path::PathBuf, io::Cursor};
+
+use serenity::model::prelude::AttachmentType;
+
+use crate::client::interaction::handler::CommandHandler;
 
 use super::prelude::*;
 
 #[derive(Debug)]
-pub struct JpegCommand;
+pub struct JpegCommand {
+    name: String,
+}
+
+impl From<&CommandOpts> for JpegCommand {
+    fn from(opts: &CommandOpts) -> Self {
+        Self {
+            name: format!("{}jpeg", opts.command_base),
+        }
+    }
+}
 
 #[async_trait]
-impl CommandHandler for JpegCommand {
-    fn register(&self, opts: &CommandOpts, cmd: &mut CreateApplicationCommand) -> Option<GuildId> {
-        cmd.name("jpeg")
-            .description("Applies a JPEG effect to an image.")
-            .kind(CommandType::User)
-            .create_option(|option| {
-                option
-                    .name("image")
-                    .description("The input image")
-                    .kind(CommandOptionType::Attachment)
-                    .required(true)
-            })
-            .create_option(|option| {
-                option
-                    .name("quality")
-                    .description("The compression quality")
-                    .kind(CommandOptionType::Integer)
-                    .min_int_value(1)
-                    .max_int_value(100)
-                    .required(false)
-            });
-        None
+impl CommandHandler<Schema> for JpegCommand {
+    fn register_global(&self) -> CommandInfo {
+        CommandInfo::build_slash(&self.name, "Applies a JPEG effect to an image.", |a| a
+            .attachment("image", "The input image", true)
+            .int("quality", "The compression quality", false, 1..=100)
+        ).unwrap()
     }
 
-    async fn respond(&self, ctx: &Context, cmd: ApplicationCommandInteraction) -> Result {
-        let mut quality = 1;
-        let mut attachment = None;
-        for option in cmd.data.options.iter() {
-            match (option.name.as_str(), option.resolved) {
-                ("quality", Some(CommandDataOptionValue::Integer(value))) => quality = value,
-                ("image", Some(CommandDataOptionValue::Attachment(value))) => {
-                    attachment = Some(value)
-                },
-            }
-        }
-
-        let Ok(quality @ 1..=100) = u8::try_from(quality) else {
-            todo!();
-        };
-
-        let Some(attachment) = attachment else {
-            todo!();
-        };
-
-        let image_data = attachment.download().await?;
+    async fn respond<'a>(
+        &self,
+        _ctx: &Context,
+        visitor: &mut CommandVisitor<'_>,
+        responder: CommandResponder<'_, 'a>,
+    ) -> CommandResult<'a> {
+        let attachment = visitor.visit_attachment("image")?.required()?;
+        let quality = visitor.visit_i64("quality")?.optional().unwrap_or(1) as u8; // validated to be in range 1..=100
+        
+        let image_data = attachment.download().await.context("Error downloading attachment from discord")?;
 
         use jpeggr::image::{self, ImageFormat};
-        let Some(format) = None
-            .or_else(|| attachment.content_type.and_then(ImageFormat::from_mime_type))
-            .or_else(|| ImageFormat::from_path(attachment.filename).ok())
+        let format = None
+            .or_else(|| attachment.content_type.as_ref().and_then(ImageFormat::from_mime_type))
+            .or_else(|| ImageFormat::from_path(&attachment.filename).ok())
             .or_else(|| image::guess_format(&image_data).ok())
-        else {
-            todo!();
-        };
+            .context("Error determining format of attached image")?;
 
-        let image = image::load_from_memory_with_format(&image_data, format)?; // TODO: error handling?
-        let jpegged_image = jpeggr::jpeg_dynamic_image(image, 1, quality)?;
+        let image = image::load_from_memory_with_format(&image_data, format).context("Error reading image data")?;
+        let jpegged_image = jpeggr::jpeg_dynamic_image(image, 1, quality).context("Error applying JPEG effect to image")?;
 
-        todo!();
+        let mut bytes = Vec::new();
+        jpegged_image.write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Jpeg(quality)).context("Error encoding image")?;
+
+        let attachment = AttachmentType::Bytes { data: bytes.into(), filename: PathBuf::from(&attachment.filename).with_extension("jpg").display().to_string() };
+        let responder = responder.create_message(Message::plain("").attach([attachment])).await.context("Error sending jpegged image")?;
+        
+        Ok(responder.into())
     }
 }

@@ -82,6 +82,7 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
     Handlers {
         commands: vec![
             explode,
+            jpeg,
             point,
             say,
             test,

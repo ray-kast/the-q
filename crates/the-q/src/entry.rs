@@ -1,4 +1,3 @@
-use futures_util::stream::FuturesUnordered;
 use tracing_subscriber::{layer::Layered, EnvFilter};
 
 use crate::prelude::*;
@@ -190,6 +189,7 @@ async fn run(opts: Opts) -> Result {
 
     #[cfg(unix)]
     {
+        use futures_util::stream::FuturesUnordered;
         use tokio::signal::unix::SignalKind;
 
         let mut stream = [
@@ -224,7 +224,7 @@ async fn run(opts: Opts) -> Result {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str("^C") }
         }
 
-        signal = tokio::signal::ctrl_c().map_ok(|()| Some(CtrlC));
+        signal = tokio::signal::ctrl_c().map_ok(|()| Some(CtrlC)).map_err(Into::into);
     }
 
     let ret = tokio::select! {
