@@ -2,7 +2,7 @@ use std::{collections::BinaryHeap, fmt::Write};
 
 use ordered_float::OrderedFloat;
 use serenity::{
-    client::Context,
+    client::{Cache, Context},
     model::{
         application::{
             command::{Command, CommandOptionType, CommandType},
@@ -17,7 +17,8 @@ use serenity::{
                 modal::ModalSubmitInteraction,
             },
         },
-        id::{CommandId, GuildId, InteractionId},
+        channel::Channel,
+        id::{ChannelId, CommandId, GuildId, InteractionId},
         user::User,
     },
 };
@@ -58,7 +59,7 @@ fn visit_opts(opts: &[CommandDataOption]) -> impl Iterator<Item = &CommandDataOp
     })
 }
 
-fn command_name(w: &mut impl Write, data: &CommandData) -> fmt::Result {
+fn command_name(w: &mut impl Write, cache: &Cache, data: &CommandData) -> fmt::Result {
     match data.kind {
         CommandType::ChatInput => {
             write!(w, "/{}", data.name)?;
@@ -108,8 +109,35 @@ fn command_name(w: &mut impl Write, data: &CommandData) -> fmt::Result {
             }
             Ok(())
         },
-        CommandType::User => write!(w, "user::{}", data.name),
-        CommandType::Message => write!(w, "message::{}", data.name),
+        CommandType::User => {
+            write!(w, "user::{} ", data.name)?;
+            if data.resolved.users.len() == 1 {
+                let user = data
+                    .resolved
+                    .users
+                    .values()
+                    .next()
+                    .unwrap_or_else(|| unreachable!());
+                write_user(w, user)
+            } else {
+                write!(w, "<target unknown>")
+            }
+        },
+        CommandType::Message => {
+            write!(w, "message::{} ", data.name)?;
+            if data.resolved.messages.len() == 1 {
+                let msg = data
+                    .resolved
+                    .messages
+                    .values()
+                    .next()
+                    .unwrap_or_else(|| unreachable!());
+                write!(w, "/{} in ", msg.id)?;
+                write_channel(w, cache, msg.channel_id)
+            } else {
+                write!(w, "<target unknown>")
+            }
+        },
         _ => write!(w, "???"),
     }
 }
@@ -118,14 +146,25 @@ fn command_id(w: &mut impl Write, data: &CommandData, id: InteractionId) -> fmt:
     write!(w, "{id}:{}", data.id)
 }
 
-fn command_issuer(w: &mut impl Write, user: &User, guild: &Option<GuildId>) -> fmt::Result {
+fn write_issuer(
+    w: &mut impl Write,
+    cache: &Cache,
+    user: &User,
+    guild: Option<GuildId>,
+    chan: ChannelId,
+) -> fmt::Result {
     write_user(w, user)?;
-    write!(w, " {}", guild_src(guild))
-}
-
-#[inline]
-fn guild_src(id: &Option<GuildId>) -> &'static str {
-    if id.is_some() { "in guild" } else { "in DM" }
+    if let Some(gid) = guild {
+        if let Some(guild) = cache.guild(gid) {
+            write!(w, " in guild {} ", guild.name)
+        } else {
+            write!(w, " in unknown guild {gid} ")
+        }?;
+        write_channel(w, cache, chan)
+    } else {
+        write!(w, " in DM ")?;
+        write_channel(w, cache, chan)
+    }
 }
 
 #[inline]
@@ -134,8 +173,25 @@ fn write_user(w: &mut impl Write, u: &User) -> fmt::Result {
 }
 
 #[inline]
-fn aci_name(aci: &ApplicationCommandInteraction) -> String {
-    write_string(|s| command_name(s, &aci.data))
+fn write_channel(w: &mut impl Write, cache: &Cache, chan: ChannelId) -> fmt::Result {
+    if let Some(chan) = cache.channel(chan) {
+        match chan {
+            Channel::Guild(c) => write!(w, "#{}", c.name),
+            Channel::Private(d) => {
+                write!(w, "to ")?;
+                write_user(w, &d.recipient)
+            },
+            Channel::Category(c) => write!(w, "[#{}]", c.name),
+            _ => write!(w, "#???"),
+        }
+    } else {
+        write!(w, "<#{chan}>")
+    }
+}
+
+#[inline]
+fn aci_name(cache: &Cache, aci: &ApplicationCommandInteraction) -> String {
+    write_string(|s| command_name(s, cache, &aci.data))
 }
 
 #[inline]
@@ -144,53 +200,66 @@ fn aci_id(aci: &ApplicationCommandInteraction) -> String {
 }
 
 #[inline]
-fn aci_issuer(aci: &ApplicationCommandInteraction) -> String {
-    write_string(|s| command_issuer(s, &aci.user, &aci.guild_id))
+fn aci_issuer(cache: &Cache, aci: &ApplicationCommandInteraction) -> String {
+    write_string(|s| write_issuer(s, cache, &aci.user, aci.guild_id, aci.channel_id))
 }
 
 #[inline]
-fn mc_name(mc: &MessageComponentInteraction) -> String {
-    let ty = match mc.data.component_type {
-        ComponentType::ActionRow => "action_row",
-        ComponentType::Button => "button",
-        ComponentType::SelectMenu => "combo",
-        ComponentType::InputText => "textbox",
-        _ => "???",
-    };
+fn write_custom_id<T: prost::Message + Default>(w: &mut impl Write, id: &str) -> fmt::Result {
+    let parsed = unsafe { id::Id::from_inner(id.into()) };
+    let parsed = id::read::<T>(&parsed).ok();
 
-    format!("{ty}::{}", mc.data.custom_id)
+    if let Some(parsed) = parsed {
+        write!(w, "{parsed:?}")
+    } else {
+        write!(w, "{id:?}")
+    }
+}
+
+#[inline]
+fn mc_name<S: Schema>(mc: &MessageComponentInteraction) -> String {
+    write_string(|s| {
+        let ty = match mc.data.component_type {
+            ComponentType::ActionRow => "action_row",
+            ComponentType::Button => "button",
+            ComponentType::SelectMenu => "combo",
+            ComponentType::InputText => "textbox",
+            _ => "???",
+        };
+
+        write!(s, "{ty}::")?;
+        write_custom_id::<S::Component>(s, &mc.data.custom_id)
+    })
 }
 
 #[inline]
 fn mc_id(mc: &MessageComponentInteraction) -> String { format!("{}:{}", mc.id, mc.message.id) }
 
 #[inline]
-fn mc_issuer(mc: &MessageComponentInteraction) -> String {
-    write_string(|s| {
-        write_user(s, &mc.user)?;
-        write!(s, " {} channel {}", guild_src(&mc.guild_id), mc.channel_id)
-    })
+fn mc_issuer(cache: &Cache, mc: &MessageComponentInteraction) -> String {
+    write_string(|s| write_issuer(s, cache, &mc.user, mc.guild_id, mc.channel_id))
 }
 
-fn ac_name(ac: &AutocompleteInteraction) -> String { write_string(|s| command_name(s, &ac.data)) }
+fn ac_name(cache: &Cache, ac: &AutocompleteInteraction) -> String {
+    write_string(|s| command_name(s, cache, &ac.data))
+}
 
 fn ac_id(ac: &AutocompleteInteraction) -> String {
     write_string(|s| command_id(s, &ac.data, ac.id))
 }
 
-fn ac_issuer(ac: &AutocompleteInteraction) -> String {
-    write_string(|s| command_issuer(s, &ac.user, &ac.guild_id))
+fn ac_issuer(cache: &Cache, ac: &AutocompleteInteraction) -> String {
+    write_string(|s| write_issuer(s, cache, &ac.user, ac.guild_id, ac.channel_id))
 }
 
-fn ms_name(ms: &ModalSubmitInteraction) -> String { ms.data.custom_id.clone() }
+fn ms_name<S: Schema>(ms: &ModalSubmitInteraction) -> String {
+    write_string(|s| write_custom_id::<S::Modal>(s, &ms.data.custom_id))
+}
 
 fn ms_id(ms: &ModalSubmitInteraction) -> String { ms.id.to_string() }
 
-fn ms_issuer(ms: &ModalSubmitInteraction) -> String {
-    write_string(|s| {
-        write_user(s, &ms.user)?;
-        write!(s, " {}", guild_src(&ms.guild_id))
-    })
+fn ms_issuer(cache: &Cache, ms: &ModalSubmitInteraction) -> String {
+    write_string(|s| write_issuer(s, cache, &ms.user, ms.guild_id, ms.channel_id))
 }
 
 type CommandHandler<S> = Arc<dyn handler::CommandHandler<S>>;
@@ -497,22 +566,14 @@ impl<S: Schema> Registry<S> {
         Ok(())
     }
 
-    #[instrument(
-        level = "error",
-        name = "handle_command",
-        err,
-        skip(self, ctx, aci),
-        fields(
-            // TODO: don't do stringification if logs don't happen
-            name = aci_name(&aci),
-            id = aci_id(&aci),
-            issuer = aci_issuer(&aci),
-        ),
-    )]
+    #[instrument(level = "error", name = "handle_command", err, skip(self, ctx, aci))]
     async fn try_handle_command(
         &self,
         ctx: &Context,
         aci: ApplicationCommandInteraction,
+        name: String,
+        id: String,
+        issuer: String,
     ) -> Result<(), ResponseError> {
         info!("Handling application command");
 
@@ -545,22 +606,14 @@ impl<S: Schema> Registry<S> {
         Ok(())
     }
 
-    #[instrument(
-        level = "error",
-        name = "handle_component",
-        err,
-        skip(self, ctx, mc),
-        fields(
-            // TODO: don't do stringification if logs don't happen
-            name = mc_name(&mc),
-            id = mc_id(&mc),
-            issuer = mc_issuer(&mc),
-        ),
-    )]
+    #[instrument(level = "error", name = "handle_component", err, skip(self, ctx, mc))]
     async fn try_handle_component(
         &self,
         ctx: &Context,
         mc: MessageComponentInteraction,
+        name: String,
+        id: String,
+        issuer: String,
     ) -> Result<(), ResponseError> {
         info!("Handling message component");
 
@@ -603,18 +656,15 @@ impl<S: Schema> Registry<S> {
         level = "error",
         name = "handle_autocomplete",
         err,
-        skip(self, ctx, ac),
-        fields(
-            // TODO: don't do stringification if logs don't happen
-            name = ac_name(&ac),
-            id = ac_id(&ac),
-            issuer = ac_issuer(&ac),
-        ),
+        skip(self, ctx, ac)
     )]
     async fn try_handle_autocomplete(
         &self,
         ctx: &Context,
         ac: AutocompleteInteraction,
+        name: String,
+        id: String,
+        issuer: String,
     ) -> Result<(), serenity::Error> {
         trace!("Handling command autocomplete");
 
@@ -646,22 +696,14 @@ impl<S: Schema> Registry<S> {
         .await
     }
 
-    #[instrument(
-        level = "error",
-        name = "handle_modal",
-        err,
-        skip(self, ctx, ms),
-        fields(
-            // TODO: don't do stringification if logs don't happen
-            name = ms_name(&ms),
-            id = ms_id(&ms),
-            issuer = ms_issuer(&ms),
-        ),
-    )]
+    #[instrument(level = "error", name = "handle_modal", err, skip(self, ctx, ms))]
     async fn try_handle_modal(
         &self,
         ctx: &Context,
         ms: ModalSubmitInteraction,
+        name: String,
+        id: String,
+        issuer: String,
     ) -> Result<(), ResponseError> {
         info!("Handling modal submit");
 
@@ -702,18 +744,28 @@ impl<S: Schema> Registry<S> {
 
     #[inline]
     pub async fn handle_command(&self, ctx: &Context, aci: ApplicationCommandInteraction) {
-        self.try_handle_command(ctx, aci).await.ok();
+        let cache = &ctx.cache;
+        let (name, id, iss) = (aci_name(cache, &aci), aci_id(&aci), aci_issuer(cache, &aci));
+        self.try_handle_command(ctx, aci, name, id, iss).await.ok();
     }
 
     pub async fn handle_component(&self, ctx: &Context, mc: MessageComponentInteraction) {
-        self.try_handle_component(ctx, mc).await.ok();
+        let cache = &ctx.cache;
+        let (name, id, iss) = (mc_name::<S>(&mc), mc_id(&mc), mc_issuer(cache, &mc));
+        self.try_handle_component(ctx, mc, name, id, iss).await.ok();
     }
 
     pub async fn handle_autocomplete(&self, ctx: &Context, ac: AutocompleteInteraction) {
-        self.try_handle_autocomplete(ctx, ac).await.ok();
+        let cache = &ctx.cache;
+        let (name, id, iss) = (ac_name(cache, &ac), ac_id(&ac), ac_issuer(cache, &ac));
+        self.try_handle_autocomplete(ctx, ac, name, id, iss)
+            .await
+            .ok();
     }
 
     pub async fn handle_modal(&self, ctx: &Context, ms: ModalSubmitInteraction) {
-        self.try_handle_modal(ctx, ms).await.ok();
+        let cache = &ctx.cache;
+        let (name, id, iss) = (ms_name::<S>(&ms), ms_id(&ms), ms_issuer(cache, &ms));
+        self.try_handle_modal(ctx, ms, name, id, iss).await.ok();
     }
 }
