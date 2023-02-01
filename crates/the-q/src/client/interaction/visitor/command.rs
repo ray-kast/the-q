@@ -76,26 +76,6 @@ impl<'a, I> std::ops::DerefMut for CommandVisitor<'a, I> {
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.base }
 }
 
-macro_rules! ensure_opt_type {
-    ($name:expr, $opt:expr, $ty:pat, $desc:literal) => {
-        match $opt.kind {
-            $ty => (),
-            t => return Err(Error::BadOptionType($name, $desc, t)),
-        }
-    };
-}
-
-macro_rules! resolve_opt {
-    ($name:expr, $opt:expr, $ty:pat => $val:expr, $desc:literal) => {{
-        let val = match &$opt.resolved {
-            Some($ty) => Ok(Some($val)),
-            Some(v) => Err(Error::BadOptionValueType($name.into(), $desc, v.describe())),
-            None => Ok(None),
-        };
-        val.map(|v| OptionVisitor($name, v))
-    }};
-}
-
 macro_rules! visit_basic {
     () => {};
 
@@ -106,9 +86,19 @@ macro_rules! visit_basic {
     ) => {
         $vis fn $name(&mut self, name: &'a str) -> Result<OptionVisitor<$ty>> {
             let opt = self.visit_opt(name)?;
-            // TODO: is this necessary?
-            ensure_opt_type!(name.into(), opt, CommandOptionType::$var, $desc);
-            resolve_opt!(name, opt, CommandDataOptionValue::$var($($val),*) => $expr, $desc)
+            if let Some(opt) = opt {
+                match (opt.kind) {
+                    CommandOptionType::$var => (),
+                    t => return Err(Error::BadOptionType(name.into(), $desc, t)),
+                }
+                match &opt.resolved {
+                    Some(CommandDataOptionValue::$var($($val),*)) => Ok(Some($expr)),
+                    Some(v) => Err(Error::BadOptionValueType(name.into(), $desc, v.describe())),
+                    None => Ok(None),
+                }.map(|v| OptionVisitor(name, v))
+            } else {
+                Ok(OptionVisitor(name, None))
+            }
         }
 
         visit_basic! { $($tt)* }
@@ -189,7 +179,7 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
     }
 
     #[inline]
-    fn visit_opt(&mut self, name: &'a str) -> Result<&'a CommandDataOption> {
+    fn visit_opt(&mut self, name: &'a str) -> Result<Option<&'a CommandDataOption>> {
         let (subcmd, opts) = self.visit_opts()?;
 
         if let Some(subcmd) = subcmd {
@@ -198,8 +188,7 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
             ));
         }
 
-        opts.remove(&name)
-            .ok_or_else(|| Error::MissingOption(name.into()))
+        Ok(opts.remove(&name))
     }
 
     pub fn visit_subcmd(&mut self) -> Result<Subcommand<'a>> {
@@ -251,10 +240,7 @@ impl<'a, T> OptionVisitor<'a, T> {
 
     pub fn optional(self) -> Option<T> { self.1 }
 
-    pub fn required(self) -> Result<T> {
-        self.1
-            .ok_or_else(|| Error::MissingOptionValue(self.0.into()))
-    }
+    pub fn required(self) -> Result<T> { self.1.ok_or_else(|| Error::MissingOption(self.0.into())) }
 }
 
 impl<'a, T, E> OptionVisitor<'a, std::result::Result<T, E>> {
@@ -282,7 +268,7 @@ impl<'a> TargetVisitor<'a> {
 
     fn pull_single<K, V>(map: &'a HashMap<K, V>, name: &'static str) -> Result<(&'a K, &'a V)> {
         Self::pull_single_opt(map, name)
-            .and_then(|o| o.ok_or_else(|| Error::MissingOptionValue(name.into())))
+            .and_then(|o| o.ok_or_else(|| Error::MissingOption(name.into())))
     }
 
     pub fn user(self) -> Result<(&'a User, Option<&'a PartialMember>)> {

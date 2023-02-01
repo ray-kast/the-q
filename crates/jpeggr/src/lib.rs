@@ -8,8 +8,9 @@
     missing_debug_implementations,
     missing_copy_implementations
 )]
-#![warn(clippy::pedantic, /* TODO: missing_docs */)]
+#![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(missing_docs)] // TODO
 
 use std::fmt::Display;
 
@@ -38,6 +39,7 @@ pub fn jpeg_pixels(
         encoder.encode(&decoded_data, width, height, color_type)?;
         decoded_data.clear();
         let decoder = JpegDecoder::new(&*encoded_data)?;
+        #[allow(clippy::cast_possible_truncation)]
         decoded_data.resize_with(decoder.total_bytes() as usize, Default::default);
         decoder.read_image(&mut decoded_data)?;
     }
@@ -95,7 +97,7 @@ pub fn jpeg_dynamic_image(
     iterations: usize,
     quality: u8,
 ) -> Result<DynamicImage, Error> {
-    use DynamicImage::*;
+    use DynamicImage::{ImageLuma8, ImageLumaA8, ImageRgb8, ImageRgba8};
     Ok(match image {
         ImageLuma8(image) => ImageLuma8(jpeg_buffer(image, iterations, quality)?),
         ImageLumaA8(image) => ImageLuma8(jpeg_buffer(image.convert(), iterations, quality)?),

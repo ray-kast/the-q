@@ -224,7 +224,9 @@ async fn run(opts: Opts) -> Result {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str("^C") }
         }
 
-        signal = tokio::signal::ctrl_c().map_ok(|()| Some(CtrlC)).map_err(Into::into);
+        signal = tokio::signal::ctrl_c()
+            .map_ok(|()| Some(CtrlC))
+            .map_err(Into::into);
     }
 
     let ret = tokio::select! {
