@@ -6,22 +6,54 @@ use serenity::model::prelude::AttachmentType;
 use super::prelude::*;
 use crate::client::interaction::handler::CommandHandler;
 
-async fn jpeg(attachment: &Attachment, quality: Option<i64>) -> Result<Vec<u8>> {
+enum JpegInput<'a> {
+    Attachment(&'a Attachment),
+    Url(Url),
+}
+
+async fn jpeg(input: JpegInput<'_>, quality: Option<i64>) -> Result<Vec<u8>> {
     let quality @ 0..=100 = quality.unwrap_or(1) else { unreachable!() };
     let quality = u8::try_from(quality).unwrap_or_else(|_| unreachable!());
-    let image_data = attachment
-        .download()
-        .await
-        .context("Error downloading attachment from discord")?;
-    let content_type = attachment.content_type.clone();
-    let filename = attachment.filename.clone();
+
+    let image_data;
+    let content_type;
+    let filename;
+    match input {
+        JpegInput::Attachment(a) => {
+            image_data = a
+                .download()
+                .await
+                .context("Error downloading attachment from discord")?;
+            content_type = a.content_type.clone();
+            filename = Some(a.filename.clone());
+        },
+        JpegInput::Url(u) => {
+            let res = http_client(None)
+                .get(u)
+                .send()
+                .await
+                .context("Error fetching input URL")?;
+            content_type = res
+                .headers()
+                .get("Content-Type")
+                .and_then(|h| h.to_str().ok())
+                .map(ToOwned::to_owned);
+            image_data = res
+                .bytes()
+                .await
+                .context("Error downloading image response")?
+                .to_vec();
+            filename = None;
+        },
+    }
 
     tokio::task::spawn_blocking(move || {
-        let format = None
-            .or_else(|| content_type.as_ref().and_then(ImageFormat::from_mime_type))
-            .or_else(|| ImageFormat::from_path(&filename).ok())
+        let format = content_type
+            .as_ref()
+            .and_then(ImageFormat::from_mime_type)
+            .or_else(|| filename.and_then(|f| ImageFormat::from_path(f).ok()))
             .or_else(|| image::guess_format(&image_data).ok())
-            .context("Error determining format of attached image")?;
+            .context("Error determining format of input image")?;
 
         let image = image::load_from_memory_with_format(&image_data, format)
             .context("Error reading image data")?;
@@ -83,7 +115,7 @@ impl CommandHandler<Schema> for JpegCommand {
             .await
             .context("Error sending deferred message")?;
 
-        let bytes = jpeg(attachment, quality).await?;
+        let bytes = jpeg(JpegInput::Attachment(attachment), quality).await?;
 
         let attachment = AttachmentType::Bytes {
             data: bytes.into(),
@@ -126,11 +158,28 @@ impl CommandHandler<Schema> for JpegMessageCommand {
     ) -> CommandResult<'a> {
         let message = visitor.target().message()?;
 
-        let [ref attachment] = *message.attachments else {
+        let input = 'found: {
+            if let [ref attachment] = *message.attachments {
+                break 'found Some((JpegInput::Attachment(attachment), &*attachment.filename));
+            }
+
+            // TODO: when let-chains
+            if let [ref embed] = *message.embeds {
+                if let Some(ref image) = embed.image {
+                    if let Ok(url) = image.url.parse() {
+                        break 'found Some((JpegInput::Url(url), "output.jpg"));
+                    }
+                }
+            }
+
+            None
+        };
+
+        let Some((input, filename)) = input else {
             return Err(responder
                 .create_message(Message::plain(
                     "Target message must have exactly one attachment!",
-                ))
+                ).ephemeral(true))
                 .await
                 .context("Error sending attachment count error")?
                 .into_err("Target message had multiple or no attachments"));
@@ -141,11 +190,11 @@ impl CommandHandler<Schema> for JpegMessageCommand {
             .await
             .context("Error sending deferred message")?;
 
-        let bytes = jpeg(attachment, None).await?;
+        let bytes = jpeg(input, None).await?;
 
         let attachment = AttachmentType::Bytes {
             data: bytes.into(),
-            filename: PathBuf::from(&attachment.filename)
+            filename: PathBuf::from(filename)
                 .with_extension("jpg")
                 .display()
                 .to_string(),

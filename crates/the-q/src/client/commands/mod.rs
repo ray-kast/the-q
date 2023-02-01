@@ -52,6 +52,18 @@ pub(self) mod prelude {
 
     #[inline]
     pub fn id<T>(t: T) -> T { t }
+
+    pub fn http_client(timeout: Option<std::time::Duration>) -> reqwest::Client {
+        let timeout = timeout.unwrap_or(std::time::Duration::from_secs(10));
+        let client = reqwest::Client::builder()
+            .user_agent("the-q")
+            .gzip(true)
+            .brotli(true)
+            .deflate(true)
+            .timeout(timeout)
+            .connect_timeout(timeout);
+        client.build().unwrap()
+    }
 }
 
 pub use rpc::*;
