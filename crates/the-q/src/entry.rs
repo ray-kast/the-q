@@ -79,7 +79,7 @@ pub fn main() {
         Err(dotenv::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e).with_context(|| format!("Error loading env from {p:?}")),
     })
-    .unwrap_or_else(|e| init_error!("Loading .env files failed: {e:?}"));
+    .unwrap_or_else(|e| init_error!("Error loading .env files: {e:?}"));
 
     let opts: Opts = clap::Parser::parse();
     mem::drop(span);

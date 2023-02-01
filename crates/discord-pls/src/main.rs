@@ -473,7 +473,7 @@ async fn try_pair(
         })
         .await
     }
-    .map_err(|e| tracing::warn!(%e, "Failed to send followup"))
+    .map_err(|err| tracing::warn!(%err, "Sending followup failed"))
     .ok();
 }
 
@@ -536,7 +536,7 @@ async fn try_cmdreg(
                 .interaction_response_data(|d| d.content(mb))
         })
         .await
-        .map_err(|e| tracing::warn!(%e, "Failed to send created command"))
+        .map_err(|err| tracing::warn!(%err, "Error sending created command"))
         .ok();
     }
 
@@ -587,7 +587,7 @@ async fn try_cmdreg(
         })
         .await
     }
-    .map_err(|e| tracing::warn!(%e, "Failed to send followup"))
+    .map_err(|err| tracing::warn!(%err, "Sending followup failed"))
     .ok();
 }
 
@@ -778,7 +778,7 @@ impl EventHandler for Handler {
 
                     create_followup(&int, &ctx.http, |m| m.content(mb))
                         .await
-                        .map_err(|e| tracing::warn!(%e, "Failed to send followup"))
+                        .map_err(|err| tracing::warn!(%err, "Error sending followup"))
                         .ok();
                 }
                 .instrument(span)

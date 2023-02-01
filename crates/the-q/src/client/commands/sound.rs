@@ -229,7 +229,7 @@ impl SoundCommand {
 
         let responder = self
             .play_impl(ctx, gid, user, path, responder, |r, m, e| async move {
-                match r.edit(m).await.context("Failed to send error message") {
+                match r.edit(m).await.context("Error sending error message") {
                     Ok(_) => r.into_err(e),
                     Err(e) => CommandError::from(e),
                 }
@@ -368,15 +368,13 @@ impl RpcHandler<Schema, ComponentKey> for SoundCommand {
                 let responder = responder
                     .defer_update(MessageOpts::default().ephemeral(true))
                     .await
-                    .context("Failed to send deferred update")?;
+                    .context("Error sending deferred update")?;
 
                 let responder = self
                     .play_impl(ctx, gid, user, &file, responder, |r, m, e| async move {
                         match r.create_followup(Message::from(m).ephemeral(true)).await {
                             Ok(_) => r.into_err(e),
-                            Err(e) => Error::from(e)
-                                .context("Failed to send error message")
-                                .into(),
+                            Err(e) => Error::from(e).context("Error sending error message").into(),
                         }
                     })
                     .await?;

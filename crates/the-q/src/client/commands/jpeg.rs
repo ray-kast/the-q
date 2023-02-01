@@ -44,6 +44,11 @@ impl CommandHandler<Schema> for JpegCommand {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let quality = visitor.visit_i64("quality")?.optional().unwrap_or(1) as u8;
 
+        let responder = responder
+            .defer_message(MessageOpts::default())
+            .await
+            .context("Error sending deferred message")?;
+
         let image_data = attachment
             .download()
             .await
@@ -83,8 +88,8 @@ impl CommandHandler<Schema> for JpegCommand {
                 .display()
                 .to_string(),
         };
-        let responder = responder
-            .create_message(Message::plain("").attach([attachment]))
+        responder
+            .create_followup(Message::plain("").attach([attachment]))
             .await
             .context("Error sending jpegged image")?;
 
