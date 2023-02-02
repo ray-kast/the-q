@@ -170,6 +170,28 @@ impl CommandHandler<Schema> for JpegMessageCommand {
                         break 'found Some((JpegInput::Url(url), "output.jpg"));
                     }
                 }
+
+                if let Some(ref thumbnail) = embed.thumbnail {
+                    if let Ok(url) = thumbnail.url.parse() {
+                        break 'found Some((JpegInput::Url(url), "thumb.jpg"));
+                    }
+                }
+
+                if let Some(ref author) = embed.author {
+                    if let Some(ref icon) = author.icon_url {
+                        if let Ok(url) = icon.parse() {
+                            break 'found Some((JpegInput::Url(url), "icon.jpg"));
+                        }
+                    }
+                }
+
+                if let Some(ref url) = embed.url {
+                    if let Ok(url) = url.parse::<Url>() {
+                        if ImageFormat::from_path(url.path()).is_ok() {
+                            break 'found Some((JpegInput::Url(url), "embed.jpg"));
+                        }
+                    }
+                }
             }
 
             None
