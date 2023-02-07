@@ -1,11 +1,14 @@
-use std::io::prelude::*;
+//! Support code for encoding and decoding compact custom IDs
 
-use crate::prelude::*;
+use std::{borrow::Cow, convert::Infallible, fmt, io::prelude::*};
 
+/// An error occurring from transcoding a custom ID
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// An I/O error
     #[error("IO error")]
     Io(#[from] std::io::Error),
+    /// A protobuf error originating from [`prost`]
     #[error("Error decoding message payload")]
     Protobuf(#[from] prost::DecodeError),
 }
@@ -14,6 +17,8 @@ impl From<Infallible> for Error {
     fn from(value: Infallible) -> Self { match value {} }
 }
 
+/// An encoded custom ID, using a protobuf payload encoded with [`base64k`] and
+/// compressed
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id<'a>(Cow<'a, str>);
 
@@ -22,8 +27,16 @@ impl<'a> fmt::Display for Id<'a> {
 }
 
 impl<'a> Id<'a> {
+    /// Construct a new custom ID from its raw string representation
+    ///
+    /// # Safety
+    /// It is up to the caller to ensure that the provided string is a valid ID
+    /// payload encoded by the [`write()`] function.
+    #[must_use]
     pub unsafe fn from_inner(s: Cow<'a, str>) -> Self { Self(s) }
 
+    /// Produce an ID that borrows from `self`
+    #[must_use]
     pub fn as_ref(&self) -> Id<'_> { Id(Cow::Borrowed(self.0.as_ref())) }
 }
 
@@ -32,6 +45,11 @@ const FORMAT_ZSTD: u8 = 1;
 
 const ZSTD_WINDOW_LOG: u32 = 10; // The minimum, but larger than our target payload size
 
+/// Decode the given [`Id`] into a custom ID message
+///
+/// # Errors
+/// This function returns an error if an unrecoverable format error occurs while
+/// reading the input data.
 // TODO: was io::{Read, Write} the correct abstraction for b64k?
 pub fn read<M: prost::Message + Default>(i: &Id<'_>) -> Result<M, Error> {
     let mut dec = base64k::Decoder::new(i.0.chars());
@@ -66,23 +84,28 @@ pub fn read<M: prost::Message + Default>(i: &Id<'_>) -> Result<M, Error> {
     M::decode(&*msg_buf).map_err(Error::Protobuf)
 }
 
+/// Encode the given message into an [`Id`]
+///
+/// # Errors
+/// This function fails if an unrecoverable format error occurs while writing
+/// the output string.
 pub fn write(id: &impl prost::Message) -> Result<Id<'static>, Error> {
     let raw = id.encode_to_vec();
 
     let mut z_enc = zstd::stream::Encoder::new(vec![], 22)?; // TODO
     z_enc.include_magicbytes(false)?;
     z_enc.include_checksum(false)?;
-    z_enc.set_pledged_src_size(Some(raw.len().try_into().unwrap()))?;
+    z_enc.set_pledged_src_size(raw.len().try_into().ok())?;
     z_enc.window_log(ZSTD_WINDOW_LOG)?;
     z_enc.write_all(&raw)?;
     let compressed = z_enc.finish()?;
 
     let mut enc = base64k::Encoder::default();
     let format = if compressed.len() < raw.len() {
-        trace!(?id, "Selecting zstd format for ID");
+        tracing::trace!(?id, "Selecting zstd format for ID");
         FORMAT_ZSTD
     } else {
-        trace!(?id, "Selecting raw format for ID");
+        tracing::trace!(?id, "Selecting raw format for ID");
         FORMAT_RAW
     };
 
@@ -99,7 +122,7 @@ pub fn write(id: &impl prost::Message) -> Result<Id<'static>, Error> {
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::*;
+    use anyhow::Context as _;
 
     #[derive(prost::Message)]
     struct Msg {
@@ -108,7 +131,7 @@ mod test {
     }
 
     #[test]
-    fn test_roundtrip() -> Result {
+    fn test_roundtrip() -> Result<(), anyhow::Error> {
         let s = "1234";
         let id = super::write(&Msg { s: s.to_owned() }).context("Error writing short message")?;
 

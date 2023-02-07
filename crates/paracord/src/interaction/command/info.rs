@@ -1,4 +1,4 @@
-use std::num::NonZeroU8;
+use std::{collections::BTreeMap, num::NonZeroU8};
 
 use qcore::builder;
 use serenity::{
@@ -10,8 +10,8 @@ use serenity::{
 };
 
 use super::{Arg, ArgBuilder, ArgType, TryFromError};
-use crate::prelude::*;
 
+/// Metadata for an application command
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CommandInfo {
     pub(super) name: String,
@@ -20,6 +20,7 @@ pub struct CommandInfo {
 }
 
 impl CommandInfo {
+    /// Construct a new description of a chat input command
     // TODO: do descriptions support markdown?
     #[inline]
     pub fn slash(name: impl Into<String>, desc: impl Into<String>, args: Args) -> Self {
@@ -33,6 +34,12 @@ impl CommandInfo {
         }
     }
 
+    /// Construct a new description of a chat input command using the given
+    /// closure to build the parameter data
+    ///
+    /// # Errors
+    /// This method returns an error if invoking the closure results in an
+    /// [`ArgBuilder`] with an invalid state.
     #[inline]
     pub fn build_slash(
         name: impl Into<String>,
@@ -42,6 +49,7 @@ impl CommandInfo {
         Ok(Self::slash(name, desc, f(ArgBuilder::default()).build()?))
     }
 
+    /// Construct a new description of a user context menu command
     #[inline]
     pub fn user(name: impl Into<String>) -> Self {
         let name = name.into();
@@ -52,6 +60,7 @@ impl CommandInfo {
         }
     }
 
+    /// Construct a new description of a message context menu command
     #[inline]
     pub fn message(name: impl Into<String>) -> Self {
         let name = name.into();
@@ -62,8 +71,13 @@ impl CommandInfo {
         }
     }
 
+    /// Get the unique, non-localized name of this command
+    #[inline]
+    #[must_use]
     pub fn name(&self) -> &String { &self.name }
 
+    /// Apply the data contained within this command description to a
+    /// [`serenity`] command builder
     pub fn build(self, cmd: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
         let Self { name, can_dm, data } = self;
         cmd.name(name).dm_permission(can_dm);
@@ -87,7 +101,9 @@ impl CommandInfo {
                         {
                             cmd.create_option(|o| arg.build(name, o));
                         }
-                        assert!(args.is_empty());
+                        if !args.is_empty() {
+                            unreachable!("Trailing parameters in CommandInfo")
+                        }
                     },
                 }
                 cmd
@@ -99,7 +115,10 @@ impl CommandInfo {
 }
 
 #[builder(trait_name = "CommandInfoExt")]
+/// Helper methods for mutating [`CommandInfo`]
 impl CommandInfo {
+    /// Set whether this command should be usable in DM (i.e. non-guild)
+    /// channels
     pub fn can_dm(&mut self, can_dm: bool) { self.can_dm = can_dm; }
 }
 
@@ -110,6 +129,7 @@ pub(super) enum Data {
     Message,
 }
 
+/// Metadata for chat input command parameters and/or subcommands
 #[derive(Debug, Default)]
 pub struct Args(pub(super) Trie);
 

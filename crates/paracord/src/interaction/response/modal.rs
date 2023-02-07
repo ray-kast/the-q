@@ -1,11 +1,14 @@
+use std::{convert::Infallible, marker::PhantomData};
+
 use serenity::builder::CreateInteractionResponseData;
 
 use super::{
     super::rpc::{ModalId, Schema},
     id, Components, ResponseData, TextInput,
 };
-use crate::prelude::*;
 
+/// A predetermined modal source, dictated by the interaction currently being
+/// responded to
 #[derive(Debug, Clone, Copy)]
 pub struct ModalSourceHandle(pub(super) ModalSource);
 
@@ -16,6 +19,7 @@ pub enum ModalSource {
     Component,
 }
 
+/// A modal dialog
 #[derive(Debug, qcore::Borrow)]
 pub struct Modal<S: Schema, E> {
     id: Result<id::Id<'static>, E>,
@@ -26,6 +30,7 @@ pub struct Modal<S: Schema, E> {
 }
 
 impl<S: Schema> Modal<S, id::Error> {
+    /// Construct a new modal
     #[inline]
     pub fn new(
         source: ModalSourceHandle,
@@ -42,6 +47,11 @@ impl<S: Schema> Modal<S, id::Error> {
 }
 
 impl<S: Schema, E> Modal<S, E> {
+    /// Purge any validation errors caused during initialization
+    ///
+    /// # Errors
+    /// If the modal or any of its components contain an error it will be
+    /// returned.
     #[inline]
     pub fn prepare(self) -> Result<Modal<S, Infallible>, E> {
         let Self {

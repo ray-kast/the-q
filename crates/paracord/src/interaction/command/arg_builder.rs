@@ -1,14 +1,14 @@
-use std::num::NonZeroU8;
+use std::{collections::BTreeMap, num::NonZeroU8};
 
 use ordered_float::{NotNan, OrderedFloat};
 use qcore::{build_range::BuildRange, builder};
 use serenity::model::channel::ChannelType;
 
 use super::{Arg, ArgType, Args, Choice, Subcommand, Trie, TryFromError};
-use crate::prelude::*;
 
 // TODO: sort through all imports
 
+/// Helper for constructing chat input command parameters and/or subcommands
 #[derive(Debug, Default)]
 pub struct ArgBuilder(ArgBuilderState);
 
@@ -73,6 +73,12 @@ impl ArgBuilder {
         }
     }
 
+    /// Construct a new chat input command signature from this builder
+    ///
+    /// # Errors
+    /// This method returns an error if the builder state is invalid (e.g. if
+    /// both subcommand and non-subcommand methods are invoked on the same
+    /// builder instance).
     pub fn build(self) -> Result<Args, TryFromError> {
         Ok(Args(match self.0 {
             ArgBuilderState::Default => Trie::default(),
@@ -84,7 +90,12 @@ impl ArgBuilder {
 }
 
 #[builder(trait_name = "ArgBuilderExt")]
+/// Helper methods for mutating [`ArgBuilder`]
 impl ArgBuilder {
+    /// Add a new parameter to this (sub)command
+    ///
+    /// **NOTE:** The builder state will become invalid if this (sub)command has
+    /// child subcommands already registered.
     pub fn arg(&mut self, name: impl Into<String>, arg: Arg) {
         let name = name.into();
         match &mut self.0 {
@@ -106,6 +117,9 @@ impl ArgBuilder {
         }
     }
 
+    /// Add a new string parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn string(
         &mut self,
         name: impl Into<String>,
@@ -121,6 +135,9 @@ impl ArgBuilder {
         });
     }
 
+    /// Add a new string choice parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn string_choice<C: IntoIterator>(
         &mut self,
         name: impl Into<String>,
@@ -134,6 +151,9 @@ impl ArgBuilder {
         self.arg_parts(name, desc, required, ArgType::StringChoice(choices));
     }
 
+    /// Add a new integer parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn int(
         &mut self,
         name: impl Into<String>,
@@ -149,6 +169,9 @@ impl ArgBuilder {
         });
     }
 
+    /// Add a new integer choice parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn int_choice<C: IntoIterator>(
         &mut self,
         name: impl Into<String>,
@@ -162,14 +185,23 @@ impl ArgBuilder {
         self.arg_parts(name, desc, required, ArgType::IntChoice(choices));
     }
 
+    /// Add a new Boolean parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn bool(&mut self, name: impl Into<String>, desc: impl Into<String>, required: bool) {
         self.arg_parts(name, desc, required, ArgType::Bool);
     }
 
+    /// Add a new user handle parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn user(&mut self, name: impl Into<String>, desc: impl Into<String>, required: bool) {
         self.arg_parts(name, desc, required, ArgType::User);
     }
 
+    /// Add a new channel handle parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn channel(
         &mut self,
         name: impl Into<String>,
@@ -181,14 +213,23 @@ impl ArgBuilder {
         self.arg_parts(name, desc, required, ArgType::Channel(types));
     }
 
+    /// Add a new role handle parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn role(&mut self, name: impl Into<String>, desc: impl Into<String>, required: bool) {
         self.arg_parts(name, desc, required, ArgType::Role);
     }
 
+    /// Add a new user or role handle parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn mention(&mut self, name: impl Into<String>, desc: impl Into<String>, required: bool) {
         self.arg_parts(name, desc, required, ArgType::Mention);
     }
 
+    /// Add a new real (decimal) numeric parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn real(
         &mut self,
         name: impl Into<String>,
@@ -216,6 +257,9 @@ impl ArgBuilder {
         });
     }
 
+    /// Add a new real (decimal) numeric choice parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn real_choice<C: IntoIterator>(
         &mut self,
         name: impl Into<String>,
@@ -239,10 +283,14 @@ impl ArgBuilder {
         self.arg_parts(name, desc, required, ArgType::RealChoice(choices));
     }
 
+    /// Add a new file upload parameter to this (sub)command
+    ///
+    /// See [`arg`](Self::arg) for more details.
     pub fn attachment(&mut self, name: impl Into<String>, desc: impl Into<String>, required: bool) {
         self.arg_parts(name, desc, required, ArgType::Attachment);
     }
 
+    /// Set whether the named parameters should send autocomplete interactions
     pub fn autocomplete<'a, Q: Eq + Ord + ?Sized + 'a>(
         &mut self,
         enable: bool,
@@ -278,6 +326,10 @@ impl ArgBuilder {
         }
     }
 
+    /// Add a new subcommand to this (sub)command
+    ///
+    /// **NOTE:** The builder state will become invalid if this (sub)command has
+    /// parameters already registered.
     pub fn subcmd(&mut self, name: impl Into<String>, desc: impl Into<String>, args: Args) {
         let name = name.into();
         let desc = desc.into();
@@ -285,6 +337,9 @@ impl ArgBuilder {
         self.insert_subcommand(name, Subcommand { desc, node });
     }
 
+    /// Add a new subcommand to this (sub)command using the given closure
+    ///
+    /// See [`subcmd`](Self::subcmd) for more details.
     #[inline]
     pub fn build_subcmd(
         &mut self,

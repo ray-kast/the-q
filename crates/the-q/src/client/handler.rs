@@ -1,9 +1,10 @@
+use paracord::interaction;
 use serenity::{
     model::{application::interaction::Interaction, gateway::Ready},
     prelude::*,
 };
 
-use super::{commands, interaction};
+use super::commands;
 use crate::prelude::*;
 
 pub struct Handler {

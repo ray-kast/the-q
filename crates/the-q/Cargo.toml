@@ -12,8 +12,6 @@ build = "build.rs"
 [dependencies]
 anyhow = "1.0.68"
 async-trait = "0.1.60"
-base64k = { version = "=0.1.0", path = "../base64k" }
-chrono = "0.4.23"
 clap = { version = "4.0.32", features = ["env", "cargo", "derive"] }
 dotenv = "0.15.0"
 futures-util = "0.3.25"
@@ -22,22 +20,20 @@ jpeggr = { version = "=0.1.0", path = "../jpeggr" }
 notify = "5.1.0"
 once_cell = { version = "1.17.0", features = ["parking_lot"] }
 ordered-float = "3.4.0"
+paracord = { version = "0.1.0", path = "../paracord" }
 prost = "0.11.6"
 qcore = { version = "0.1.0", path = "../qcore" }
 reqwest = { version = "0.11.14", features = ["deflate", "gzip", "brotli", "rustls-tls"], default-features = false }
-serde = { version = "1.0.152", features = ["derive"] }
-serde_json = "1.0.91"
-serenity = { version = "0.11.5", default-features = false, features = ["tokio", "parking_lot", "client", "builder", "cache", "chrono", "gateway", "model", "http", "utils", "rustls_backend", "voice_model", "voice"] }
+serenity = { workspace = true }
+shrec = { version = "0.1.0", path = "../shrec" }
 songbird = { version = "0.3.0", features = ["serenity"] }
 strsim = "0.10.0"
-thiserror = "1.0.38"
 tokio = { version = "1.23.0", features = ["parking_lot", "full", "tracing"] }
 tracing = "0.1.37"
 tracing-loki = { version = "0.2.1", default-features = false, features = ["rustls", "compat-0-2-1"] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "fmt", "tracing-log"] }
 url = "2.3.1"
 walkdir = "2.3.2"
-zstd = { version = "0.12.2", features = ["experimental"] }
 
 [build-dependencies]
 glob = "0.3.1"

@@ -1,3 +1,9 @@
+use std::{
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+    marker::PhantomData,
+};
+
 use qcore::{build_range::BuildRange, builder};
 use serenity::{
     builder::{
@@ -10,9 +16,9 @@ use serenity::{
         channel::{ChannelType, ReactionType},
     },
 };
+use url::Url;
 
 use super::{super::rpc::ComponentId, id, ResponseData};
-use crate::prelude::*;
 
 mod private {
     use serenity::builder::CreateActionRow;
@@ -22,6 +28,7 @@ mod private {
     }
 }
 
+/// A set of components to attach to a message
 #[derive(Debug)]
 pub struct Components<I, T, E>(pub(super) Vec<ActionRow<I, T, E>>);
 
@@ -47,6 +54,10 @@ macro_rules! build_components {
 }
 
 impl<I, T, E> Components<I, T, E> {
+    /// Purge any validation errors caused during initialization
+    ///
+    /// # Errors
+    /// If any component contains an error it will be returned.
     #[inline]
     pub fn prepare(self) -> Result<Components<I, T, Infallible>, E> {
         let Self(rows) = self;
@@ -77,9 +88,12 @@ impl<I, T: private::BuildComponent> Components<I, T, Infallible> {
 }
 
 #[builder(trait_name = "ComponentsExt")]
+/// Helper methods for mutating [`Components`]
 impl<I, T, E> Components<I, T, E> {
+    /// Add a new action row to the component set
     pub fn row(&mut self, row: ActionRow<I, T, E>) { self.0.push(row); }
 
+    /// Add a new action row to the component set using the given closure
     #[inline]
     pub fn build_row(&mut self, f: impl FnOnce(ActionRow<I, T, E>) -> ActionRow<I, T, E>) {
         self.row(f(ActionRow::default()));
@@ -108,6 +122,7 @@ impl<E> RowError<E> {
     }
 }
 
+/// A single row of components
 #[derive(Debug)]
 pub struct ActionRow<I, T, E> {
     err: RowError<E>,
@@ -173,7 +188,9 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
 }
 
 #[builder(trait_name = "MessageActionRow")]
+/// Helper methods for mutating an [`ActionRow`] for messages
 impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
+    /// Add a button to this row
     pub fn button(
         &mut self,
         payload: I::Payload,
@@ -197,6 +214,7 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         });
     }
 
+    /// Add a new link-style button to this row
     pub fn link_button(
         &mut self,
         url: impl Into<Url>,
@@ -212,6 +230,7 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         });
     }
 
+    /// Add a new string dropdown menu to this row
     pub fn menu<J: Into<MenuItem>>(
         &mut self,
         payload: I::Payload,
@@ -251,6 +270,7 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         );
     }
 
+    /// Add a new user handle dropdown menu to this row
     #[inline]
     pub fn user_menu(
         &mut self,
@@ -262,6 +282,7 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         self.menu_parts(payload, Ok(MenuType::User), placeholder, count, disabled);
     }
 
+    /// Add a new role handle dropdown menu to this row
     #[inline]
     pub fn role_menu(
         &mut self,
@@ -273,6 +294,7 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         self.menu_parts(payload, Ok(MenuType::Role), placeholder, count, disabled);
     }
 
+    /// Add a new user or role handle dropdown menu to this row
     #[inline]
     pub fn mention_menu(
         &mut self,
@@ -284,6 +306,7 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         self.menu_parts(payload, Ok(MenuType::Mention), placeholder, count, disabled);
     }
 
+    /// Add a new channel dropdown menu to this row
     #[inline]
     pub fn channel_menu(
         &mut self,
@@ -304,10 +327,13 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
 }
 
 #[builder(trait_name = "ModalActionRow")]
+/// Helper methods for mutating an [`ActionRow`] for modals
 impl<I: ComponentId> ActionRow<I, TextInput<I>, id::Error> {
+    /// Add a new textbox to this row
     #[inline]
     pub fn text(&mut self, input: TextInput<I>) { self.components.push(input); }
 
+    /// Add a new short textbox to this row using the given closure
     #[inline]
     pub fn build_text_short(
         &mut self,
@@ -321,6 +347,7 @@ impl<I: ComponentId> ActionRow<I, TextInput<I>, id::Error> {
         });
     }
 
+    /// Add a new paragraph textbox to this row using the given closure
     #[inline]
     pub fn build_text_long(
         &mut self,
@@ -344,6 +371,7 @@ fn visit<T, V: IntoIterator>(
     vals.into_iter().fold(row, f)
 }
 
+/// A single component valid for message component lists
 // TODO: add constructors and an ID type parameter
 #[derive(Debug)]
 pub struct MessageComponent {
@@ -422,9 +450,12 @@ enum MessageComponentType {
     },
 }
 
+/// The label of a button, composed of text and/or an emoji
 #[derive(Debug)]
 pub enum ButtonLabel {
+    /// A text label with an optional emoji
     Text(Option<ReactionType>, String),
+    /// An emoji-only label
     Emoji(ReactionType),
 }
 
@@ -448,20 +479,30 @@ impl From<(Option<ReactionType>, String)> for ButtonLabel {
     fn from((emoji, text): (Option<ReactionType>, String)) -> Self { Self::Text(emoji, text) }
 }
 
+/// The type of a button component
 #[derive(Debug)]
 pub enum ButtonType {
+    /// A link-style button
     Link(Url),
+    /// A non-link button
     Custom {
+        /// Button ID for callbacks
         id: id::Id<'static>,
+        /// Button style
         style: ButtonStyle,
     },
 }
 
+/// Style for non-link buttons
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ButtonStyle {
+    /// A primary (bold) button
     Primary,
+    /// A secondary (faint) button
     Secondary,
+    /// A success (green) button
     Success,
+    /// A danger (red) button
     Danger,
 }
 
@@ -489,6 +530,7 @@ enum MenuType {
     Channel(HashSet<ChannelType>),
 }
 
+/// An item from a dropdown menu
 #[derive(Debug)]
 pub struct MenuItem {
     label: String,
@@ -516,6 +558,7 @@ impl From<&str> for MenuItem {
     }
 }
 
+/// A textbox component, valid only for modals
 #[derive(Debug)]
 pub struct TextInput<I> {
     id: id::Id<'static>,
@@ -549,11 +592,21 @@ impl<I: ComponentId> TextInput<I> {
         })
     }
 
+    /// Construct a new short textbox
+    ///
+    /// # Errors
+    /// This function returns an error if the given ID payload cannot be encoded
+    /// correctly.
     #[inline]
     pub fn short(payload: I::Payload, label: impl Into<String>) -> Result<Self, id::Error> {
         Self::new(payload, InputTextStyle::Short, label)
     }
 
+    /// Construct a new paragraph textbox
+    ///
+    /// # Errors
+    /// This function returns an error if the given ID payload cannot be encoded
+    /// correctly.
     #[inline]
     pub fn long(payload: I::Payload, label: impl Into<String>) -> Result<Self, id::Error> {
         Self::new(payload, InputTextStyle::Paragraph, label)
@@ -561,17 +614,22 @@ impl<I: ComponentId> TextInput<I> {
 }
 
 #[builder(trait_name = "TextInputExt")]
+/// Helper methods for mutating [`TextInput`]
 impl<I> TextInput<I> {
+    /// Set the valid length range for this textbox
     pub fn len(&mut self, len: impl BuildRange<u64>) {
         let (min_len, max_len) = len.build_range().into_inner();
         self.min_len = min_len;
         self.max_len = max_len;
     }
 
-    pub fn optional(&mut self) { self.required = false; }
+    /// Set whether this textbox is a required field
+    pub fn required(&mut self, req: bool) { self.required = req; }
 
+    /// Set the pre-filled value for this textbox
     pub fn value(&mut self, val: impl Into<String>) { self.value = val.into(); }
 
+    /// Set the empty placeholder text for this textbox
     pub fn placeholder(&mut self, placeholder: impl Into<String>) {
         self.placeholder = Some(placeholder.into());
     }

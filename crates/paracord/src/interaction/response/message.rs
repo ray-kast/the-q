@@ -1,3 +1,8 @@
+use std::{
+    borrow::{Borrow, BorrowMut},
+    convert::Infallible,
+};
+
 use qcore::builder;
 use serenity::{
     builder::{
@@ -11,8 +16,8 @@ use serenity::{
 };
 
 use super::{Components, Embed, Embeds, MessageComponent, ResponseData};
-use crate::prelude::*;
 
+/// The body of a message
 #[derive(Debug, qcore::Borrow)]
 pub struct MessageBody<I, E> {
     content: MessageBuilder,
@@ -43,6 +48,7 @@ macro_rules! build_body {
 }
 
 impl<I, E> MessageBody<I, E> {
+    /// Construct a new rich-text message using the given closure
     #[inline]
     pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
         let mut content = MessageBuilder::new();
@@ -57,11 +63,16 @@ impl<I, E> MessageBody<I, E> {
         }
     }
 
+    /// Construct a new plaintext message
     #[inline]
     pub fn plain(c: impl Into<serenity::utils::Content>) -> Self {
         Self::rich(|mb| mb.push_safe(c))
     }
 
+    /// Purge any validation errors caused during initialization
+    ///
+    /// # Errors
+    /// If any component on the message contains an error it will be returned.
     #[inline]
     pub fn prepare(self) -> Result<MessageBody<I, Infallible>, E> {
         let Self {
@@ -84,6 +95,7 @@ impl<I, E> MessageBody<I, E> {
 }
 
 impl<I> MessageBody<I, Infallible> {
+    /// Apply the values of this message body to a response edit builder
     #[inline]
     pub fn build_edit_response(
         self,
@@ -92,6 +104,7 @@ impl<I> MessageBody<I, Infallible> {
         build_body!(self, res, build_edit_response)
     }
 
+    /// Apply the values of this message body to a followup message builder
     #[inline]
     pub fn build_followup<'a, 'b>(
         self,
@@ -102,15 +115,21 @@ impl<I> MessageBody<I, Infallible> {
 }
 
 #[builder(trait_name = "MessageBodyExt")]
+/// Helper methods for mutating [`MessageBody`]
 impl<I, E> MessageBody<I, E> {
+    /// Set whether the replied-to user is allowed to be pinged
     pub fn ping_replied(&mut self, ping_replied: bool) { self.ping_replied = ping_replied; }
 
+    /// Set which users are allowed to be pinged
     pub fn ping_users(&mut self, ping_users: Vec<UserId>) { self.ping_users = ping_users; }
 
+    /// Set which guild roles are allowed to be pinged
     pub fn ping_roles(&mut self, ping_roles: Vec<RoleId>) { self.ping_roles = ping_roles; }
 
+    /// Add an embed to this message
     pub fn embed(&mut self, embed: Embed) { self.embeds.0.push(embed); }
 
+    /// Add an embed to this message using the given closure
     pub fn build_embed(&mut self, f: impl FnOnce(Embed) -> Embed) {
         self.embed(f(Embed::default()));
     }
@@ -126,7 +145,8 @@ impl<'a, I> ResponseData<'a> for MessageBody<I, Infallible> {
     }
 }
 
-#[derive(Debug, Default)]
+/// Options to provide when creating (or deferring the creation of) a message
+#[derive(Debug, Clone, Copy, Default)]
 pub struct MessageOpts {
     tts: bool,
     ephemeral: bool,
@@ -141,9 +161,6 @@ macro_rules! build_opts {
 
 impl MessageOpts {
     #[inline]
-    pub fn new() -> Self { Self::default() }
-
-    #[inline]
     fn build_followup<'a, 'b>(
         self,
         fup: &'a mut CreateInteractionResponseFollowup<'b>,
@@ -153,9 +170,12 @@ impl MessageOpts {
 }
 
 #[builder(trait_name = "MessageOptsExt")]
+/// Helper methods for mutating [`MessageOpts`]
 impl MessageOpts {
+    /// Set whether this message should be read by screen readers
     pub fn tts(&mut self, tts: bool) { self.tts = tts; }
 
+    /// Set whether this message should be a private temporary response
     pub fn ephemeral(&mut self, ephemeral: bool) { self.ephemeral = ephemeral; }
 }
 
@@ -169,6 +189,7 @@ impl<'a> ResponseData<'a> for MessageOpts {
     }
 }
 
+/// A message
 #[derive(Debug, qcore::Borrow)]
 pub struct Message<'a, I, E> {
     #[borrow(mut)]
@@ -210,15 +231,19 @@ impl<'a, I, E> From<MessageBody<I, E>> for Message<'a, I, E> {
 }
 
 impl<'a, I, E> Message<'a, I, E> {
+    /// Construct a new rich-text message using the given closure
     #[inline]
     pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
         MessageBody::rich(f).into()
     }
 
+    /// Construct a new plaintext message
     #[inline]
     pub fn plain(c: impl Into<serenity::utils::Content>) -> Self { MessageBody::plain(c).into() }
 
+    /// Construct a new message from its constituent parts
     #[inline]
+    #[must_use]
     pub fn from_parts(
         body: MessageBody<I, E>,
         opts: MessageOpts,
@@ -231,6 +256,10 @@ impl<'a, I, E> Message<'a, I, E> {
         }
     }
 
+    /// Purge any validation errors caused during initialization
+    ///
+    /// # Errors
+    /// If the message body contains an error it will be returned.
     #[inline]
     pub fn prepare(self) -> Result<Message<'a, I, Infallible>, E> {
         let Self {
@@ -247,6 +276,7 @@ impl<'a, I, E> Message<'a, I, E> {
 }
 
 impl<'a, I> Message<'a, I, Infallible> {
+    /// Apply the values of this message to a followup message builder
     pub fn build_followup<'b>(
         self,
         fup: &'b mut CreateInteractionResponseFollowup<'a>,
@@ -256,7 +286,9 @@ impl<'a, I> Message<'a, I, Infallible> {
 }
 
 #[builder(trait_name = "MessageExt")]
+/// Helper methods for mutating [`Message`]
 impl<'a, I, E> Message<'a, I, E> {
+    /// Add an attachment to this message
     pub fn attach(&mut self, attachments: impl IntoIterator<Item = AttachmentType<'a>>) {
         self.attachments.extend(attachments);
     }

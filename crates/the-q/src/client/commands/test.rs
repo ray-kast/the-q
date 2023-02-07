@@ -14,7 +14,7 @@ impl From<&CommandOpts> for TestCommand {
 }
 
 #[async_trait]
-impl Handler<Schema> for TestCommand {
+impl CommandHandler<Schema> for TestCommand {
     fn register_global(&self) -> CommandInfo { CommandInfo::user(&self.name) }
 
     async fn respond<'a>(

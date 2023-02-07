@@ -1,0 +1,26 @@
+[package]
+name = "paracord"
+description = "Helper types for working with Serenity"
+authors = ["raykast <me@ryan-s.net>"]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/ray-kast/the-q/"
+
+[dependencies]
+anyhow = "1.0.68"
+async-trait = "0.1.60"
+base64k = { version = "=0.1.0", path = "../base64k" }
+chrono = "0.4.23"
+ordered-float = "3.4.0"
+prost = "0.11.6"
+qcore = { version = "0.1.0", path = "../qcore" }
+serde = { version = "1.0.152", features = ["derive"] }
+serde_json = "1.0.91"
+serenity = { workspace = true }
+strsim = "0.10.0"
+thiserror = "1.0.38"
+tokio = { version = "1.23.0", default-features = false, features = ["sync"] }
+tracing = "0.1.37"
+url = "2.3.1"
+zstd = { version = "0.12.2", features = ["experimental"] }

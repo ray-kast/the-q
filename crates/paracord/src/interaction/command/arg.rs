@@ -1,4 +1,4 @@
-use std::ops::RangeInclusive;
+use std::{collections::BTreeSet, ops::RangeInclusive};
 
 use ordered_float::{NotNan, OrderedFloat};
 use serde_json::Number;
@@ -11,8 +11,8 @@ use serenity::{
 };
 
 use super::{try_from_value::TryFromValue, TryFromError};
-use crate::prelude::*;
 
+/// Metadata for a chat input command parameter
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Arg {
     pub(super) desc: String,
@@ -21,6 +21,7 @@ pub struct Arg {
 }
 
 impl Arg {
+    /// Construct a new parameter description
     #[inline]
     pub fn new(desc: impl Into<String>, required: bool, ty: ArgType) -> Self {
         let desc = desc.into();
@@ -137,31 +138,56 @@ impl Arg {
     }
 }
 
+/// Metadata describing the type of a chat input command parameter
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ArgType {
+    /// A freeform string
     String {
+        /// True if this string parameter should send autocomplete interactions
         autocomplete: bool,
+        /// The minimum valid input length
         min_len: Option<u16>,
+        /// The maximum valid input length
         max_len: Option<u16>,
     },
+    /// A string chosen from a list of options
     StringChoice(Choices<String>),
+    /// A freeform integer
     Int {
+        /// True if this integer parameter should send autocomplete interactions
         autocomplete: bool,
+        /// The minimum valid input value
         min: Option<i64>,
+        /// The maximum valid input value
         max: Option<i64>,
     },
+    /// An integer chosen from a list of options
     IntChoice(Choices<i64>),
+    /// A Boolean parameter
     Bool,
+    /// A handle for a user
     User,
+    /// A handle for a channel conforming to the list of channel types given
+    ///
+    /// **NOTE:** If the list provided is empty, all types are assumed to be
+    /// valid.
     Channel(BTreeSet<ChannelType>),
+    /// A handle for a role within a guild
     Role,
+    /// A handle for either a user or a guild role
     Mention,
+    /// A freeform real (decimal) number
     Real {
+        /// True if this real parameter should send autocomplete interactions
         autocomplete: bool,
+        /// The minimum valid input value
         min: Option<NotNan<f64>>,
+        /// The maximum valid input value
         max: Option<NotNan<f64>>,
     },
+    /// A real (decimal) number chosen from a list of options
     RealChoice(Choices<OrderedFloat<f64>>),
+    /// An uploaded attachment
     Attachment,
 }
 
@@ -258,6 +284,7 @@ impl ArgType {
 
 type Choices<T> = BTreeSet<Choice<T>>;
 
+/// Metadata for an option for one of the `...Choice` [parameter types](ArgType)
 // TODO: are choices unique on name, value, both, or neither?
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Choice<T> {
@@ -266,6 +293,7 @@ pub struct Choice<T> {
 }
 
 impl<T> Choice<T> {
+    /// Construct a new parameter option
     #[inline]
     pub fn new(name: impl Into<String>, val: T) -> Self {
         let name = name.into();

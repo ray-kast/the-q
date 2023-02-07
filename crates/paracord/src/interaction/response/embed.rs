@@ -94,6 +94,7 @@ impl<'a> ResponseData<'a> for Embeds {
     }
 }
 
+/// A message rich content embed
 #[derive(Debug, Default)]
 pub struct Embed {
     title: Option<String>,
@@ -119,28 +120,36 @@ impl<'a, I, E> From<Embed> for Message<'a, I, E> {
 }
 
 #[builder(trait_name = "EmbedExt")]
+/// Helper methods for mutating [`Embed`]
 impl Embed {
+    /// Set the title of this embed
     // TODO: does the title support markdown?
     pub fn title(&mut self, title: impl Into<String>) { self.title = Some(title.into()); }
 
+    /// Set the description of this embed using the given closure
     pub fn desc_rich(&mut self, f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) {
         let mut desc = MessageBuilder::new();
         f(&mut desc);
         self.desc = Some(desc.0);
     }
 
+    /// Set the description of this embed to a simple string
     pub fn desc_plain(&mut self, c: impl Into<serenity::utils::Content>) {
         self.desc_rich(|mb| mb.push_safe(c));
     }
 
+    /// Set the URL of this embed
     pub fn url(&mut self, url: impl Into<Url>) { self.url = Some(url.into()); }
 
+    /// Set the timestamp of this embed
     pub fn timestamp(&mut self, ts: impl Into<chrono::DateTime<chrono::Utc>>) {
         self.timestamp = Some(ts.into());
     }
 
+    /// Set the primary color of this embed
     pub fn color(&mut self, color: impl Into<Color>) { self.color = Some(color.into()); }
 
+    /// Set (or reset) the primary color of this embed
     pub fn color_opt(&mut self, color: Option<impl Into<Color>>) {
         self.color = color.map(Into::into);
     }

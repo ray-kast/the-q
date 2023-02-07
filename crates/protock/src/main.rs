@@ -16,7 +16,6 @@ mod compat_pair;
 mod git;
 mod protoc;
 mod schema;
-mod union_find;
 
 fn main() { entry::main(); }
 
@@ -72,7 +71,6 @@ mod entry {
     #[inline]
     pub fn main() {
         let opts = Opts::parse();
-        tracing::debug!("{opts:#?}");
 
         tracing_subscriber::registry()
             .with(
@@ -87,6 +85,7 @@ mod entry {
                 _ => LevelFilter::TRACE,
             })
             .init();
+        tracing::debug!("{opts:#?}");
 
         std::process::exit(run(opts).map_or_else(
             |e| {

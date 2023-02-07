@@ -1,14 +1,23 @@
-#[derive(serde::Serialize)]
+//! Types for responding to autocomplete interactions
+
+/// A single completion list entry
+#[derive(Debug, serde::Serialize)]
 pub struct Completion {
+    /// The friendly name of this entry
     pub name: String,
+    /// The value to be completed by this entry
     pub value: CompletionValue,
 }
 
-#[derive(serde::Serialize)]
+/// An enum of possible completion value types
+#[derive(Debug, serde::Serialize)]
 #[serde(untagged)]
 pub enum CompletionValue {
+    /// An integer value
     Int(i64),
+    /// A string value
     String(String),
+    /// A real (decimal) numeric value
     Real(f64),
 }
 

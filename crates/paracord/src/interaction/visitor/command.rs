@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serenity::model::{
     application::{
         command::{CommandOptionType, CommandType},
@@ -11,9 +13,8 @@ use serenity::model::{
 };
 
 use super::{BasicVisitor, Describe, Error, Result};
-use crate::prelude::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum OptionValueType {
     String,
     Integer,
@@ -47,20 +48,24 @@ impl Describe for CommandDataOptionValue {
 type Subcommand<'a> = Vec<&'a str>;
 type OptionMap<'a> = HashMap<&'a str, &'a CommandDataOption>;
 
+#[derive(Debug)]
 enum VisitorState<'a> {
     Init,
     SlashCommand(OptionMap<'a>),
 }
 
+/// A visitor for extracting data from a command invocation
+#[derive(Debug)]
 pub struct CommandVisitor<'a, I> {
     base: BasicVisitor<'a, I>,
     state: VisitorState<'a>,
 }
 
 impl<'a, I> CommandVisitor<'a, I> {
+    /// Wrap a reference to an interaction in a new visitor
     pub fn new(int: &'a I) -> Self {
         Self {
-            base: BasicVisitor::new(int),
+            base: BasicVisitor { int },
             state: VisitorState::Init,
         }
     }
@@ -84,6 +89,11 @@ macro_rules! visit_basic {
         $vis:vis fn $name:ident() -> $ty:ty { $var:ident($($val:pat),*) => $expr:expr }
         $($tt:tt)*
     ) => {
+        #[doc = concat!("Visit ", $desc, " argument")]
+        ///
+        /// # Errors
+        /// This method returns an error if the command does not take arguments
+        #[doc = concat!("or the named argument is not ", $desc)]
         $vis fn $name(&mut self, name: &'a str) -> Result<OptionVisitor<$ty>> {
             let opt = self.visit_opt(name)?;
             if let Some(opt) = opt {
@@ -113,7 +123,7 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
         ///an integer
         pub fn visit_i64() -> i64 { Integer(i) => *i }
 
-        ///a boolean
+        ///a Boolean
         pub fn visit_bool() -> bool { Boolean(b) => *b }
 
         ///a user
@@ -191,13 +201,19 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
         Ok(opts.remove(&name))
     }
 
+    /// Extract the invoked subcommand path from the input arguments
+    ///
+    /// # Errors
+    /// This method returns an error if no subcommand can be found
     pub fn visit_subcmd(&mut self) -> Result<Subcommand<'a>> {
         let (subcmd, _opts) = self.visit_opts()?;
 
         subcmd.ok_or(Error::MissingSubcommand)
     }
 
+    /// Visit the target of this context menu command
     #[inline]
+    #[must_use]
     pub fn target(&self) -> TargetVisitor<'a> {
         TargetVisitor(self.base.int.data().kind, &self.base.int.data().resolved)
     }
@@ -231,24 +247,16 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
     }
 }
 
+#[derive(Debug)]
 pub struct OptionVisitor<'a, T>(&'a str, Option<T>);
 
 impl<'a, T> OptionVisitor<'a, T> {
-    fn map<U>(self, f: impl FnOnce(T) -> U) -> OptionVisitor<'a, U> {
-        OptionVisitor(self.0, self.1.map(f))
-    }
-
     pub fn optional(self) -> Option<T> { self.1 }
 
     pub fn required(self) -> Result<T> { self.1.ok_or_else(|| Error::MissingOption(self.0.into())) }
 }
 
-impl<'a, T, E> OptionVisitor<'a, std::result::Result<T, E>> {
-    fn transpose(self) -> std::result::Result<OptionVisitor<'a, T>, E> {
-        Ok(OptionVisitor(self.0, self.1.transpose()?))
-    }
-}
-
+#[derive(Debug)]
 pub struct TargetVisitor<'a>(CommandType, &'a CommandDataResolved);
 
 impl<'a> TargetVisitor<'a> {

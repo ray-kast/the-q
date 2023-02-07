@@ -4,7 +4,6 @@ use jpeggr::image::{self, ImageFormat};
 use serenity::model::prelude::AttachmentType;
 
 use super::prelude::*;
-use crate::client::interaction::handler::CommandHandler;
 
 enum JpegInput<'a> {
     Attachment(&'a Attachment),

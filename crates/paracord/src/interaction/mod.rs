@@ -1,3 +1,5 @@
+//! Types and support traits for responding to application interaction events
+
 pub mod command;
 pub mod completion;
 pub mod handler;

@@ -14,7 +14,7 @@ impl From<&CommandOpts> for SayCommand {
 }
 
 #[async_trait]
-impl Handler<Schema> for SayCommand {
+impl CommandHandler<Schema> for SayCommand {
     fn register_global(&self) -> CommandInfo {
         CommandInfo::build_slash(&self.name, "Say something!", |a| {
             a.string("message", "The message to send", true, ..)
@@ -29,7 +29,7 @@ impl Handler<Schema> for SayCommand {
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         let msg = visitor.visit_string("message")?.required()?;
-        let guild = visitor.guild().optional();
+        let guild = visitor.guild()?.optional();
 
         let color = guild.and_then(|(_, m)| m.colour(&ctx.cache));
 

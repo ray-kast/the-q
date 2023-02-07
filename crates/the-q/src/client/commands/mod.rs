@@ -1,36 +1,34 @@
 mod explode;
 mod jpeg;
 mod point;
+mod re;
 mod rpc;
 mod say;
 mod sound;
 mod test;
 
 pub(self) mod prelude {
+    pub use paracord::interaction::{
+        command::{prelude::*, Args, CommandInfo},
+        completion::Completion,
+        handler,
+        handler::{
+            CommandHandler, CommandVisitor, CompletionError, CompletionResult, CompletionVisitor,
+            ComponentVisitor, HandlerError, IntoErr, ModalVisitor, RpcHandler,
+        },
+        response,
+        response::{
+            prelude::*, ButtonStyle, Embed, Message, MessageComponent, MessageOpts, Modal,
+            ModalSource, ResponseData, TextInput,
+        },
+        rpc, visitor,
+    };
     pub(super) use serenity::{
         client::Context,
         model::{channel::Attachment, id::GuildId, user::User},
     };
 
-    pub use super::{
-        super::interaction::{
-            command::{prelude::*, Args, CommandInfo},
-            completion::Completion,
-            handler,
-            handler::{
-                CommandHandler as Handler, CommandVisitor, CompletionError, CompletionResult,
-                CompletionVisitor, ComponentVisitor, HandlerError, IntoErr, ModalVisitor,
-                RpcHandler,
-            },
-            response,
-            response::{
-                prelude::*, ButtonStyle, Embed, Message, MessageComponent, MessageOpts, Modal,
-                ModalSource, ResponseData, TextInput,
-            },
-            rpc, visitor,
-        },
-        CommandOpts, ComponentKey, ModalKey, Schema,
-    };
+    pub use super::{CommandOpts, ComponentKey, ModalKey, Schema};
     pub use crate::{
         prelude::*,
         proto::{
@@ -43,12 +41,12 @@ pub(self) mod prelude {
     pub type CommandError<'a> = handler::CommandError<'a, Schema>;
     pub type CommandResult<'a> = handler::CommandResult<'a, Schema>;
     pub type CommandResponder<'a, 'b> = handler::CommandResponder<'a, 'b, Schema>;
-    pub type ComponentError<'a> = handler::ComponentError<'a, Schema>;
+    // pub type ComponentError<'a> = handler::ComponentError<'a, Schema>;
     pub type ComponentResult<'a> = handler::ComponentResult<'a, Schema>;
     pub type ComponentResponder<'a, 'b> = handler::ComponentResponder<'a, 'b, Schema>;
-    pub type ModalError<'a> = handler::ModalError<'a, Schema>;
-    pub type ModalResult<'a> = handler::ModalResult<'a, Schema>;
-    pub type ModalResponder<'a, 'b> = handler::ModalResponder<'a, 'b, Schema>;
+    // pub type ModalError<'a> = handler::ModalError<'a, Schema>;
+    // pub type ModalResult<'a> = handler::ModalResult<'a, Schema>;
+    // pub type ModalResponder<'a, 'b> = handler::ModalResponder<'a, 'b, Schema>;
 
     #[inline]
     pub fn id<T>(t: T) -> T { t }
@@ -88,6 +86,7 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
     let jpeg = Arc::new(jpeg::JpegCommand::from(opts));
     let jpeg_message = Arc::new(jpeg::JpegMessageCommand::from(opts));
     let point = Arc::new(point::PointCommand::from(opts));
+    let re = Arc::new(re::ReCommand::from(opts));
     let say = Arc::new(say::SayCommand::from(opts));
     let sound = Arc::new(sound::SoundCommand::from(opts));
     let test = Arc::new(test::TestCommand::from(opts));
@@ -98,9 +97,10 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
             jpeg,
             jpeg_message,
             point,
+            re,
             say,
             test,
-            Arc::clone(&sound) as Arc<dyn prelude::Handler<Schema>>,
+            Arc::clone(&sound) as Arc<dyn prelude::CommandHandler<Schema>>,
         ],
         components: vec![sound],
         modals: vec![],

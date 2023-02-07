@@ -11,7 +11,7 @@ const SAMPLE_DIR: &str = "etc/samples";
 #[derive(Debug)]
 struct FileMap {
     files: RwLock<HashMap<String, PathBuf>>,
-    task_handle: oneshot::Sender<Infallible>,
+    _task_handle: oneshot::Sender<Infallible>,
 }
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ pub struct SoundCommand {
     name: String,
     files: Mutex<std::sync::Weak<FileMap>>,
     songbird_handle: Mutex<HashMap<GuildId, std::sync::Weak<()>>>,
-    notify_handle: RwLock<Option<oneshot::Sender<()>>>,
+    _notify_handle: RwLock<Option<oneshot::Sender<()>>>,
 }
 
 impl From<&CommandOpts> for SoundCommand {
@@ -28,7 +28,7 @@ impl From<&CommandOpts> for SoundCommand {
             name: format!("{}sound", opts.command_base),
             files: Mutex::default(),
             songbird_handle: Mutex::default(),
-            notify_handle: RwLock::default(),
+            _notify_handle: RwLock::default(),
         }
     }
 }
@@ -44,7 +44,7 @@ impl SoundCommand {
 
         let files = Arc::new(FileMap {
             files: RwLock::default(),
-            task_handle,
+            _task_handle: task_handle,
         });
 
         let (ready_tx, ready_rx) = oneshot::channel();
@@ -218,7 +218,7 @@ impl SoundCommand {
         visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
-        let (gid, _memb) = visitor.guild().required()?;
+        let (gid, _memb) = visitor.guild()?.required()?;
         let user = visitor.user();
         let path = visitor.visit_string("path")?.required()?;
 
@@ -275,7 +275,7 @@ impl SoundCommand {
 }
 
 #[async_trait]
-impl Handler<Schema> for SoundCommand {
+impl CommandHandler<Schema> for SoundCommand {
     fn register_global(&self) -> CommandInfo {
         CommandInfo::build_slash(&self.name, ";)", |a| {
             a.build_subcmd("play", "Play a single file", |a| {
@@ -362,7 +362,7 @@ impl RpcHandler<Schema, ComponentKey> for SoundCommand {
         match payload {
             ComponentPayload::Soundboard(s) => {
                 let component::Soundboard { file } = s;
-                let (gid, _memb) = visitor.guild().required()?;
+                let (gid, _memb) = visitor.guild()?.required()?;
                 let user = visitor.user();
 
                 let responder = responder

@@ -14,7 +14,7 @@ impl From<&CommandOpts> for ExplodeCommand {
 }
 
 #[async_trait]
-impl Handler<Schema> for ExplodeCommand {
+impl CommandHandler<Schema> for ExplodeCommand {
     fn register_global(&self) -> CommandInfo { CommandInfo::user(&self.name) }
 
     async fn respond<'a>(

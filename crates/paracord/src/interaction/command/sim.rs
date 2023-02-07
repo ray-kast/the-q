@@ -1,11 +1,12 @@
-use std::num::NonZeroU8;
+use std::{collections::BTreeMap, hash::Hash, num::NonZeroU8};
 
 use strsim::{generic_damerau_levenshtein, normalized_damerau_levenshtein};
 
 use super::{Arg, ArgType, CommandInfo, Data, Subcommand, Trie};
-use crate::prelude::*;
 
+/// Compute the similarity between two command descriptors
 #[inline]
+#[must_use]
 pub fn similarity(l: &CommandInfo, r: &CommandInfo) -> f64 { l.sim(r) }
 
 #[allow(clippy::cast_precision_loss)]

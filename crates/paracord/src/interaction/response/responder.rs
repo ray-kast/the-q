@@ -59,6 +59,8 @@
 //! docs, gateway clients do not need to handle `PING` interactions.
 
 mod private {
+    use std::marker::PhantomData;
+
     use serenity::{
         builder::{
             CreateInteractionResponse, CreateInteractionResponseFollowup, EditInteractionResponse,
@@ -75,10 +77,9 @@ mod private {
     };
 
     use super::super::modal;
-    use crate::prelude::*;
 
     // serenity why
-    #[async_trait]
+    #[async_trait::async_trait]
     pub trait Interaction: Sync {
         async fn create_response<'a>(
             &self,
@@ -126,7 +127,7 @@ mod private {
 
     macro_rules! interaction {
         ($ty:ident) => {
-            #[async_trait]
+            #[async_trait::async_trait]
             impl Interaction for $ty {
                 #[inline]
                 async fn create_response<'a>(
@@ -262,6 +263,8 @@ mod private {
     impl<'a, S, I> CreateFollowup for super::VoidResponder<'a, S, I> {}
 }
 
+use std::{future::Future, marker::PhantomData, mem};
+
 use private::{Interaction, ResponderCore};
 use serenity::{http::Http, model::application::interaction::InteractionResponseType};
 
@@ -269,21 +272,27 @@ use super::{
     super::rpc::Schema, id, Message, MessageBody, MessageOpts, Modal, ModalSourceHandle,
     ResponseData,
 };
-use crate::prelude::*;
 
+/// An error arising from sending an interaction response
 #[derive(Debug, thiserror::Error)]
 pub enum ResponseError {
+    /// A [`serenity`] (or Discord) error occurred
     #[error("Serenity error")]
     Serenity(#[from] serenity::Error),
+    /// An error occurred transcoding an [`Id`](id::Id)
     #[error("Custom ID error for component or modal")]
     Id(#[from] id::Error),
 }
 
+/// A followup message returned from a responder
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct Followup(serenity::model::channel::Message);
 
-#[async_trait]
+/// Common methods for all responder types
+#[async_trait::async_trait]
 pub trait ResponderExt<S: Schema>: private::Responder {
+    /// Create a followup message for this interaction
     #[inline]
     async fn create_followup(
         &self,
@@ -305,6 +314,7 @@ pub trait ResponderExt<S: Schema>: private::Responder {
             .map(Followup)?)
     }
 
+    /// Edit the given followup message for this interaction
     #[inline]
     async fn edit_followup(
         &self,
@@ -329,6 +339,7 @@ pub trait ResponderExt<S: Schema>: private::Responder {
         Ok(())
     }
 
+    /// Delete the given followup message for this interaction
     #[inline]
     async fn delete_followup(&self, fup: Followup) -> Result<(), serenity::Error>
     where Self: private::CreateFollowup {
@@ -343,11 +354,16 @@ pub trait ResponderExt<S: Schema>: private::Responder {
 
 impl<R: private::Responder> ResponderExt<R::Schema> for R {}
 
+/// A responder in its initial state
+///
+/// In this state, a response must be created before any other operations may
+/// occur.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct InitResponder<'a, S, I>(ResponderCore<'a, S, I>);
 
 impl<'a, S, I> InitResponder<'a, S, I> {
+    /// Wrap an HTTP client and interaction reference in a new responder
     #[inline]
     #[must_use]
     pub fn new(http: &'a Http, int: &'a I) -> Self {
@@ -357,10 +373,6 @@ impl<'a, S, I> InitResponder<'a, S, I> {
             schema: PhantomData::default(),
         })
     }
-
-    #[inline]
-    #[must_use]
-    pub fn void(self) -> VoidResponder<'a, S, I> { VoidResponder(self.0) }
 }
 
 impl<'a, S: Schema, I: private::Interaction> InitResponder<'a, S, I> {
@@ -386,6 +398,11 @@ impl<'a, S: Schema, I: private::Interaction> InitResponder<'a, S, I> {
         Ok(next(core))
     }
 
+    /// Create a channel message response
+    ///
+    /// # Errors
+    /// This method returns an error if the message contains errors or an API
+    /// error is received.
     #[inline]
     pub async fn create_message(
         self,
@@ -401,6 +418,10 @@ impl<'a, S: Schema, I: private::Interaction> InitResponder<'a, S, I> {
             .await?)
     }
 
+    /// Create a deferred channel message response
+    ///
+    /// # Errors
+    /// This method returns an error if an API error is received.
     #[inline]
     pub async fn defer_message(
         self,
@@ -416,6 +437,11 @@ impl<'a, S: Schema, I: private::Interaction> InitResponder<'a, S, I> {
 }
 
 impl<'a, S: Schema, I: private::CreateUpdate> InitResponder<'a, S, I> {
+    /// Create a message update response
+    ///
+    /// # Errors
+    /// This method returns an error if the message contains errors or an API
+    /// error is received.
     #[inline]
     pub async fn update_message(
         self,
@@ -431,6 +457,10 @@ impl<'a, S: Schema, I: private::CreateUpdate> InitResponder<'a, S, I> {
             .await?)
     }
 
+    /// Create a deferred message update response
+    ///
+    /// # Errors
+    /// This method returns an error if an API error is received.
     #[inline]
     pub async fn defer_update(
         self,
@@ -448,6 +478,11 @@ impl<'a, S: Schema, I: private::CreateUpdate> InitResponder<'a, S, I> {
 impl<'a, S: Schema, I: private::TryCreateUpdate> InitResponder<'a, S, I> {}
 
 impl<'a, S: Schema, I: private::CreateModal> InitResponder<'a, S, I> {
+    /// Create a modal dialog response
+    ///
+    /// # Errors
+    /// This method returns an error if the modal contains errors or an API
+    /// error is received.
     #[inline]
     pub async fn modal(
         self,
@@ -460,15 +495,25 @@ impl<'a, S: Schema, I: private::CreateModal> InitResponder<'a, S, I> {
     }
 }
 
+/// A responder in its post-create state
+///
+/// In this state, a response message has been created and it may be edited zero
+/// or more times or deleted once.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct CreatedResponder<'a, S, I>(ResponderCore<'a, S, I>);
 
 impl<'a, S: Schema, I: private::Interaction> CreatedResponder<'a, S, I> {
+    /// Void this responder, disallowing any response methods from being called
     #[inline]
     #[must_use]
     pub fn void(self) -> VoidResponder<'a, S, I> { VoidResponder(self.0) }
 
+    /// Edit the interaction response message
+    ///
+    /// # Errors
+    /// This method returns an error if the message contains errors or an API
+    /// error is received.
     #[inline]
     pub async fn edit(
         &self,
@@ -482,19 +527,34 @@ impl<'a, S: Schema, I: private::Interaction> CreatedResponder<'a, S, I> {
             .await?)
     }
 
+    /// Delete the interaction response message
+    ///
+    /// # Errors
+    /// This method returns an error if an API error is received.
     #[inline]
     pub async fn delete(self) -> Result<(), serenity::Error> {
         self.0.int.delete_response(self.0.http).await
     }
 }
 
+/// A responder in its "voided" state
+///
+/// In this state, the response message has been deleted, the response was not
+/// an editable message, or the responder was voided.  No additional response
+/// actions may be performed.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct VoidResponder<'a, S, I>(ResponderCore<'a, S, I>);
 
+/// An "acknowledged" responder
+///
+/// This wrapper holds a responder that is guaranteed to have created a
+/// response, but for which an editable response message may or may not exist.
 #[derive(Debug)]
 pub enum AckedResponder<'a, S, I> {
+    /// A responder created an editable message
     Created(CreatedResponder<'a, S, I>),
+    /// A responder did not create a message or was voided
     Void(VoidResponder<'a, S, I>),
 }
 
@@ -508,13 +568,19 @@ impl<'a, S, I> From<VoidResponder<'a, S, I>> for AckedResponder<'a, S, I> {
     fn from(val: VoidResponder<'a, S, I>) -> Self { Self::Void(val) }
 }
 
+/// A responder that can be borrowed and mutated by a [`BorrowingResponder`]
+#[derive(Debug)]
 pub enum BorrowedResponder<'a, S, I> {
+    /// An initial-state responder
     Init(InitResponder<'a, S, I>),
+    /// A voided responder
     Void(VoidResponder<'a, S, I>),
+    #[doc(hidden)]
     Poison,
 }
 
 impl<'a, S, I> BorrowedResponder<'a, S, I> {
+    /// Wrap an HTTP client and interaction reference in a new responder
     #[inline]
     #[must_use]
     pub fn new(http: &'a Http, int: &'a I) -> Self {
@@ -527,6 +593,17 @@ impl<'a, S, I> BorrowedResponder<'a, S, I> {
 }
 
 impl<'a, S: Schema, I: private::Interaction> BorrowedResponder<'a, S, I> {
+    /// Create a response message if this responder is in its initial state, or
+    /// create a followup message if a response has already been created
+    ///
+    /// # Errors
+    /// This method returns an error if the message contains errors or an API
+    /// error is received.
+    ///
+    /// # Panics
+    /// This method panics if the responder has entered a poisoned state.  This
+    /// should not happen unless a thread panicked in the middle of a state
+    /// update.
     pub async fn create_or_followup(
         &mut self,
         msg: Message<'_, S::Component, id::Error>,
@@ -548,9 +625,17 @@ impl<'a, S: Schema, I: private::Interaction> BorrowedResponder<'a, S, I> {
     }
 }
 
+/// A responder that mutates a [`BorrowedResponder`] when used, to synchronize
+/// type-states outside of a handler function
+#[derive(Debug)]
 pub struct BorrowingResponder<'a, 'b, S, I>(&'a mut BorrowedResponder<'b, S, I>);
 
 impl<'a, 'b, S, I> BorrowingResponder<'a, 'b, S, I> {
+    /// Borrow an existing [`BorrowedResponder`]
+    ///
+    /// # Panics
+    /// This function panics if the borrowed responder is not in its
+    /// [`Init`](BorrowedResponder::Init) state.
     #[inline]
     #[must_use]
     pub fn new(resp: &'a mut BorrowedResponder<'b, S, I>) -> Self {
@@ -587,6 +672,11 @@ impl<'a, 'b, S, I> BorrowingResponder<'a, 'b, S, I> {
 }
 
 impl<'a, 'b, S: Schema, I: private::Interaction> BorrowingResponder<'a, 'b, S, I> {
+    /// Create a channel message response
+    ///
+    /// # Errors
+    /// This method returns an error if the message contains errors or an API
+    /// error is received.
     #[inline]
     pub async fn create_message(
         self,
@@ -596,6 +686,10 @@ impl<'a, 'b, S: Schema, I: private::Interaction> BorrowingResponder<'a, 'b, S, I
         unsafe { self.take(|i| i.create_message(msg)).await }
     }
 
+    /// Create a deferred channel message response
+    ///
+    /// # Errors
+    /// This method returns an error if an API error is received.
     #[inline]
     pub async fn defer_message(
         self,
@@ -607,6 +701,11 @@ impl<'a, 'b, S: Schema, I: private::Interaction> BorrowingResponder<'a, 'b, S, I
 }
 
 impl<'a, 'b, S: Schema, I: private::CreateUpdate> BorrowingResponder<'a, 'b, S, I> {
+    /// Create a message update response
+    ///
+    /// # Errors
+    /// This method returns an error if the message contains errors or an API
+    /// error is received.
     #[inline]
     pub async fn update_message(
         self,
@@ -616,6 +715,10 @@ impl<'a, 'b, S: Schema, I: private::CreateUpdate> BorrowingResponder<'a, 'b, S, 
         unsafe { self.take(|i| i.update_message(msg)).await }
     }
 
+    /// Create a deferred message update response
+    ///
+    /// # Errors
+    /// This method returns an error if an API error is received.
     #[inline]
     pub async fn defer_update(
         self,
@@ -629,6 +732,11 @@ impl<'a, 'b, S: Schema, I: private::CreateUpdate> BorrowingResponder<'a, 'b, S, 
 impl<'a, 'b, S: Schema, I: private::TryCreateUpdate> BorrowingResponder<'a, 'b, S, I> {}
 
 impl<'a, 'b, S: Schema, I: private::CreateModal> BorrowingResponder<'a, 'b, S, I> {
+    /// Create a modal dialog response
+    ///
+    /// # Errors
+    /// This method returns an error if the modal contains errors or an API
+    /// error is received.
     #[inline]
     pub async fn modal(
         self,

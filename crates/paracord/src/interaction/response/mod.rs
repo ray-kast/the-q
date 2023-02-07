@@ -1,3 +1,6 @@
+//! Types for responding to interactions according to the Discord webhook
+//! protocol in a type-safe manner
+
 mod component;
 mod data;
 mod embed;
@@ -13,6 +16,7 @@ pub use message::*;
 pub use modal::*;
 pub use responder::*;
 
+/// Helper traits for working with response data
 pub mod prelude {
     pub use super::{
         component::{

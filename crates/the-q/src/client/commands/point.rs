@@ -14,7 +14,7 @@ impl From<&CommandOpts> for PointCommand {
 }
 
 #[async_trait]
-impl Handler<Schema> for PointCommand {
+impl CommandHandler<Schema> for PointCommand {
     fn register_global(&self) -> CommandInfo { CommandInfo::message(&self.name) }
 
     async fn respond<'a>(

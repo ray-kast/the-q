@@ -10,7 +10,6 @@
 )]
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
-#![allow(dead_code)] // TODO
 
 pub(crate) mod client;
 mod entry;

@@ -95,9 +95,11 @@ pub(super) fn run(args: &syn::AttributeArgs, mut body: syn::ItemImpl) -> TokenSt
             m.to_tokens(&mut t);
             t
         });
+    let attrs = &body.attrs;
     let ty_name = &body.self_ty;
     quote_spanned! { body.brace_token.span =>
         #diag
+        #(#attrs)*
         #vis trait #trait_name <#impl_generic_params>:
             ::std::borrow::BorrowMut<#ty_name> + ::std::marker::Sized
             where #impl_generic_where
@@ -166,6 +168,10 @@ fn make_builder_method(m: syn::ImplItem, diag: &mut TokenStream) -> syn::ImplIte
     let span = m.span();
     let Some(syn::FnArg::Receiver(r)) = m.sig.inputs.first_mut() else { unreachable!() };
     r.reference = None;
+
+    m.attrs.push(syn::parse_quote! {
+        #[allow(clippy::return_self_not_must_use)]
+    });
 
     m.sig.output = syn::parse_quote_spanned! { span => -> Self };
 

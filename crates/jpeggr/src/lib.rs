@@ -10,9 +10,6 @@
 )]
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
-#![allow(missing_docs)] // TODO
-
-use std::fmt::Display;
 
 pub use image;
 use image::{
@@ -22,6 +19,21 @@ use image::{
     PixelWithColorType,
 };
 
+/// An error arising from JPEG-ing pixels
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// The [`image`] crate raised an error
+    #[error("Image format error")]
+    Image(#[from] ImageError),
+    /// A [`ColorType`] was encountered that was not supported
+    #[error("Unsupported color type {0:?}")]
+    UnsupportedColorType(ColorType),
+}
+
+/// Apply JPEG compression to the given pixel buffer
+///
+/// # Errors
+/// This function returns an error if the JPEG transcoder fails
 pub fn jpeg_pixels(
     pixels: Vec<u8>,
     width: u32,
@@ -47,6 +59,10 @@ pub fn jpeg_pixels(
     Ok(decoded_data)
 }
 
+/// Apply JPEG compression to the given image buffer
+///
+/// # Errors
+/// This function returns an error if the JPEG transcoder fails
 pub fn jpeg_buffer<P>(
     image: ImageBuffer<P, Vec<u8>>,
     iterations: usize,
@@ -67,31 +83,10 @@ where
     Ok(ImageBuffer::from_vec(width, height, data).expect("Wrong buffer size?"))
 }
 
-#[derive(Debug)]
-pub enum Error {
-    Image(ImageError),
-    UnsupportedColorType(ColorType),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::Image(err) => err.fmt(f),
-            Error::UnsupportedColorType(color_type) => {
-                write!(f, "Unsupported color type {color_type:?}")
-            },
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { None }
-}
-
-impl From<ImageError> for Error {
-    fn from(err: ImageError) -> Error { Error::Image(err) }
-}
-
+/// Apply JPEG compression to the given [`DynamicImage`]
+///
+/// # Errors
+/// This function returns an error if the JPEG transcoder fails
 pub fn jpeg_dynamic_image(
     image: DynamicImage,
     iterations: usize,

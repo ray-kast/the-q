@@ -1147,6 +1147,7 @@ name = "jpeggr"
 version = "0.1.0"
 dependencies = [
  "image",
+ "thiserror",
 ]
 
 [[package]]
@@ -1519,6 +1520,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
+name = "paracord"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64k",
+ "chrono",
+ "ordered-float 3.4.0",
+ "prost 0.11.6",
+ "qcore",
+ "serde",
+ "serde_json",
+ "serenity",
+ "strsim",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+ "zstd",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1824,6 +1847,7 @@ dependencies = [
  "git2",
  "prost 0.11.6",
  "prost-types 0.11.6",
+ "shrec",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -2283,6 +2307,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "shrec"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2446,8 +2477,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64k",
- "chrono",
  "clap",
  "dotenv",
  "futures-util",
@@ -2457,23 +2486,21 @@ dependencies = [
  "notify",
  "once_cell",
  "ordered-float 3.4.0",
+ "paracord",
  "prost 0.11.6",
  "prost-build",
  "qcore",
  "reqwest",
- "serde",
- "serde_json",
  "serenity",
+ "shrec",
  "songbird",
  "strsim",
- "thiserror",
  "tokio",
  "tracing",
  "tracing-loki",
  "tracing-subscriber",
  "url",
  "walkdir",
- "zstd",
 ]
 
 [[package]]

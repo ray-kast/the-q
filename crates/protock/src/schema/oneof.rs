@@ -3,11 +3,12 @@ use std::{
     fmt::Write,
 };
 
+use shrec::union_find::UnionFind;
+
 use super::ty::TypeContext;
 use crate::{
     check_compat::{CompatError, CompatLog},
     compat_pair::{CompatPair, Side, SideInclusive},
-    union_find::UnionFind,
 };
 
 #[derive(Debug)]

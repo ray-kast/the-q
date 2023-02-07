@@ -1,5 +1,10 @@
-use std::{collections::BinaryHeap, fmt::Write};
+use std::{
+    collections::{BinaryHeap, HashMap, HashSet},
+    fmt::{self, Write},
+    sync::Arc,
+};
 
+use anyhow::Context as _;
 use ordered_float::OrderedFloat;
 use serenity::{
     client::{Cache, Context},
@@ -35,7 +40,6 @@ use super::{
     rpc::{ComponentId, Key, ModalId, Schema},
     visitor,
 };
-use crate::prelude::*;
 
 #[inline]
 fn write_string(f: impl FnOnce(&mut String) -> fmt::Result) -> String {
@@ -277,6 +281,8 @@ type ModalInfo<'a, S> = (
     <S as Schema>::ModalPayload,
 );
 
+/// A self-contained registry of interaction handlers, which can register and
+/// dispatch response logic to each handler
 #[derive(Debug)]
 pub struct Registry<S: Schema> {
     handlers: handler::Handlers<S>,
@@ -286,12 +292,12 @@ pub struct Registry<S: Schema> {
 }
 
 impl<S: Schema> Registry<S> {
-    #[instrument(level = "info", skip(ctx))]
+    #[tracing::instrument(level = "info", skip(ctx))]
     async fn patch_commands(
         ctx: &Context,
         init: &handler::Handlers<S>,
         guild: Option<GuildId>,
-    ) -> Result<CommandHandlerMap<S>> {
+    ) -> Result<CommandHandlerMap<S>, anyhow::Error> {
         if let Some(guild) = guild {
             todo!("handle guild {guild}");
         }
@@ -318,7 +324,7 @@ impl<S: Schema> Registry<S> {
             .collect();
         assert_eq!(new.len(), commands.len());
 
-        let mut unpaired_new: HashSet<_> = HashSet::new();
+        let mut unpaired_new = HashSet::new();
 
         for (name, (cmd, inf)) in &new {
             if let Some(reg) = unpaired_existing.remove(inf) {
@@ -352,7 +358,7 @@ impl<S: Schema> Registry<S> {
             }
 
             let (cmd, inf) = new.remove(&new_name).unwrap_or_else(|| unreachable!());
-            info!(
+            tracing::info!(
                 ?sim,
                 id = ?existing.id,
                 old = ?existing.info.name(),
@@ -370,7 +376,7 @@ impl<S: Schema> Registry<S> {
 
         for name in unpaired_new {
             let (cmd, inf) = new.remove(&name).unwrap_or_else(|| unreachable!());
-            info!("Creating global command {name:?}");
+            tracing::info!("Creating global command {name:?}");
             let res = Command::create_global_application_command(&ctx.http, |c| inf.build(c))
                 .await
                 .with_context(|| format!("Error creating command {name:?}"))?;
@@ -379,7 +385,7 @@ impl<S: Schema> Registry<S> {
         }
 
         for (inf, reg) in unpaired_existing {
-            info!(
+            tracing::info!(
                 "Deleting unregistered command {:?} (ID {:?})",
                 inf.name(),
                 reg.id,
@@ -410,16 +416,15 @@ impl<S: Schema> Registry<S> {
         id: CommandId,
     ) -> Result<&'a CommandHandler<S>, &'static str> {
         let Some(ref map) = **map else {
-            warn!("Rejecting command due to uninitialized registry");
+            tracing::warn!("Rejecting command due to uninitialized registry");
             return Err("Still starting!  Please try again later.");
         };
 
         let Some(handler) = map.get(&id) else {
-            warn!("Rejecting unknown command");
+            tracing::warn!("Rejecting unknown command");
             return Err("Unknown command - this may be a bug.");
         };
 
-        debug!(?handler, "Command handler selected");
         Ok(handler)
     }
 
@@ -428,7 +433,7 @@ impl<S: Schema> Registry<S> {
         id: &id::Id<'_>,
     ) -> Result<ComponentInfo<'a, S>, &'static str> {
         let Some(ref map) = **map else {
-            warn!("Rejecting component due to uninitialized registry");
+            tracing::warn!("Rejecting component due to uninitialized registry");
             return Err("Still starting!  Please try again later.");
         };
 
@@ -438,21 +443,20 @@ impl<S: Schema> Registry<S> {
         {
             Ok(p) => p,
             Err(Some(err)) => {
-                error!(%err, "Unable to parse component ID");
+                tracing::error!(%err, "Unable to parse component ID");
                 return Err("Unrecognized component ID format - this is a bug.");
             },
             Err(None) => {
-                warn!("Rejecting unknown (deprecated?) component ID");
+                tracing::warn!("Rejecting unknown (deprecated?) component ID");
                 return Err("Invalid component ID - this feature may have been removed.");
             },
         };
 
         let Some(handler) = map.get(&(&payload).into()) else {
-            warn!("Rejecting unknown component");
+            tracing::warn!("Rejecting unknown component");
             return Err("Unknown component - this may be a bug.");
         };
 
-        debug!(?handler, ?payload, "Component handler selected");
         Ok((handler, payload))
     }
 
@@ -461,7 +465,7 @@ impl<S: Schema> Registry<S> {
         id: &id::Id<'_>,
     ) -> Result<ModalInfo<'a, S>, &'static str> {
         let Some(ref map) = **map else {
-            warn!("Rejecting modal due to uninitialized registry");
+            tracing::warn!("Rejecting modal due to uninitialized registry");
             return Err("Still starting!  Please try again later.");
         };
 
@@ -471,21 +475,20 @@ impl<S: Schema> Registry<S> {
         {
             Ok(p) => p,
             Err(Some(err)) => {
-                error!(%err, "Unable to parse modal ID");
+                tracing::error!(%err, "Unable to parse modal ID");
                 return Err("Unrecognized modal ID format - this is a bug.");
             },
             Err(None) => {
-                warn!("Rejecting unknown (deprecated?) modal ID");
+                tracing::warn!("Rejecting unknown (deprecated?) modal ID");
                 return Err("Invalid modal ID - this feature may have been removed.");
             },
         };
 
         let Some(handler) = map.get(&(&payload).into()) else {
-            warn!("Rejecting unknown modal");
+            tracing::warn!("Rejecting unknown modal");
             return Err("Unknown modal - this may be a bug.");
         };
 
-        debug!(?handler, ?source, ?payload, "Modal handler selected");
         Ok((handler, source, payload))
     }
 
@@ -496,7 +499,7 @@ impl<S: Schema> Registry<S> {
         match err {
             handler::HandlerError::Parse(err) => match err {
                 visitor::Error::GuildRequired => {
-                    debug!(%err, "Responding with guild error");
+                    tracing::debug!(%err, "Responding with guild error");
                     Message::rich(|b| {
                         b.push_bold("ERROR:")
                             .push(" This ")
@@ -507,7 +510,7 @@ impl<S: Schema> Registry<S> {
                     .into()
                 },
                 visitor::Error::DmRequired => {
-                    debug!(%err, "Responding with non-guild error");
+                    tracing::debug!(%err, "Responding with non-guild error");
                     Message::rich(|b| {
                         b.push_bold("ERROR:")
                             .push(" This ")
@@ -518,7 +521,7 @@ impl<S: Schema> Registry<S> {
                     .into()
                 },
                 err => {
-                    error!(%err, "Unexpected error parsing {desc}");
+                    tracing::error!(%err, "Unexpected error parsing {desc}");
                     Message::rich(|b| {
                         b.push("Unexpected error parsing ")
                             .push(desc)
@@ -530,11 +533,11 @@ impl<S: Schema> Registry<S> {
                 },
             },
             handler::HandlerError::User(err, _res) => {
-                debug!(err, "Handler for {desc} responded to user with error");
+                tracing::debug!(err, "Handler for {desc} responded to user with error");
                 None
             },
             handler::HandlerError::Other(err) => {
-                error!(?err, "Unexpected error handling {desc}");
+                tracing::error!(?err, "Unexpected error handling {desc}");
                 Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
                     .ephemeral(true)
                     .into()
@@ -542,6 +545,8 @@ impl<S: Schema> Registry<S> {
         }
     }
 
+    /// Construct a new registry from the given set of handlers
+    #[must_use]
     pub fn new(handlers: handler::Handlers<S>) -> Self {
         Self {
             handlers,
@@ -551,8 +556,14 @@ impl<S: Schema> Registry<S> {
         }
     }
 
+    /// Initialize dispatch logic and register all necessary metadata with
+    /// Discord
+    ///
+    /// # Errors
+    /// This method returns an error if an API error response is received during
+    /// registration.
     #[inline]
-    pub async fn init(&self, ctx: &Context) -> Result {
+    pub async fn init(&self, ctx: &Context) -> Result<(), anyhow::Error> {
         let mut commands = self.commands.write().await;
         let mut components = self.components.write().await;
         let mut modals = self.modals.write().await;
@@ -566,7 +577,7 @@ impl<S: Schema> Registry<S> {
         Ok(())
     }
 
-    #[instrument(level = "error", name = "handle_command", err, skip(self, ctx, aci))]
+    #[tracing::instrument(level = "error", name = "handle_command", err, skip(self, ctx, aci))]
     async fn try_handle_command(
         &self,
         ctx: &Context,
@@ -575,7 +586,7 @@ impl<S: Schema> Registry<S> {
         id: String,
         issuer: String,
     ) -> Result<(), ResponseError> {
-        info!("Handling application command");
+        tracing::info!("Handling application command");
 
         let map = self.commands.read().await;
         let responder = InitResponder::new(&ctx.http, &aci);
@@ -588,6 +599,7 @@ impl<S: Schema> Registry<S> {
                     .map(|_| ());
             },
         };
+        tracing::debug!(?handler, "Command handler selected");
 
         let mut vis = visitor::CommandVisitor::new(&aci);
         let mut responder = BorrowedResponder::Init(responder);
@@ -606,7 +618,7 @@ impl<S: Schema> Registry<S> {
         Ok(())
     }
 
-    #[instrument(level = "error", name = "handle_component", err, skip(self, ctx, mc))]
+    #[tracing::instrument(level = "error", name = "handle_component", err, skip(self, ctx, mc))]
     async fn try_handle_component(
         &self,
         ctx: &Context,
@@ -615,7 +627,7 @@ impl<S: Schema> Registry<S> {
         id: String,
         issuer: String,
     ) -> Result<(), ResponseError> {
-        info!("Handling message component");
+        tracing::info!("Handling message component");
 
         let map = self.components.read().await;
         let responder = InitResponder::new(&ctx.http, &mc);
@@ -630,8 +642,9 @@ impl<S: Schema> Registry<S> {
                     .map(|_| ());
             },
         };
+        tracing::debug!(?handler, ?payload, "Component handler selected");
 
-        let mut vis = visitor::BasicVisitor::new(&mc);
+        let mut vis = visitor::BasicVisitor { int: &mc };
         let mut responder = BorrowedResponder::Init(responder);
         let res = handler
             .respond(
@@ -652,7 +665,7 @@ impl<S: Schema> Registry<S> {
         Ok(())
     }
 
-    #[instrument(
+    #[tracing::instrument(
         level = "error",
         name = "handle_autocomplete",
         err,
@@ -666,7 +679,7 @@ impl<S: Schema> Registry<S> {
         id: String,
         issuer: String,
     ) -> Result<(), serenity::Error> {
-        trace!("Handling command autocomplete");
+        tracing::trace!("Handling command autocomplete");
 
         let map = self.commands.read().await;
         let handler = Self::resolve_command(&map, ac.data.id).ok();
@@ -676,15 +689,17 @@ impl<S: Schema> Registry<S> {
             handler
                 .complete(ctx, &mut vis)
                 .await
-                .map_err(|err| error!(%err, "Error in command completion"))
+                .map_err(|err| tracing::error!(%err, "Error in command completion"))
                 .and_then(|c| {
-                    serde_json::to_value(c)
-                        .map_err(|err| error!(%err, "Error serializing command completions"))
+                    serde_json::to_value(c).map_err(
+                        |err| tracing::error!(%err, "Error serializing command completions"),
+                    )
                 })
                 .ok()
         } else {
             None
         };
+        tracing::trace!(?handler, "Command handler selected");
 
         ac.create_autocomplete_response(&ctx.http, |ac| {
             if let Some(choices) = choices {
@@ -696,7 +711,7 @@ impl<S: Schema> Registry<S> {
         .await
     }
 
-    #[instrument(level = "error", name = "handle_modal", err, skip(self, ctx, ms))]
+    #[tracing::instrument(level = "error", name = "handle_modal", err, skip(self, ctx, ms))]
     async fn try_handle_modal(
         &self,
         ctx: &Context,
@@ -705,7 +720,7 @@ impl<S: Schema> Registry<S> {
         id: String,
         issuer: String,
     ) -> Result<(), ResponseError> {
-        info!("Handling modal submit");
+        tracing::info!("Handling modal submit");
 
         let map = self.modals.read().await;
         let responder = InitResponder::new(&ctx.http, &ms);
@@ -720,8 +735,10 @@ impl<S: Schema> Registry<S> {
                     .map(|_| ());
             },
         };
+        tracing::debug!(?handler, ?src, ?payload, "Modal handler selected");
+        let src = src; // TODO: use this
 
-        let mut vis = visitor::BasicVisitor::new(&ms);
+        let mut vis = visitor::BasicVisitor { int: &ms };
         let mut responder = BorrowedResponder::Init(responder);
         let res = handler
             .respond(
@@ -742,6 +759,8 @@ impl<S: Schema> Registry<S> {
         Ok(())
     }
 
+    /// Dispatch a command interaction to the proper handler and submit a
+    /// response
     #[inline]
     pub async fn handle_command(&self, ctx: &Context, aci: ApplicationCommandInteraction) {
         let cache = &ctx.cache;
@@ -749,12 +768,18 @@ impl<S: Schema> Registry<S> {
         self.try_handle_command(ctx, aci, name, id, iss).await.ok();
     }
 
+    /// Dispatch a component interaction to the proper handler and submit a
+    /// response
+    #[inline]
     pub async fn handle_component(&self, ctx: &Context, mc: MessageComponentInteraction) {
         let cache = &ctx.cache;
         let (name, id, iss) = (mc_name::<S>(&mc), mc_id(&mc), mc_issuer(cache, &mc));
         self.try_handle_component(ctx, mc, name, id, iss).await.ok();
     }
 
+    /// Dispatch an autocomplete interaction to the proper handler and submit a
+    /// response
+    #[inline]
     pub async fn handle_autocomplete(&self, ctx: &Context, ac: AutocompleteInteraction) {
         let cache = &ctx.cache;
         let (name, id, iss) = (ac_name(cache, &ac), ac_id(&ac), ac_issuer(cache, &ac));
@@ -763,6 +788,9 @@ impl<S: Schema> Registry<S> {
             .ok();
     }
 
+    /// Dispatch a modal-submit interaction to the proper handler and submit a
+    /// response
+    #[inline]
     pub async fn handle_modal(&self, ctx: &Context, ms: ModalSubmitInteraction) {
         let cache = &ctx.cache;
         let (name, id, iss) = (ms_name::<S>(&ms), ms_id(&ms), ms_issuer(cache, &ms));

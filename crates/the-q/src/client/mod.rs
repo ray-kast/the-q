@@ -5,7 +5,6 @@ use crate::{prelude::*, util::DebugShim};
 
 mod commands;
 mod handler;
-mod interaction;
 
 #[derive(Debug, clap::Args)]
 pub struct ClientOpts {
