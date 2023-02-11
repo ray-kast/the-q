@@ -121,7 +121,7 @@ impl SoundCommand {
                 }
             }
             .map_err(|err| error!(%err, "Sample watcher crashed"))
-            .instrument(error_span!("watch_samples")),
+            .instrument(error_span!(parent: None, "watch_samples")),
         );
 
         ready_rx

@@ -21,10 +21,10 @@ impl CommandHandler<Schema> for ReCommand {
         &self,
         _: &Context,
         visitor: &mut CommandVisitor<'_>,
-        _responder: CommandResponder<'_, 'a>,
+        responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
-        let _target = visitor.target().message()?;
+        let target = visitor.target().message()?;
 
-        todo!()
+        Ok(todo!())
     }
 }
