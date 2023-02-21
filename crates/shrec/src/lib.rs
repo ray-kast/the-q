@@ -10,5 +10,10 @@
 )]
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(missing_docs)] // TODO
 
+pub mod dfa;
+pub mod free;
+pub mod nfa;
+pub mod re;
 pub mod union_find;

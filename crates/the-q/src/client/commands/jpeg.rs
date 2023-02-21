@@ -149,6 +149,7 @@ impl From<&CommandOpts> for JpegMessageCommand {
 impl CommandHandler<Schema> for JpegMessageCommand {
     fn register_global(&self) -> CommandInfo { CommandInfo::message(&self.name) }
 
+    // TODO: simplify error handling
     async fn respond<'a>(
         &self,
         _ctx: &Context,
@@ -213,6 +214,7 @@ impl CommandHandler<Schema> for JpegMessageCommand {
 
         let bytes = jpeg(input, None).await?;
 
+        // TODO: post file size difference
         let attachment = AttachmentType::Bytes {
             data: bytes.into(),
             filename: PathBuf::from(filename)

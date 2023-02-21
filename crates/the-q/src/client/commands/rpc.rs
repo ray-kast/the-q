@@ -5,7 +5,7 @@ use serenity::model::application::interaction::{
 use super::prelude::*;
 
 #[derive(Debug)]
-pub struct Schema;
+pub enum Schema {}
 
 impl rpc::Schema for Schema {
     type Component = component::Component;

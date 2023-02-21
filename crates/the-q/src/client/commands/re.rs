@@ -1,3 +1,5 @@
+use shrec::re::Regex;
+
 use super::prelude::*;
 
 #[derive(Debug)]
@@ -25,6 +27,19 @@ impl CommandHandler<Schema> for ReCommand {
     ) -> CommandResult<'a> {
         let target = visitor.target().message()?;
 
-        Ok(todo!())
+        let msg = {
+            let re = Regex::Alt(vec![Regex::Lit("hi".chars()), Regex::Lit("there".chars())]);
+            let nfa = re.compile_scanner();
+            let dfa = nfa.compile();
+
+            Message::rich(|m| m.push_codeblock_safe(format!("{dfa:?}"), None))
+        };
+
+        let responder = responder
+            .create_message(msg)
+            .await
+            .context("Error sending DFA message")?;
+
+        Ok(responder.into())
     }
 }
