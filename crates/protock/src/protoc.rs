@@ -9,7 +9,8 @@ where I::Item: AsRef<Path> {
     let mut tmp = tempfile::NamedTempFile::new().context("Error creating descriptor tempfile")?;
 
     let mut cmd = std::process::Command::new("protoc");
-    cmd.arg(format!("--descriptor_set_out={}", tmp.path().display()));
+    cmd.arg("--include_imports")
+        .arg(format!("--descriptor_set_out={}", tmp.path().display()));
 
     files.into_iter().try_fold(&mut cmd, |c, f| {
         let f = f.as_ref();

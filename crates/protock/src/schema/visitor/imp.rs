@@ -4,9 +4,10 @@ use prost_types::{
     descriptor_proto::ReservedRange,
     enum_descriptor_proto::EnumReservedRange,
     field_descriptor_proto::{Label, Type as TypeDesc},
+    file_options::OptimizeMode,
     DescriptorProto, EnumDescriptorProto, EnumOptions, EnumValueDescriptorProto,
-    FieldDescriptorProto, FieldOptions, FileDescriptorProto, FileDescriptorSet, MessageOptions,
-    OneofDescriptorProto,
+    FieldDescriptorProto, FieldOptions, FileDescriptorProto, FileDescriptorSet, FileOptions,
+    MessageOptions, OneofDescriptorProto,
 };
 
 use super::{scope::GlobalScope, scope_ref::ScopeRef};
@@ -33,6 +34,8 @@ impl<'a> Visitor<'a> {
     pub fn fildes_set(&mut self, desc: &FileDescriptorSet) {
         let scope = GlobalScope::new(desc);
 
+        tracing::trace!("{scope:#?}");
+
         let FileDescriptorSet { file } = desc;
 
         file.iter().for_each(|f| self.fildes(&scope, f));
@@ -46,11 +49,23 @@ impl<'a> Visitor<'a> {
         enums: &[EnumDescriptorProto],
     ) {
         for m in msgs {
-            self.desc(&scope.clone().item(m.name.as_deref().unwrap()).unwrap(), m);
+            self.desc(
+                &scope
+                    .clone()
+                    .child(m.name.as_deref().unwrap())
+                    .expect("Missing message scope"),
+                m,
+            );
         }
 
         for e in enums {
-            self.enum_desc(&scope.clone().item(e.name.as_deref().unwrap()).unwrap(), e);
+            self.enum_desc(
+                &scope
+                    .clone()
+                    .child(e.name.as_deref().unwrap())
+                    .expect("Missing enum scope"),
+                e,
+            );
         }
     }
 
@@ -70,16 +85,53 @@ impl<'a> Visitor<'a> {
             syntax,
         } = desc;
 
-        assert!(dependency.is_empty());
+        assert!(dependency.iter().all(|d| d.starts_with("google/protobuf")));
         assert!(public_dependency.is_empty());
         assert!(weak_dependency.is_empty());
         assert!(service.is_empty());
         assert!(extension.is_empty());
-        assert!(options.is_none());
         assert!(source_code_info.is_none());
         assert_eq!(syntax.as_deref(), Some("proto3"));
 
-        let scope = scope.package(&package.as_deref()).unwrap();
+        let (optimize, deprecated) = if let Some(opts) = options {
+            #[allow(deprecated)] // explicitly ignoring java_generate_equals_and_hash
+            let FileOptions {
+                java_package: _,
+                java_outer_classname: _,
+                java_multiple_files: _,
+                java_generate_equals_and_hash: _,
+                java_string_check_utf8: _,
+                optimize_for,
+                go_package: _,
+                cc_generic_services: _,
+                java_generic_services: _,
+                py_generic_services: _,
+                php_generic_services: _,
+                deprecated,
+                cc_enable_arenas: _,
+                objc_class_prefix: _,
+                csharp_namespace: _,
+                swift_prefix: _,
+                php_class_prefix: _,
+                php_namespace: _,
+                php_metadata_namespace: _,
+                ruby_package: _,
+                uninterpreted_option,
+            } = opts;
+
+            assert!(uninterpreted_option.is_empty());
+
+            (
+                optimize_for
+                    .and_then(OptimizeMode::from_i32)
+                    .unwrap_or_default(),
+                deprecated.unwrap_or(false),
+            )
+        } else {
+            (OptimizeMode::default(), false)
+        };
+
+        let scope = scope.package_ref(package).unwrap();
 
         self.descend(&scope, message_type, enum_type);
     }

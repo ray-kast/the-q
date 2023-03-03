@@ -1,88 +1,103 @@
-use std::{borrow::Borrow, collections::HashMap, hash::Hash};
+use std::{
+    borrow::{Borrow, Cow},
+    collections::HashMap,
+    hash::Hash,
+    mem,
+};
 
 use prost_types::{DescriptorProto, EnumDescriptorProto, FileDescriptorProto, FileDescriptorSet};
 
 use super::scope_ref::ScopeRef;
 use crate::schema::qual_name::QualName;
 
-#[derive(Debug)]
-pub struct GlobalScope<'a> {
-    packages: HashMap<Option<&'a str>, Scope<'a>>,
+#[derive(Debug, Default)]
+#[repr(transparent)]
+pub struct GlobalScope<'a>(pub(super) Scope<'a>);
+
+#[inline]
+fn split_package<'a, S: AsRef<str> + 'a>(
+    package: &'a Option<S>,
+) -> impl Iterator<Item = &'a str> + 'a {
+    package.iter().flat_map(move |s| s.as_ref().split('.'))
 }
 
 impl<'a> GlobalScope<'a> {
     pub fn new(fildes_set: &'a FileDescriptorSet) -> Self {
-        Self {
-            packages: fildes_set
-                .file
-                .iter()
-                .map(|f| (f.package.as_deref(), Scope::package(f)))
-                .collect(),
-        }
-    }
-
-    pub fn package<Q: Eq + Hash + ?Sized>(&'a self, package: &Q) -> Option<ScopeRef<'a>>
-    where Option<&'a str>: Borrow<Q> {
-        self.packages.get(package).map(|scope| {
-            assert!(matches!(scope, Scope::Package { .. }));
-            ScopeRef {
-                global: self,
-                parent: None,
-                scope,
-            }
-        })
-    }
-
-    pub fn resolve_one(&'a self, name: &'a str) -> Option<(Option<&'a str>, ScopeRef<'a>)> {
-        let package = self.packages.get(&Some(name));
-        let anon = self
-            .packages
-            .get(&None)
-            .and_then(|p| p.items().get(name).map(|c| (p, c)));
-
-        let (package, scope) = match (package, anon) {
-            (None, None) => return None,
-            (Some(pkg), None) => (pkg, pkg),
-            (None, Some((pkg, scope))) => (pkg, scope),
-            (Some(_), Some(_)) => {
-                panic!("Conflict for {name:?} between package and anon-packaged type")
-            },
-        };
-
-        let Scope::Package { name, .. } = *package else { panic!("Invalid global scope") };
-
-        Some((name, ScopeRef {
-            global: self,
-            parent: None,
-            scope,
+        Self(fildes_set.file.iter().fold(Scope::default(), |mut p, f| {
+            split_package(&f.package)
+                .fold(&mut p, |n, p| {
+                    n.children.entry(p).or_insert_with(Scope::default)
+                })
+                .package(f);
+            p
         }))
     }
 
-    pub fn resolve(&'a self, path: impl IntoIterator<Item = &'a str>) -> Option<QualName<'a>> {
-        let mut path = path.into_iter();
-        let base = path.next().expect("Invalid fully-qualified path");
+    #[inline]
+    pub fn package_ref<S: AsRef<str>>(&self, package: &Option<S>) -> Option<ScopeRef> {
+        let ret = split_package(package).try_fold(ScopeRef::new(self), ScopeRef::child)?;
 
-        let (package, ScopeRef { mut scope, .. }) = self.resolve_one(base)?;
+        matches!(ret.scope.kind, Some(ScopeKind::Package(_))).then_some(ret)
+    }
+
+    pub fn resolve<'b, Q: Eq + Hash + ?Sized + 'b>(
+        &self,
+        path: impl IntoIterator<Item = &'b Q>,
+    ) -> Option<QualName<'a>>
+    where
+        &'a str: Borrow<Q>,
+    {
+        let mut package = None;
+        let mut parts = vec![];
+        let mut curr = &self.0;
+        let mut path = path.into_iter();
+
+        loop {
+            match curr.kind {
+                Some(ScopeKind::Package(p)) => {
+                    package = Some(p);
+                    parts.clear();
+                },
+                Some(ScopeKind::Type(t)) => {
+                    parts.push(Cow::Borrowed(t));
+                },
+                None => assert!(
+                    package.is_none(),
+                    "Invalid global scope tree (empty scope inside package)"
+                ),
+            }
+
+            let Some(part) = path.next() else { break };
+            curr = curr.children.get(part)?;
+        }
 
         Some(QualName::new(
-            package.map(Into::into),
-            std::iter::from_fn(|| {
-                let Some(child) = scope.items().get(path.next()?) else { return Some(None) };
-                scope = child;
-                let Scope::Type { name, .. } = *child else { panic!("Invalid scope") };
-                Some(Some(name.into()))
-            })
-            .collect::<Option<_>>()?,
+            package
+                .expect("Invalid global scope tree (missing package)")
+                .map(Into::into),
+            parts,
         ))
     }
 }
 
-type ScopeItems<'a> = HashMap<&'a str, Scope<'a>>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ScopeKind<'a> {
+    Package(Option<&'a str>),
+    Type(&'a str),
+}
 
-fn scope_items<'a>(
+type ScopeChildren<'a> = HashMap<&'a str, Scope<'a>>;
+
+#[derive(Debug, Default)]
+pub(super) struct Scope<'a> {
+    pub kind: Option<ScopeKind<'a>>,
+    pub children: ScopeChildren<'a>,
+}
+
+fn scope_children<'a>(
     msgs: impl IntoIterator<Item = &'a DescriptorProto>,
     enums: impl IntoIterator<Item = &'a EnumDescriptorProto>,
-) -> ScopeItems<'a> {
+) -> impl Iterator<Item = (&'a str, Scope<'a>)> {
     msgs.into_iter()
         .map(|m| (m.name.as_deref().unwrap(), Scope::message(m)))
         .chain(
@@ -90,46 +105,38 @@ fn scope_items<'a>(
                 .into_iter()
                 .map(|e| (e.name.as_deref().unwrap(), Scope::enumeration(e))),
         )
-        .collect()
-}
-
-#[derive(Debug)]
-pub enum Scope<'a> {
-    Package {
-        name: Option<&'a str>,
-        items: ScopeItems<'a>,
-    },
-    Type {
-        name: &'a str,
-        nested: ScopeItems<'a>,
-    },
 }
 
 impl<'a> Scope<'a> {
-    fn package(fildes: &'a FileDescriptorProto) -> Self {
-        Self::Package {
-            name: fildes.package.as_deref(),
-            items: scope_items(&fildes.message_type, &fildes.enum_type),
-        }
-    }
-
     fn message(msg: &'a DescriptorProto) -> Self {
-        Self::Type {
-            name: msg.name.as_deref().unwrap(),
-            nested: scope_items(&msg.nested_type, &msg.enum_type),
+        Self {
+            kind: Some(ScopeKind::Type(msg.name.as_deref().unwrap())),
+            children: scope_children(&msg.nested_type, &msg.enum_type).collect(),
         }
     }
 
     fn enumeration(num: &'a EnumDescriptorProto) -> Self {
-        Self::Type {
-            name: num.name.as_deref().unwrap(),
-            nested: scope_items([], []),
+        Self {
+            kind: Some(ScopeKind::Type(num.name.as_deref().unwrap())),
+            children: scope_children([], []).collect(),
         }
     }
 
-    pub fn items(&self) -> &ScopeItems<'a> {
-        match self {
-            Self::Package { items, .. } | Self::Type { nested: items, .. } => items,
+    fn package(&mut self, fildes: &'a FileDescriptorProto) {
+        let kind = ScopeKind::Package(fildes.package.as_deref());
+        let prev = mem::replace(&mut self.kind, Some(kind));
+        assert!(
+            prev.map_or(true, |k| k == kind),
+            "Package scope {:?} conflicts with existing definition {prev:?}",
+            fildes.package
+        );
+
+        for (k, v) in scope_children(&fildes.message_type, &fildes.enum_type) {
+            assert!(
+                self.children.insert(k, v).is_none(),
+                "Duplicate declaration {k:?} in package {:?}",
+                fildes.package
+            );
         }
     }
 }

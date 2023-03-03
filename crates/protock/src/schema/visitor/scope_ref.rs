@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
 };
 
-use super::scope::{GlobalScope, Scope};
+use super::scope::{GlobalScope, Scope, ScopeKind};
 use crate::schema::qual_name::QualName;
 
 #[derive(Debug, Clone)]
@@ -16,14 +16,23 @@ pub struct ScopeRef<'a> {
 
 impl<'a> ScopeRef<'a> {
     #[inline]
-    pub fn global(&self) -> &GlobalScope<'a> { self.global }
+    pub fn new(global: &'a GlobalScope<'a>) -> Self {
+        Self {
+            global,
+            parent: None,
+            scope: &global.0,
+        }
+    }
+
+    #[inline]
+    pub fn global(&self) -> &'a GlobalScope<'a> { self.global }
 
     #[inline]
     pub fn parent(&self) -> Option<&ScopeRef<'a>> { self.parent.as_deref() }
 
-    pub fn item<Q: Eq + Hash + ?Sized>(self, name: &Q) -> Option<ScopeRef<'a>>
+    pub fn child<Q: Eq + Hash + ?Sized>(self, name: &Q) -> Option<ScopeRef<'a>>
     where &'a str: Borrow<Q> {
-        self.scope.items().get(name).map(|scope| ScopeRef {
+        self.scope.children.get(name).map(|scope| ScopeRef {
             global: self.global,
             parent: Some(self.into()),
             scope,
@@ -37,63 +46,55 @@ impl<'a> ScopeRef<'a> {
     where
         &'a str: Borrow<Q>,
     {
-        let mut curr = Some(self);
-        let mut package = None;
-        let up = std::iter::from_fn(|| {
-            let me = curr?;
-            curr = me.parent.as_deref();
-            match *me.scope {
-                Scope::Package { name, .. } => {
-                    package = name;
-                    assert!(curr.is_none());
-                    None
-                },
-                Scope::Type { name, .. } => Some(name),
+        let mut parts = vec![];
+        let mut curr = self;
+        let package = loop {
+            match curr
+                .scope
+                .kind
+                .expect("Invalid scope tree (missing ancestor kind)")
+            {
+                ScopeKind::Package(p) => break p,
+                ScopeKind::Type(t) => parts.push(Cow::Borrowed(t)),
             }
-        })
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .map(|s| Some(s.into()));
 
-        let mut path = path.into_iter();
+            curr = curr
+                .parent
+                .as_deref()
+                .expect("Invalid scope tree (missing package)");
+        };
+        parts.reverse();
+
         let mut curr = self.scope;
-        let down = std::iter::from_fn(|| {
-            let Some(child) = curr.items().get(path.next()?) else { return Some(None) };
-            curr = child;
-            let Scope::Type { name, .. } = *child else { panic!("Invalid scope") };
-            Some(Some(name.into()))
-        });
-
-        Some(QualName::new(
-            package.map(Into::into),
-            up.chain(down).collect::<Option<_>>()?,
-        ))
-    }
-
-    fn search_one(&self, name: &'a str) -> Option<Cow<'_, ScopeRef<'a>>> {
-        if self.scope.items().contains_key(name) {
-            Some(Cow::Borrowed(self))
-        } else if let Some(ref parent) = self.parent {
-            parent.search_one(name)
-        } else {
-            let Scope::Package { name: my_name, .. } = self.scope else {
-                panic!("Invalid scope reference");
+        for part in path {
+            let child = curr.children.get(part)?;
+            let Some(ScopeKind::Type(ty)) = child.kind else {
+                panic!("Invalid scope tree (descendant was not a type)");
             };
-
-            if my_name.map_or(false, |n| n == name) {
-                Some(Cow::Borrowed(self))
-            } else {
-                self.global.resolve_one(name).map(|(_, s)| Cow::Owned(s))
-            }
+            parts.push(Cow::Borrowed(ty));
+            curr = child;
         }
+
+        Some(QualName::new(package.map(Into::into), parts))
     }
 
-    #[inline]
-    pub fn search(&self, path: impl IntoIterator<Item = &'a str>) -> Option<QualName<'a>> {
+    pub fn search<'b, Q: Eq + Hash + ?Sized + 'b>(
+        &self,
+        path: impl IntoIterator<Item = &'b Q>,
+    ) -> Option<QualName<'a>>
+    where
+        &'a str: Borrow<Q>,
+    {
         let mut path = path.into_iter();
-        let base = path.next().expect("Invalid type name");
-        let owner = self.search_one(base);
-        owner?.qualify(path)
+        let Some(first) = path.next() else { return self.qualify([]) };
+        let mut curr = self;
+        let owner = loop {
+            if let Some(owner) = curr.clone().child(first) {
+                break owner;
+            }
+
+            curr = curr.parent.as_deref()?;
+        };
+        owner.qualify(path)
     }
 }
