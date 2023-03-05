@@ -1,6 +1,7 @@
 use std::mem;
 
 pub trait Succ {
+    #[must_use]
     fn succ(self) -> Self;
 }
 

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::{reserved::ReservedMap, ty::TypeContext};
+use shrec::range_map::RangeMap;
+
+use super::ty::TypeContext;
 use crate::{
     check_compat::{CheckCompat, CompatLog},
     compat_pair::{CompatPair, Side, SideInclusive},
@@ -53,7 +55,7 @@ pub struct Record<T: RecordExtra> {
     numbers: HashMap<i32, T>,
     /// `None` indicates a reserved name
     names: HashMap<String, Option<i32>>,
-    reserved: ReservedMap,
+    reserved: RangeMap<i64>,
     internal: bool,
     extra: T::Extra,
 }
@@ -61,7 +63,7 @@ pub struct Record<T: RecordExtra> {
 impl<T: for<'a> RecordValue<'a>> Record<T> {
     pub fn new<R: IntoIterator<Item = String>>(
         numbers: HashMap<i32, T>,
-        reserved: ReservedMap,
+        reserved: RangeMap<i64>,
         reserved_names: R,
         internal: bool,
         extra: T::Extra,
@@ -124,7 +126,7 @@ impl<T: for<'a> RecordValue<'a>> CheckCompat for Record<T> {
             log,
             |ty, &id| RecordContext { ty, id },
             |&k, v, log| {
-                if !reserved.visit(v.kind()).contains(k.into()) {
+                if !reserved.visit(v.kind()).contains(&k.into()) {
                     v.missing_id(&cx, v.kind().then(k), log);
                 }
             },

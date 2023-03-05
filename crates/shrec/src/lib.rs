@@ -10,10 +10,14 @@
 )]
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
-#![allow(missing_docs)] // TODO
+#![allow(missing_docs, clippy::missing_errors_doc, clippy::missing_panics_doc)] // TODO
 
+pub mod closure_builder;
 pub mod dfa;
+pub mod dot;
 pub mod free;
+pub mod memoize;
 pub mod nfa;
+pub mod range_map;
 pub mod re;
 pub mod union_find;

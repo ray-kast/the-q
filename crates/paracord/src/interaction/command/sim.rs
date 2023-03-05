@@ -39,7 +39,7 @@ impl<T: Clone + Eq + Hash> Sim for Vec<T> {
 }
 
 #[allow(clippy::cast_precision_loss)]
-impl<K: Eq + Ord, V: Sim> Sim for BTreeMap<K, V> {
+impl<K: Ord, V: Sim> Sim for BTreeMap<K, V> {
     fn sim(&self, rhs: &Self) -> f64 {
         self.iter()
             .filter_map(|(k, l)| {

@@ -14,7 +14,7 @@ use super::response::ModalSource;
 
 /// A key identifying the static handler for an RPC request (i.e. the remote
 /// procedure name)
-pub trait Key: fmt::Debug + Copy + Eq + Ord + std::hash::Hash + 'static
+pub trait Key: fmt::Debug + Copy + Ord + std::hash::Hash + 'static
 where for<'a> Self: From<&'a Self::Payload>
 {
     /// The payload type for this set of keys, containing enough data to produce

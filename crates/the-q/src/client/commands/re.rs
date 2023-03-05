@@ -28,11 +28,35 @@ impl CommandHandler<Schema> for ReCommand {
         let target = visitor.target().message()?;
 
         let msg = {
-            let re = Regex::Alt(vec![Regex::Lit("hi".chars()), Regex::Lit("there".chars())]);
-            let nfa = re.compile_scanner();
-            let dfa = nfa.compile();
+            let re = Regex::Cat(vec![
+                Regex::Alt(vec![
+                    Regex::Cat(vec![
+                        Regex::Lit("k".chars()),
+                        Regex::Alt(vec![Regex::Lit("i".chars()), Regex::Lit("a".chars())]),
+                        Regex::Alt(vec![Regex::Lit("m".chars()), Regex::Lit("t".chars())]),
+                    ]),
+                    Regex::Lit("ban".chars()),
+                ]),
+                Regex::Alt(vec![
+                    Regex::Cat(vec![
+                        Regex::Lit("o".chars()),
+                        Regex::Star(Regex::Lit("no".chars()).into()),
+                    ]),
+                    Regex::Cat(vec![
+                        Regex::Lit("a".chars()),
+                        Regex::Star(Regex::Lit("na".chars()).into()),
+                    ]),
+                ]),
+            ]);
+            debug!("{re:#?}");
+            let nfa = re.compile();
+            debug!("{nfa:#?}");
+            let compiled_dfa = nfa.compile();
+            debug!("{compiled_dfa:#?}");
+            let atomized_dfa = compiled_dfa.atomize_nodes::<u32>();
+            debug!("{atomized_dfa:#?}");
 
-            Message::rich(|m| m.push_codeblock_safe(format!("{dfa:?}"), None))
+            Message::rich(|m| m.push_codeblock_safe(format!("{atomized_dfa:?}"), None))
         };
 
         let responder = responder

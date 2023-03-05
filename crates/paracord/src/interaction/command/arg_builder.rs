@@ -291,7 +291,7 @@ impl ArgBuilder {
     }
 
     /// Set whether the named parameters should send autocomplete interactions
-    pub fn autocomplete<'a, Q: Eq + Ord + ?Sized + 'a>(
+    pub fn autocomplete<'a, Q: Ord + ?Sized + 'a>(
         &mut self,
         enable: bool,
         keys: impl IntoIterator<Item = &'a Q>,

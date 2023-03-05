@@ -5,7 +5,6 @@ mod oneof;
 mod primitive;
 mod qual_name;
 mod record;
-mod reserved;
 mod ty;
 mod variant;
 

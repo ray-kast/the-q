@@ -1,4 +1,4 @@
-use std::{hash::Hash, mem};
+use std::mem;
 
 use super::Regex;
 use crate::{free::Free, nfa::Nfa};
@@ -8,7 +8,7 @@ pub struct NfaBuilder<I> {
     free: Free<u64>,
 }
 
-impl<I: Eq + Hash> NfaBuilder<I> {
+impl<I: Ord> NfaBuilder<I> {
     fn new() -> Self {
         let mut free = Free::default();
         let head = free.fresh();
@@ -18,9 +18,9 @@ impl<I: Eq + Hash> NfaBuilder<I> {
         Self { nfa, free }
     }
 
-    pub fn build_scanner<L: IntoIterator<Item = I>>(regex: Regex<L>) -> Self {
+    pub fn build<L: IntoIterator<Item = I>>(regex: Regex<L>) -> Self {
         let mut me = Self::new();
-        me.build_scanner_in(regex, *me.nfa.head(), *me.nfa.tail());
+        me.build_in(regex, *me.nfa.head(), *me.nfa.tail());
         me
     }
 
@@ -36,46 +36,41 @@ impl<I: Eq + Hash> NfaBuilder<I> {
         assert!(self.nfa.connect(&from, to, by, ()).is_none());
     }
 
-    fn build_scanner_in<L: IntoIterator<Item = I>>(
-        &mut self,
-        regex: Regex<L>,
-        head: u64,
-        tail: u64,
-    ) {
+    fn build_in<L: IntoIterator<Item = I>>(&mut self, regex: Regex<L>, head: u64, tail: u64) {
         match regex {
             Regex::Alt(a) => {
                 for re in a {
                     let h = self.fresh_node();
                     let t = self.fresh_node();
 
-                    self.build_scanner_in(re, h, t);
+                    self.build_in(re, h, t);
                     self.connect(head, h, None);
                     self.connect(t, tail, None);
                 }
             },
             Regex::Cat(c) => {
-                self.build_scanner_cat_in(c, head, tail, |s, re, h, t| {
-                    s.build_scanner_in(re, h, t);
+                self.build_cat_in(c, head, tail, |s, re, h, t| {
+                    s.build_in(re, h, t);
                 });
             },
             Regex::Star(r) => {
                 let h = self.fresh_node();
                 let t = self.fresh_node();
 
-                self.build_scanner_in(*r, h, t);
+                self.build_in(*r, h, t);
                 self.connect(head, h, None);
-                self.connect(tail, t, None);
+                self.connect(t, tail, None);
                 self.connect(head, tail, None);
                 self.connect(t, h, None);
             },
             Regex::Lit(l) => {
-                self.build_scanner_cat_in(l, head, tail, |s, i, h, t| s.connect(h, t, Some(i)));
+                self.build_cat_in(l, head, tail, |s, i, h, t| s.connect(h, t, Some(i)));
             },
         }
     }
 
     #[inline]
-    fn build_scanner_cat_in<J: IntoIterator>(
+    fn build_cat_in<J: IntoIterator>(
         &mut self,
         it: J,
         head: u64,

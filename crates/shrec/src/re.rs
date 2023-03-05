@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 use nfa_builder::NfaBuilder;
 
 use crate::nfa::Nfa;
@@ -20,10 +18,9 @@ impl<L> Regex<L> {
 }
 
 impl<L: IntoIterator> Regex<L>
-where L::Item: Eq + Hash
+where L::Item: Ord
 {
+    #[inline]
     #[must_use]
-    pub fn compile_scanner(self) -> Nfa<L::Item, u64, ()> {
-        NfaBuilder::build_scanner(self).finish()
-    }
+    pub fn compile(self) -> Nfa<L::Item, u64, ()> { NfaBuilder::build(self).finish() }
 }

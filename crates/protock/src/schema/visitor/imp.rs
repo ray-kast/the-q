@@ -9,6 +9,7 @@ use prost_types::{
     FieldDescriptorProto, FieldOptions, FileDescriptorProto, FileDescriptorSet, FileOptions,
     MessageOptions, OneofDescriptorProto,
 };
+use shrec::range_map::RangeMap;
 
 use super::{scope::GlobalScope, scope_ref::ScopeRef};
 use crate::schema::{
@@ -18,7 +19,6 @@ use crate::schema::{
     oneof::Oneof,
     primitive::PrimitiveType,
     record::Record,
-    reserved::ReservedMap,
     ty::Type,
     variant::Variant,
     Schema,
@@ -194,13 +194,12 @@ impl<'a> Visitor<'a> {
         }
 
         let reserved = if deprecated {
-            ReservedMap::deprecated()
+            RangeMap::full()
         } else {
-            ReservedMap::new(
-                reserved_range
-                    .iter()
-                    .map(|ReservedRange { start, end }| start.unwrap().into()..end.unwrap().into()),
-            )
+            reserved_range
+                .iter()
+                .map(|ReservedRange { start, end }| start.unwrap().into()..end.unwrap().into())
+                .collect()
         };
 
         let reserved_names: HashSet<_> = reserved_name.iter().cloned().collect();
@@ -359,16 +358,14 @@ impl<'a> Visitor<'a> {
         }
 
         let reserved = if deprecated {
-            ReservedMap::deprecated()
+            RangeMap::full()
         } else {
-            ReservedMap::new(
-                reserved_range
-                    .iter()
-                    .map(|EnumReservedRange { start, end }| {
-                        start.unwrap().into()
-                            ..end.and_then(|i| i64::from(i).checked_add(1)).unwrap()
-                    }),
-            )
+            reserved_range
+                .iter()
+                .map(|EnumReservedRange { start, end }| {
+                    start.unwrap().into()..end.and_then(|i| i64::from(i).checked_add(1)).unwrap()
+                })
+                .collect()
         };
 
         let reserved_names: HashSet<_> = reserved_name.iter().cloned().collect();
