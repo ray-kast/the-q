@@ -24,10 +24,17 @@ trap cleanup EXIT
 
 pushd "$tmp"
 
-git bisect start HEAD "$st"
-git bisect run sh -c '[ ! -d crates ] || ! grep -q profile\.docker Cargo.toml'
+head="$(git rev-parse HEAD)"
+st="$(git rev-parse "$st")"
 
-commit="$(git rev-parse --short refs/bisect/bad)"
+if [[ "$head" == "$st" ]]; then
+  commit="$head"
+else
+  git bisect start "$head" "$st"
+  git bisect run sh -c '[ ! -d crates ] || ! grep -q profile\.docker Cargo.toml'
+
+  commit="$(git rev-parse refs/bisect/bad)"
+fi
 
 popd
 
