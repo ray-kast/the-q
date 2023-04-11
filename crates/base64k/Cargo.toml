@@ -8,7 +8,7 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
-wide = "0.7.5"
+wide = "0.7.8"
 
 [dev-dependencies]
-proptest = "1.0.0"
+proptest = "1.1.0"

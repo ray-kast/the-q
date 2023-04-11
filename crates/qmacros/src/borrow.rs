@@ -16,7 +16,7 @@ pub(super) fn run(input: syn::DeriveInput) -> TokenStream {
         },
         _ => span
             .error("Cannot derive Borrow on a non-struct type")
-            .emit_as_item_tokens(),
+            .into_compile_error(),
     }
 }
 
@@ -35,7 +35,7 @@ fn try_impl(
     let mut opts = None;
 
     for attr in field.attrs {
-        if !attr.path.is_ident("borrow") {
+        if !attr.path().is_ident("borrow") {
             continue;
         }
 
@@ -44,38 +44,26 @@ fn try_impl(
         if opts.is_some() {
             diag.extend(
                 span.error("Duplicate #[borrow] attribute")
-                    .emit_as_item_tokens(),
+                    .into_compile_error(),
             );
             return None;
         }
 
-        let meta = match attr.parse_meta() {
-            Ok(m) => m,
+        let mut mutable = None;
+
+        match attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("mut") {
+                mutable = Some(meta.path.span());
+                return Ok(());
+            }
+
+            Err(meta.error("Invalid #[borrow] attribute"))
+        }) {
+            Ok(()) => (),
             Err(e) => {
                 diag.extend(e.into_compile_error());
                 continue;
             },
-        };
-
-        let mut mutable = None;
-
-        match meta {
-            syn::Meta::Path(_) => (),
-            syn::Meta::List(l) => {
-                for nested in l.nested {
-                    match nested {
-                        syn::NestedMeta::Meta(syn::Meta::Path(p)) if p.is_ident("mut") => {
-                            mutable = Some(p.span());
-                        },
-                        _ => (),
-                    }
-                }
-            },
-            syn::Meta::NameValue(nv) => diag.extend(
-                nv.span()
-                    .error("Invalid #[borrow] attribute")
-                    .emit_as_item_tokens(),
-            ),
         }
 
         opts = Some(FieldOpts { span, mutable });

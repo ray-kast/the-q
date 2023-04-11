@@ -114,7 +114,7 @@ impl CommandInfo {
     }
 }
 
-#[builder(trait_name = "CommandInfoExt")]
+#[builder(trait_name = CommandInfoExt)]
 /// Helper methods for mutating [`CommandInfo`]
 impl CommandInfo {
     /// Set whether this command should be usable in DM (i.e. non-guild)

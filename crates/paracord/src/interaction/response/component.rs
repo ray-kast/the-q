@@ -87,7 +87,7 @@ impl<I, T: private::BuildComponent> Components<I, T, Infallible> {
     }
 }
 
-#[builder(trait_name = "ComponentsExt")]
+#[builder(trait_name = ComponentsExt)]
 /// Helper methods for mutating [`Components`]
 impl<I, T, E> Components<I, T, E> {
     /// Add a new action row to the component set
@@ -187,7 +187,7 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
     }
 }
 
-#[builder(trait_name = "MessageActionRow")]
+#[builder(trait_name = MessageActionRow)]
 /// Helper methods for mutating an [`ActionRow`] for messages
 impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
     /// Add a button to this row
@@ -326,7 +326,7 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
     }
 }
 
-#[builder(trait_name = "ModalActionRow")]
+#[builder(trait_name = ModalActionRow)]
 /// Helper methods for mutating an [`ActionRow`] for modals
 impl<I: ComponentId> ActionRow<I, TextInput<I>, id::Error> {
     /// Add a new textbox to this row
@@ -613,7 +613,7 @@ impl<I: ComponentId> TextInput<I> {
     }
 }
 
-#[builder(trait_name = "TextInputExt")]
+#[builder(trait_name = TextInputExt)]
 /// Helper methods for mutating [`TextInput`]
 impl<I> TextInput<I> {
     /// Set the valid length range for this textbox

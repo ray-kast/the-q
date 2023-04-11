@@ -114,7 +114,7 @@ impl<I> MessageBody<I, Infallible> {
     }
 }
 
-#[builder(trait_name = "MessageBodyExt")]
+#[builder(trait_name = MessageBodyExt)]
 /// Helper methods for mutating [`MessageBody`]
 impl<I, E> MessageBody<I, E> {
     /// Set whether the replied-to user is allowed to be pinged
@@ -169,7 +169,7 @@ impl MessageOpts {
     }
 }
 
-#[builder(trait_name = "MessageOptsExt")]
+#[builder(trait_name = MessageOptsExt)]
 /// Helper methods for mutating [`MessageOpts`]
 impl MessageOpts {
     /// Set whether this message should be read by screen readers
@@ -285,7 +285,7 @@ impl<'a, I> Message<'a, I, Infallible> {
     }
 }
 
-#[builder(trait_name = "MessageExt")]
+#[builder(trait_name = MessageExt)]
 /// Helper methods for mutating [`Message`]
 impl<'a, I, E> Message<'a, I, E> {
     /// Add an attachment to this message

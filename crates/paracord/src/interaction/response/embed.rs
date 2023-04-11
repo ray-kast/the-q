@@ -119,7 +119,7 @@ impl<'a, I, E> From<Embed> for Message<'a, I, E> {
     fn from(value: Embed) -> Self { MessageBody::from(value).into() }
 }
 
-#[builder(trait_name = "EmbedExt")]
+#[builder(trait_name = EmbedExt)]
 /// Helper methods for mutating [`Embed`]
 impl Embed {
     /// Set the title of this embed

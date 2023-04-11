@@ -89,7 +89,7 @@ impl ArgBuilder {
     }
 }
 
-#[builder(trait_name = "ArgBuilderExt")]
+#[builder(trait_name = ArgBuilderExt)]
 /// Helper methods for mutating [`ArgBuilder`]
 impl ArgBuilder {
     /// Add a new parameter to this (sub)command

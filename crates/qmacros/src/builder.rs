@@ -4,19 +4,41 @@ use syn::fold::Fold;
 
 use crate::prelude::*;
 
-// TODO: probably gonna remove darling
-#[derive(darling::FromMeta)]
-struct Args {
-    // TODO: why is this a literal
-    trait_name: syn::Ident,
+#[derive(Default)]
+pub(super) struct Args {
+    trait_name: Option<syn::Ident>,
 }
 
 // TODO(design): Refactor builder interface to handle errors better
 
-pub(super) fn run(args: &syn::AttributeArgs, mut body: syn::ItemImpl) -> TokenStream {
-    let Args { trait_name } = match darling::FromMeta::from_list(args) {
+impl Args {
+    pub fn parser(&'_ mut self) -> impl syn::parse::Parser<Output = ()> + '_ {
+        syn::meta::parser(|meta| {
+            if meta.path.is_ident("trait_name") {
+                let _eq: syn::token::Eq = meta.input.parse()?;
+                let ident: syn::Ident = meta.input.parse()?;
+
+                self.trait_name = Some(ident);
+                return Ok(());
+            }
+
+            Err(meta.error("Invalid #[builder] attribute"))
+        })
+    }
+
+    fn finish(self, span: Span) -> Result<(syn::Ident,), syn::Error> {
+        let trait_name = self
+            .trait_name
+            .ok_or_else(|| span.error("Missing trait_name in #[builder] attribute"))?;
+
+        Ok((trait_name,))
+    }
+}
+
+pub(super) fn run(args: Args, arg_span: Span, mut body: syn::ItemImpl) -> TokenStream {
+    let (trait_name,) = match args.finish(arg_span) {
         Ok(a) => a,
-        Err(e) => return e.write_errors(),
+        Err(e) => return e.into_compile_error(),
     };
 
     if let Some(t) = body.trait_ {
@@ -24,14 +46,14 @@ pub(super) fn run(args: &syn::AttributeArgs, mut body: syn::ItemImpl) -> TokenSt
             .1
             .span()
             .error("#[builder] must be used on a non-trait impl block")
-            .emit_as_item_tokens();
+            .into_compile_error();
     }
 
     let mut diag = TokenStream::new();
     let mut vis = None;
     for item in &body.items {
         if let Err((span, err)) = is_builder_method(item, &mut vis) {
-            diag.extend(span.error(err).emit_as_item_tokens());
+            diag.extend(span.error(err).into_compile_error());
         }
     }
 
@@ -66,7 +88,7 @@ pub(super) fn run(args: &syn::AttributeArgs, mut body: syn::ItemImpl) -> TokenSt
                         },
                     }))
                 },
-                syn::GenericParam::Lifetime(syn::LifetimeDef { lifetime, .. }) => {
+                syn::GenericParam::Lifetime(syn::LifetimeParam { lifetime, .. }) => {
                     syn::GenericArgument::Lifetime(lifetime)
                 },
                 syn::GenericParam::Const(syn::ConstParam { ident, .. }) => {
@@ -119,7 +141,7 @@ fn is_builder_method(
     m: &syn::ImplItem,
     vis: &mut Option<syn::Visibility>,
 ) -> Result<(), (Span, Cow<'static, str>)> {
-    let syn::ImplItem::Method(m) = m else {
+    let syn::ImplItem::Fn(m) = m else {
         return Err((m.span(), "Builder impl can only contain methods".into()));
     };
 
@@ -160,13 +182,16 @@ fn is_builder_method(
     Ok(())
 }
 
-fn make_builder_method(m: syn::ImplItem, diag: &mut TokenStream) -> syn::ImplItemMethod {
-    let syn::ImplItem::Method(mut m) = m else { unreachable!() };
+fn make_builder_method(m: syn::ImplItem, diag: &mut TokenStream) -> syn::ImplItemFn {
+    let syn::ImplItem::Fn(mut m) = m else { unreachable!() };
 
     m.vis = syn::Visibility::Inherited;
 
     let span = m.span();
     let Some(syn::FnArg::Receiver(r)) = m.sig.inputs.first_mut() else { unreachable!() };
+    if let syn::Type::Reference(syn::TypeReference { ref elem, .. }) = *r.ty {
+        r.ty = elem.clone();
+    }
     r.reference = None;
 
     m.attrs.push(syn::parse_quote! {
@@ -200,7 +225,7 @@ fn make_builder_method(m: syn::ImplItem, diag: &mut TokenStream) -> syn::ImplIte
                     #[allow(clippy::unnecessary_operation)] { #block; };
                 }
             },
-            syn::Stmt::Expr(syn::Expr::Path(this)),
+            syn::Stmt::Expr(syn::Expr::Path(this), None),
         ],
     };
 
@@ -213,7 +238,7 @@ struct Folder<'a> {
     repl: syn::ExprPath,
 }
 
-impl<'a> syn::fold::Fold for Folder<'a> {
+impl<'a> Fold for Folder<'a> {
     fn fold_item(&mut self, i: syn::Item) -> syn::Item { i }
 
     fn fold_expr_path(&mut self, e: syn::ExprPath) -> syn::ExprPath {
@@ -229,7 +254,7 @@ impl<'a> syn::fold::Fold for Folder<'a> {
             self.diag.extend(
                 x.span()
                     .error("Unexpected return value")
-                    .emit_as_item_tokens(),
+                    .into_compile_error(),
             );
             return e;
         }

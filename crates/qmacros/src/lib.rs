@@ -18,9 +18,19 @@ mod builder;
 
 pub(crate) mod prelude {
     pub use proc_macro2::{Span, TokenStream};
-    pub use proc_macro2_diagnostics::SpanDiagnosticExt;
     pub use quote::{quote_spanned, ToTokens, TokenStreamExt};
     pub use syn::spanned::Spanned;
+
+    pub trait SpanExt {
+        fn error(self, msg: impl std::fmt::Display) -> syn::Error;
+    }
+
+    impl<T: Into<Span>> SpanExt for T {
+        #[inline]
+        fn error(self, msg: impl std::fmt::Display) -> syn::Error {
+            syn::Error::new(self.into(), msg)
+        }
+    }
 }
 
 /// Implement [`std::borrow::Borrow`] or [`std::borrow::BorrowMut`] by way of a
@@ -32,9 +42,14 @@ pub fn borrow(input: TokenStream1) -> TokenStream1 {
 
 /// Lift an impl block for a builder struct into a helper trait
 #[proc_macro_attribute]
-pub fn builder(args: TokenStream1, body: TokenStream1) -> TokenStream1 {
+pub fn builder(arg_stream: TokenStream1, body: TokenStream1) -> TokenStream1 {
+    let mut args = builder::Args::default();
+    let parser = args.parser();
+    syn::parse_macro_input!(arg_stream with parser);
+    // TODO: get a real span
     builder::run(
-        &syn::parse_macro_input!(args),
+        args,
+        proc_macro2::Span::call_site(),
         syn::parse_macro_input!(body),
     )
     .into()

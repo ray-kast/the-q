@@ -1,5 +1,5 @@
 [toolchain]
-channel = "1.67.0" # TODO: add an update check
+channel = "1.68.2" # TODO: add an update check
 components = [
   "cargo",
   "clippy",
