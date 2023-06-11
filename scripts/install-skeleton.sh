@@ -57,7 +57,7 @@ if [[ -z "$touch" ]]; then
   trap drop_temp EXIT
 
   main="$(mktemp /tmp/main.rs.XXXX)"
-  echo 'fn main() {}' >"$main"
+  echo '#[allow(dead_code)] fn main() {}' >"$main"
 fi
 
 for pkg in $(jq -r '.packages | keys | join("\n")' <<<"$json"); do

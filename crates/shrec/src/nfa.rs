@@ -29,31 +29,30 @@ impl<I: Ord, N, E> Node<I, N, E> {
 }
 
 #[derive(Debug)]
-pub struct Nfa<I, N, E> {
+pub struct Nfa<I, N, E, T> {
     nodes: BTreeMap<N, Node<I, N, E>>,
-    head: N,
-    tail: N,
+    start: N,
+    accept: BTreeMap<T, N>,
 }
 
-impl<I: Ord, N: Clone + Ord, E> Nfa<I, N, E> {
-    pub fn new(head: N, tail: N) -> Self {
+impl<I: Ord, N: Clone + Ord, E, T: Ord> Nfa<I, N, E, T> {
+    pub fn new(start: N) -> Self {
         let mut me = Self {
             nodes: BTreeMap::new(),
-            head: head.clone(),
-            tail: tail.clone(),
+            start: start.clone(),
+            accept: BTreeMap::new(),
         };
-        assert!(me.insert(head).is_none());
-        assert!(me.insert(tail).is_none());
+        assert!(me.insert(start).is_none());
         me
     }
 }
 
-impl<I: Ord, N: Ord, E> Nfa<I, N, E> {
+impl<I: Ord, N: Ord, E, T: Ord> Nfa<I, N, E, T> {
     #[inline]
-    pub fn head(&self) -> &N { &self.head }
+    pub fn start(&self) -> &N { &self.start }
 
     #[inline]
-    pub fn tail(&self) -> &N { &self.tail }
+    pub fn accept(&self) -> &BTreeMap<T, N> { &self.accept }
 
     #[inline]
     pub fn get<Q: Ord + ?Sized>(&self, node: &Q) -> Option<&Node<I, N, E>>
@@ -87,25 +86,44 @@ impl<I: Ord, N: Ord, E> Nfa<I, N, E> {
     }
 }
 
-impl<I: Ord, N: Ord + Hash> Nfa<I, N, ()> {
+impl<I, N: Clone + Ord, E, T: Ord> Nfa<I, N, E, T> {
     #[inline]
-    pub fn compile(&self) -> Dfa<&I, Rc<BTreeSet<&N>>, ()> { DfaBuilder::new(self).build() }
+    pub fn insert_accept(&mut self, node: N, tok: T) -> Option<(Node<I, N, E>, Option<N>)> {
+        let prev = self.nodes.insert(node.clone(), Node::default());
+        let prev_accept = self.accept.insert(tok, node);
+        assert!(prev.is_some() || prev_accept.is_none());
+        prev.map(|p| (p, prev_accept))
+    }
 }
 
-impl<I, N: Eq, E> Nfa<I, N, E> {
+impl<I: Ord, N: Ord + Hash, T: Ord + Hash> Nfa<I, N, (), T> {
+    #[inline]
+    pub fn compile(&self) -> Dfa<&I, Rc<BTreeSet<&N>>, (), Rc<BTreeSet<&T>>> {
+        DfaBuilder::new(self).build()
+    }
+}
+
+impl<I, N: Ord, E, T: Ord> Nfa<I, N, E, T> {
     pub fn dot<'a>(
         &self,
         fmt_input: impl Fn(&I) -> Cow<'a, str>,
         fmt_state: impl Fn(&N) -> Cow<'a, str>,
         fmt_output: impl Fn(&E) -> Option<Cow<'a, str>>,
+        fmt_tok: impl Fn(&T) -> Option<Cow<'a, str>>,
     ) -> dot::Graph<'a> {
         let mut graph = dot::Graph::new(dot::GraphType::Directed, None);
+
+        let accept_rev: BTreeMap<_, _> = self.accept.iter().map(|(k, v)| (v, k)).collect();
 
         for (state, Node(edges)) in &self.nodes {
             let node_id = fmt_state(state);
             let node = graph.node(node_id.clone());
 
-            if *state == self.tail {
+            if let Some(tok) = accept_rev.get(state) {
+                if let Some(tok) = fmt_tok(tok) {
+                    node.label(format!("{node_id}:{tok}").into());
+                }
+
                 node.border_count(2);
             }
 

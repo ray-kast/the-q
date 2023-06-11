@@ -16,13 +16,13 @@ impl<I, N> Default for State<I, N> {
     fn default() -> Self { Self(BTreeMap::new()) }
 }
 
-pub struct DfaBuilder<'a, I, N> {
-    nfa: &'a Nfa<I, N, ()>,
+pub struct DfaBuilder<'a, I, N, T> {
+    nfa: &'a Nfa<I, N, (), T>,
     closure: ClosureBuilder<&'a N>,
 }
 
-impl<'a, I: Ord, N: Ord + Hash> DfaBuilder<'a, I, N> {
-    pub fn new(nfa: &'a Nfa<I, N, ()>) -> Self {
+impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
+    pub fn new(nfa: &'a Nfa<I, N, (), T>) -> Self {
         Self {
             nfa,
             closure: ClosureBuilder::default(),
@@ -41,14 +41,15 @@ impl<'a, I: Ord, N: Ord + Hash> DfaBuilder<'a, I, N> {
     }
 
     #[inline]
-    pub fn build(&mut self) -> Dfa<&'a I, Rc<BTreeSet<&'a N>>, ()> {
-        let mut memo = Memoize::default();
-        self.closure.init([self.nfa.head()]);
-        let head = memo.memoize(self.solve_closure(BTreeSet::new()));
+    pub fn build(&mut self) -> Dfa<&'a I, Rc<BTreeSet<&'a N>>, (), Rc<BTreeSet<&'a T>>> {
+        let mut memo_node = Memoize::default();
+        let mut memo_tok = Memoize::default();
+        self.closure.init([self.nfa.start()]);
+        let start = memo_node.memoize(self.solve_closure(BTreeSet::new()));
 
         let mut states: BTreeMap<Rc<BTreeSet<&'a N>>, State<&'a I, &'a N>> = BTreeMap::default();
-        let mut accept: BTreeSet<Rc<BTreeSet<&'a N>>> = BTreeSet::default();
-        let mut q: VecDeque<_> = [Rc::clone(&head)].into_iter().collect();
+        let mut accept: BTreeMap<Rc<BTreeSet<&'a N>>, Rc<BTreeSet<&'a T>>> = BTreeMap::default();
+        let mut q: VecDeque<_> = [Rc::clone(&start)].into_iter().collect();
 
         while let Some(state_set) = q.pop_front() {
             use std::collections::btree_map::Entry;
@@ -79,12 +80,18 @@ impl<'a, I: Ord, N: Ord + Hash> DfaBuilder<'a, I, N> {
             for set in node.0.values() {
                 // Try our very hardest to avoid cloning the set again
                 if !states.contains_key(set) {
-                    q.push_back(memo.memoize_owned(set));
+                    q.push_back(memo_node.memoize_owned(set));
                 }
             }
 
-            if state_set.contains(self.nfa.tail()) {
-                accept.insert(Rc::clone(&state_set));
+            let toks: BTreeSet<_> = self
+                .nfa
+                .accept()
+                .iter()
+                .filter_map(|(t, a)| state_set.contains(a).then_some(t))
+                .collect();
+            if !toks.is_empty() {
+                accept.insert(Rc::clone(&state_set), memo_tok.memoize(toks));
             }
         }
 
@@ -94,11 +101,11 @@ impl<'a, I: Ord, N: Ord + Hash> DfaBuilder<'a, I, N> {
                 (
                     k,
                     v.into_iter()
-                        .map(|(k, v)| (k, (memo.memoize(v), ())))
+                        .map(|(k, v)| (k, (memo_node.memoize(v), ())))
                         .collect(),
                 )
             }),
-            head,
+            start,
             accept,
         )
     }

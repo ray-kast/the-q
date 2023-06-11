@@ -16,6 +16,7 @@ pub mod closure_builder;
 pub mod dfa;
 pub mod dot;
 pub mod free;
+pub mod lex_cmp;
 pub mod memoize;
 pub mod nfa;
 pub mod range_map;

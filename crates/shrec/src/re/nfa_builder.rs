@@ -3,24 +3,29 @@ use std::mem;
 use super::Regex;
 use crate::{free::Free, nfa::Nfa};
 
-pub struct NfaBuilder<I> {
-    nfa: Nfa<I, u64, ()>,
+pub struct NfaBuilder<I, T> {
+    nfa: Nfa<I, u64, (), T>,
     free: Free<u64>,
 }
 
-impl<I: Ord> NfaBuilder<I> {
+impl<I: Ord, T: Ord> NfaBuilder<I, T> {
     fn new() -> Self {
         let mut free = Free::default();
-        let head = free.fresh();
-        let tail = free.fresh();
-        let nfa = Nfa::new(head, tail);
+        let start = free.fresh();
+        let nfa = Nfa::new(start);
 
         Self { nfa, free }
     }
 
-    pub fn build<L: IntoIterator<Item = I>>(regex: Regex<L>) -> Self {
+    pub fn build<B: IntoIterator<Item = (Regex<L>, T)>, L: IntoIterator<Item = I>>(
+        tok_bag: B,
+    ) -> Self {
         let mut me = Self::new();
-        me.build_in(regex, *me.nfa.head(), *me.nfa.tail());
+        for (regex, tok) in tok_bag {
+            let accept = me.free.fresh();
+            assert!(me.nfa.insert_accept(accept, tok).is_none());
+            me.build_in(regex, *me.nfa.start(), accept);
+        }
         me
     }
 
@@ -95,5 +100,5 @@ impl<I: Ord> NfaBuilder<I> {
     }
 
     #[inline]
-    pub fn finish(self) -> Nfa<I, u64, ()> { self.nfa }
+    pub fn finish(self) -> Nfa<I, u64, (), T> { self.nfa }
 }

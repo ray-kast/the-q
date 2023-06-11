@@ -25,7 +25,7 @@ pub struct Graph<'a> {
     ty: GraphType,
     id: Option<Cow<'a, str>>,
     nodes: IndexMap<Cow<'a, str>, Node<'a>>,
-    edges: IndexMap<(Cow<'a, str>, Cow<'a, str>), Edge<'a>>,
+    edges: IndexMap<(Cow<'a, str>, Cow<'a, str>), Vec<Edge<'a>>>,
 }
 
 impl<'a> Graph<'a> {
@@ -47,7 +47,9 @@ impl<'a> Graph<'a> {
     pub fn edge(&mut self, l: Cow<'a, str>, r: Cow<'a, str>) -> &mut Edge<'a> {
         self.node(l.clone());
         self.node(r.clone());
-        self.edges.entry((l, r)).or_default()
+        let edges = self.edges.entry((l, r)).or_default();
+        edges.push(Edge::default());
+        edges.last_mut().unwrap_or_else(|| unreachable!())
     }
 }
 
@@ -82,7 +84,7 @@ impl AttrState {
 
 impl<'a> Display for Graph<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "strict {}", self.ty)?;
+        write!(f, "{}", self.ty)?;
 
         if let Some(id) = &self.id {
             write!(f, " {id:?}")?;
@@ -90,9 +92,21 @@ impl<'a> Display for Graph<'a> {
 
         f.write_str(" {")?;
 
-        for (id, Node { peripheries, _p }) in &self.nodes {
+        for (
+            id,
+            Node {
+                label,
+                peripheries,
+                _p,
+            },
+        ) in &self.nodes
+        {
             let mut attrs = AttrState::default();
             write!(f, "{id:?}")?;
+
+            if let Some(label) = label {
+                attrs.write_one(f, "label", |f| write!(f, "{label:?}"))?;
+            }
 
             if let Some(peripheries) = peripheries {
                 attrs.write_one(f, "peripheries", |f| write!(f, "{peripheries}"))?;
@@ -102,19 +116,21 @@ impl<'a> Display for Graph<'a> {
             f.write_str(";")?;
         }
 
-        for ((l, r), Edge { label }) in &self.edges {
-            let mut attrs = AttrState::default();
-            write!(f, "{l:?}{}{r:?}", match self.ty {
-                GraphType::Undirected => "--",
-                GraphType::Directed => "->",
-            })?;
+        for ((l, r), edges) in &self.edges {
+            for Edge { label } in edges {
+                let mut attrs = AttrState::default();
+                write!(f, "{l:?}{}{r:?}", match self.ty {
+                    GraphType::Undirected => "--",
+                    GraphType::Directed => "->",
+                })?;
 
-            if let Some(label) = label {
-                attrs.write_one(f, "label", |f| write!(f, "{label:?}"))?;
+                if let Some(label) = label {
+                    attrs.write_one(f, "label", |f| write!(f, "{label:?}"))?;
+                }
+
+                attrs.finish(f)?;
+                f.write_str(";")?;
             }
-
-            attrs.finish(f)?;
-            f.write_str(";")?;
         }
 
         f.write_str("}")
@@ -123,11 +139,14 @@ impl<'a> Display for Graph<'a> {
 
 #[derive(Debug, Default)]
 pub struct Node<'a> {
+    label: Option<Cow<'a, str>>,
     peripheries: Option<u8>,
     _p: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> Node<'a> {
+    pub fn label(&mut self, label: Cow<'a, str>) { self.label = Some(label); }
+
     pub fn border_count(&mut self, count: u8) { self.peripheries = Some(count); }
 }
 

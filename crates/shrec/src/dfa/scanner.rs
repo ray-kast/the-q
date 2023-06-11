@@ -5,16 +5,16 @@ use super::Dfa;
 pub struct TrapError;
 
 #[derive(Debug)]
-pub struct Scanner<'a, I, N, J> {
-    dfa: &'a Dfa<I, N, ()>,
+pub struct Scanner<'a, I, N, J, T> {
+    dfa: &'a Dfa<I, N, (), T>,
     input: J,
     state: N,
-    last_accept: Option<(N, J)>,
+    last_accept: Option<(&'a T, J)>,
 }
 
-impl<'a, I, N: Copy + Ord, J: Clone> Scanner<'a, I, N, J> {
+impl<'a, I, N: Copy + Ord, J: Clone, T> Scanner<'a, I, N, J, T> {
     #[must_use]
-    pub fn new<K: IntoIterator<IntoIter = J>>(dfa: &'a Dfa<I, N, ()>, input: K) -> Self {
+    pub fn new<K: IntoIterator<IntoIter = J>>(dfa: &'a Dfa<I, N, (), T>, input: K) -> Self {
         let mut me = Self {
             state: dfa.start,
             dfa,
@@ -27,14 +27,16 @@ impl<'a, I, N: Copy + Ord, J: Clone> Scanner<'a, I, N, J> {
 
     fn set_state(&mut self, to: N) {
         self.state = to;
-        if self.dfa.accept.contains(&self.state) {
-            self.last_accept = Some((self.state, self.input.clone()));
+        if let Some(tok) = self.dfa.accept.get(&self.state) {
+            self.last_accept = Some((tok, self.input.clone()));
         }
     }
 }
 
-impl<'a, I: Ord, N: Copy + Ord, J: Clone + Iterator<Item = I>> Iterator for Scanner<'a, I, N, J> {
-    type Item = Result<N, TrapError>;
+impl<'a, I: Ord, N: Copy + Ord, J: Clone + Iterator<Item = I>, T> Iterator
+    for Scanner<'a, I, N, J, T>
+{
+    type Item = Result<&'a T, TrapError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let trapped = loop {
@@ -54,10 +56,10 @@ impl<'a, I: Ord, N: Copy + Ord, J: Clone + Iterator<Item = I>> Iterator for Scan
             self.set_state(next);
         };
 
-        if let Some((state, rewind)) = self.last_accept.take() {
+        if let Some((tok, rewind)) = self.last_accept.take() {
             self.input = rewind;
             self.set_state(self.dfa.start);
-            Some(Ok(state))
+            Some(Ok(tok))
         } else if trapped {
             Some(Err(TrapError))
         } else {

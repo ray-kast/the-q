@@ -13,35 +13,44 @@
 
 use std::io::{self, Read};
 
-use shrec::{dfa::Scanner, re::Regex};
+use shrec::{
+    dfa::Scanner,
+    re::{syntax::token_dfa, Regex, RegexBag},
+};
 
 fn main() {
-    let re = Regex::Cat(vec![
-        Regex::Alt(vec![
-            Regex::Cat(vec![
-                Regex::Lit("k".chars()),
-                Regex::Alt(vec![Regex::Lit("i".chars()), Regex::Lit("a".chars())]),
-                Regex::Alt(vec![Regex::Lit("m".chars()), Regex::Lit("t".chars())]),
-            ]),
-            Regex::Lit("ban".chars()),
-        ]),
-        Regex::Alt(vec![
-            Regex::Cat(vec![
-                Regex::Lit("o".chars()),
-                Regex::Star(Regex::Lit("no".chars()).into()),
-            ]),
-            Regex::Cat(vec![
-                Regex::Lit("a".chars()),
-                Regex::Star(Regex::Lit("na".chars()).into()),
-            ]),
-        ]),
+    let re = RegexBag::from(vec![
+        (Regex::Lit("for".chars()), "for"),
+        (Regex::Lit("each".chars()), "each"),
+        (Regex::Lit("ea".chars()), "ea"),
+        (Regex::Lit("foreach".chars()), "foreach"),
     ]);
-
+    // let re = Regex::Cat(vec![
+    //     Regex::Lit("for".chars()),
+    //     Regex::Lit("foreach".chars()),
+    //     // Regex::Alt(vec![
+    //     //     Regex::Cat(vec![
+    //     //         Regex::Lit("k".chars()),
+    //     //         Regex::Alt(vec![Regex::Lit("i".chars()), Regex::Lit("a".chars())]),
+    //     //         Regex::Alt(vec![Regex::Lit("m".chars()), Regex::Lit("t".chars())]),
+    //     //     ]),
+    //     //     Regex::Lit("ban".chars()),
+    //     // ]),
+    //     // Regex::Alt(vec![
+    //     //     Regex::Cat(vec![
+    //     //         Regex::Lit("o".chars()),
+    //     //         Regex::Star(Regex::Lit("no".chars()).into()),
+    //     //     ]),
+    //     //     Regex::Cat(vec![
+    //     //         Regex::Lit("a".chars()),
+    //     //         Regex::Star(Regex::Lit("na".chars()).into()),
+    //     //     ]),
+    //     // ]),
+    // ]);
+    // let dfa = token_dfa();
     let non_dfa = re.compile();
     let dfa = non_dfa.compile().copied();
-    let (dfa, states) = dfa.atomize_nodes::<usize>();
-    println!("{dfa:?}");
-    println!("{states:?}");
+    let (dfa, states) = dfa.atomize_nodes::<u64>();
 
     let mut s = String::new();
     io::stdin().read_to_string(&mut s).unwrap();

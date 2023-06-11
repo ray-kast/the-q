@@ -14,26 +14,27 @@
 use shrec::re::Regex;
 
 fn main() {
-    let re = Regex::Cat(vec![
-        Regex::Alt(vec![
-            Regex::Cat(vec![
-                Regex::Lit("k".chars()),
-                Regex::Alt(vec![Regex::Lit("i".chars()), Regex::Lit("a".chars())]),
-                Regex::Alt(vec![Regex::Lit("m".chars()), Regex::Lit("t".chars())]),
-            ]),
-            Regex::Lit("ban".chars()),
-        ]),
-        Regex::Alt(vec![
-            Regex::Cat(vec![
-                Regex::Lit("o".chars()),
-                Regex::Star(Regex::Lit("no".chars()).into()),
-            ]),
-            Regex::Cat(vec![
-                Regex::Lit("a".chars()),
-                Regex::Star(Regex::Lit("na".chars()).into()),
-            ]),
-        ]),
-    ]);
+    // let re = Regex::Cat(vec![
+    //     Regex::Alt(vec![
+    //         Regex::Cat(vec![
+    //             Regex::Lit("k".chars()),
+    //             Regex::Alt(vec![Regex::Lit("i".chars()), Regex::Lit("a".chars())]),
+    //             Regex::Alt(vec![Regex::Lit("m".chars()), Regex::Lit("t".chars())]),
+    //         ]),
+    //         Regex::Lit("ban".chars()),
+    //     ]),
+    //     Regex::Alt(vec![
+    //         Regex::Cat(vec![
+    //             Regex::Lit("o".chars()),
+    //             Regex::Star(Regex::Lit("no".chars()).into()),
+    //         ]),
+    //         Regex::Cat(vec![
+    //             Regex::Lit("a".chars()),
+    //             Regex::Star(Regex::Lit("na".chars()).into()),
+    //         ]),
+    //     ]),
+    // ]);
+    let re = shrec::re::syntax::token_re();
 
     let non_dfa = re.compile();
     let dfa = non_dfa.compile().copied();
@@ -47,7 +48,8 @@ fn main() {
             non_dfa.dot(
                 |i| format!("{i:?}").into(),
                 |n| format!("{n:?}").into(),
-                |()| None
+                |()| None,
+                |t| Some(format!("{t:?}").into()),
             )
         );
     } else {
@@ -56,7 +58,8 @@ fn main() {
             dfa.dot(
                 |i| format!("{i:?}").into(),
                 |n| format!("{n:?}").into(),
-                |()| None
+                |()| None,
+                |t| Some(format!("{t:?}").into()),
             )
         );
     }
