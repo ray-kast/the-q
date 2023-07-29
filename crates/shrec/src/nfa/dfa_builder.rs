@@ -55,7 +55,9 @@ impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
             use std::collections::btree_map::Entry;
 
             // TODO: insert_entry pls
-            let Entry::Vacant(node) = states.entry(Rc::clone(&state_set)) else { continue };
+            let Entry::Vacant(node) = states.entry(Rc::clone(&state_set)) else {
+                continue;
+            };
             let node = node.insert(State::default());
 
             // TODO: e-class analysis

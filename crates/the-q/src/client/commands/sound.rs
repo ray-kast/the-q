@@ -145,9 +145,13 @@ impl SoundCommand {
 
         let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;
 
-        let Some(voice_chan) = guild.voice_states.get(&user.id).and_then(|s| s.channel_id)
-        else {
-            return Err(fail(extra,MessageBody::plain("Please connect to a voice channel first."), "Error getting user voice state").await);
+        let Some(voice_chan) = guild.voice_states.get(&user.id).and_then(|s| s.channel_id) else {
+            return Err(fail(
+                extra,
+                MessageBody::plain("Please connect to a voice channel first."),
+                "Error getting user voice state",
+            )
+            .await);
         };
 
         let sb = songbird::get(ctx)
@@ -159,7 +163,12 @@ impl SoundCommand {
         let path = files.get(path);
 
         let Some(path) = path else {
-            return Err(fail(extra,MessageBody::plain(PATH_ERR), "File not in sample table").await);
+            return Err(fail(
+                extra,
+                MessageBody::plain(PATH_ERR),
+                "File not in sample table",
+            )
+            .await);
         };
 
         if tokio::fs::metadata(&path).await.is_err() {

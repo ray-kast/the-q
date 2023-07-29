@@ -804,7 +804,9 @@ impl EventHandler for Handler {
                 ref mut cmd,
             } => match flow {
                 FlowType::TopLevel(InteractionType::Command(command::CommandType::ChatInput)) => {
-                    let interaction::Interaction::ApplicationCommand(ref cmd) = int else { unreachable!() };
+                    let interaction::Interaction::ApplicationCommand(ref cmd) = int else {
+                        unreachable!()
+                    };
 
                     let info = (&cmd.data.options,);
                     tracing::info!(?info);

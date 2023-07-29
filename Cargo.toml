@@ -2,8 +2,24 @@
 members = ["crates/*"]
 resolver = "2"
 
-[workspace.dependencies]
-serenity = { version = "0.11.5", default-features = false, features = ["tokio", "parking_lot", "client", "builder", "cache", "chrono", "gateway", "model", "http", "utils", "rustls_backend", "voice_model", "voice"] }
+[workspace.dependencies.serenity]
+version = "0.11.6"
+default-features = false
+features = [
+  "tokio",
+  "parking_lot",
+  "client",
+  "builder",
+  "cache",
+  "chrono",
+  "gateway",
+  "model",
+  "http",
+  "utils",
+  "rustls_backend",
+  "voice_model",
+  "voice",
+]
 
 [profile.debug-opt]
 inherits = "release"

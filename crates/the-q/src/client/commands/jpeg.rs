@@ -11,7 +11,9 @@ enum JpegInput<'a> {
 }
 
 async fn jpeg(input: JpegInput<'_>, quality: Option<i64>) -> Result<Vec<u8>> {
-    let quality @ 0..=100 = quality.unwrap_or(1) else { unreachable!() };
+    let quality @ 0..=100 = quality.unwrap_or(1) else {
+        unreachable!()
+    };
     let quality = u8::try_from(quality).unwrap_or_else(|_| unreachable!());
 
     let image_data;
@@ -199,9 +201,10 @@ impl CommandHandler<Schema> for JpegMessageCommand {
 
         let Some((input, filename)) = input else {
             return Err(responder
-                .create_message(Message::plain(
-                    "Target message must have exactly one attachment!",
-                ).ephemeral(true))
+                .create_message(
+                    Message::plain("Target message must have exactly one attachment!")
+                        .ephemeral(true),
+                )
                 .await
                 .context("Error sending attachment count error")?
                 .into_err("Target message had multiple or no attachments"));

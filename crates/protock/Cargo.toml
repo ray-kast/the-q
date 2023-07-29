@@ -8,12 +8,12 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
-anyhow = "1.0.70"
-clap = { version = "4.2.1", features = ["derive", "cargo"] }
-git2 = "0.16.0" # TODO: why does 0.17 cause link errors on mac
-prost = "0.11.8"
-prost-types = "0.11.8"
+anyhow = "1.0.72"
+clap = { version = "4.3.19", features = ["derive", "cargo"] }
+git2 = "0.17.2"
+prost = "0.11.9"
+prost-types = "0.11.9"
 shrec = { version = "0.1.0", path = "../shrec" }
-tempfile = "3.5.0"
+tempfile = "3.7.0"
 tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.16", features = ["tracing-log", "fmt"] }
+tracing-subscriber = { version = "0.3.17", features = ["tracing-log", "fmt"] }

@@ -86,7 +86,9 @@ impl<'a> ScopeRef<'a> {
         &'a str: Borrow<Q>,
     {
         let mut path = path.into_iter();
-        let Some(first) = path.next() else { return self.qualify([]) };
+        let Some(first) = path.next() else {
+            return self.qualify([]);
+        };
         let mut curr = self;
         let owner = loop {
             if let Some(owner) = curr.clone().child(first) {

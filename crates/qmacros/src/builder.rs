@@ -154,7 +154,10 @@ fn is_builder_method(
     }
 
     let Some(syn::FnArg::Receiver(r)) = m.sig.inputs.first() else {
-        return Err((m.span(), "Builder method must have a &mut self param".into()));
+        return Err((
+            m.span(),
+            "Builder method must have a &mut self param".into(),
+        ));
     };
 
     if r.reference.is_none() || r.mutability.is_none() {
@@ -183,12 +186,16 @@ fn is_builder_method(
 }
 
 fn make_builder_method(m: syn::ImplItem, diag: &mut TokenStream) -> syn::ImplItemFn {
-    let syn::ImplItem::Fn(mut m) = m else { unreachable!() };
+    let syn::ImplItem::Fn(mut m) = m else {
+        unreachable!()
+    };
 
     m.vis = syn::Visibility::Inherited;
 
     let span = m.span();
-    let Some(syn::FnArg::Receiver(r)) = m.sig.inputs.first_mut() else { unreachable!() };
+    let Some(syn::FnArg::Receiver(r)) = m.sig.inputs.first_mut() else {
+        unreachable!()
+    };
     if let syn::Type::Reference(syn::TypeReference { ref elem, .. }) = *r.ty {
         r.ty = elem.clone();
     }

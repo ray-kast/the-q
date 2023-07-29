@@ -10,31 +10,31 @@ repository = "https://github.com/ray-kast/the-q/"
 build = "build.rs"
 
 [dependencies]
-anyhow = "1.0.70"
-async-trait = "0.1.68"
-clap = { version = "4.2.1", features = ["env", "cargo", "derive"] }
+anyhow = "1.0.72"
+async-trait = "0.1.72"
+clap = { version = "4.3.19", features = ["env", "cargo", "derive"] }
 dotenv = "0.15.0"
 futures-util = "0.3.28"
 hostname = "0.3.1"
 jpeggr = { version = "=0.1.0", path = "../jpeggr" }
-notify = "5.1.0"
-once_cell = { version = "1.17.1", features = ["parking_lot"] }
-ordered-float = "3.6.0"
+notify = "6.0.1"
+once_cell = { version = "1.18.0", features = ["parking_lot"] }
+ordered-float = "3.7.0"
 paracord = { version = "0.1.0", path = "../paracord" }
-prost = "0.11.8"
+prost = "0.11.9"
 qcore = { version = "0.1.0", path = "../qcore" }
-reqwest = { version = "0.11.16", features = ["deflate", "gzip", "brotli", "rustls-tls"], default-features = false }
+reqwest = { version = "0.11.18", features = ["deflate", "gzip", "brotli", "rustls-tls"], default-features = false }
 serenity = { workspace = true }
 shrec = { version = "0.1.0", path = "../shrec" }
 songbird = { version = "0.3.2", features = ["serenity"] }
 strsim = "0.10.0"
-tokio = { version = "1.27.0", features = ["parking_lot", "full", "tracing"] }
+tokio = { version = "1.29.1", features = ["parking_lot", "full", "tracing"] }
 tracing = "0.1.37"
-tracing-loki = { version = "0.2.2", default-features = false, features = ["rustls", "compat-0-2-1"] }
-tracing-subscriber = { version = "0.3.16", features = ["env-filter", "fmt", "tracing-log"] }
-url = "2.3.1"
+tracing-loki = { version = "0.2.3", default-features = false, features = ["rustls", "compat-0-2-1"] }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter", "fmt", "tracing-log"] }
+url = "2.4.0"
 walkdir = "2.3.3"
 
 [build-dependencies]
 glob = "0.3.1"
-prost-build = "0.11.8"
+prost-build = "0.11.9"

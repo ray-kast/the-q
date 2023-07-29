@@ -40,7 +40,9 @@ impl<'a, I: Ord, N: Copy + Ord, J: Clone + Iterator<Item = I>, T> Iterator
 
     fn next(&mut self) -> Option<Self::Item> {
         let trapped = loop {
-            let Some(input) = self.input.next() else { break false };
+            let Some(input) = self.input.next() else {
+                break false;
+            };
 
             let Some(&(next, ())) = self
                 .dfa

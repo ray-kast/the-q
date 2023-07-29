@@ -184,7 +184,9 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
             .collect::<Result<_>>()?;
 
         self.state = VisitorState::SlashCommand(map);
-        let VisitorState::SlashCommand(ref mut m) = self.state else { unreachable!(); };
+        let VisitorState::SlashCommand(ref mut m) = self.state else {
+            unreachable!();
+        };
         Ok(((!subcmd.is_empty()).then_some(subcmd), m))
     }
 
@@ -266,7 +268,9 @@ impl<'a> TargetVisitor<'a> {
     ) -> Result<Option<(&'a K, &'a V)>> {
         let mut it = map.iter();
 
-        let Some(pair) = it.next() else { return Ok(None) };
+        let Some(pair) = it.next() else {
+            return Ok(None);
+        };
 
         it.next()
             .is_none()

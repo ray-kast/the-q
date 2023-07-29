@@ -42,10 +42,7 @@ impl Field {
     }
 
     fn warn_non_zigzag(&self, ctx: &TypeContext<'_>, side: Side, log: &mut CompatLog) {
-        let Ok(wire) = self
-            .ty
-            .wire_format(self.kind, |n| ctx.types.get(n))
-        else {
+        let Ok(wire) = self.ty.wire_format(self.kind, |n| ctx.types.get(n)) else {
             return;
         };
 

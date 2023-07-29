@@ -126,7 +126,9 @@ mod entry {
                     })
                     .context("Error reading file history")?;
 
-                let Some(blob) = blob else { continue; };
+                let Some(blob) = blob else {
+                    continue;
+                };
 
                 let _s = tracing::error_span!(
                     "check_commit",

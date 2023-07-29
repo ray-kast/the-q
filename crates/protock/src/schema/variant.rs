@@ -48,7 +48,9 @@ impl CheckCompat for Variant {
         let id = cx.map(|c| c.id).unwrap_eq();
 
         let ck = ck.map(|v| &v.0);
-        let Err(_names) = ck.try_unwrap_eq() else { return };
+        let Err(_names) = ck.try_unwrap_eq() else {
+            return;
+        };
 
         match ck.map(BTreeSet::len).into_inner() {
             (0, _) | (_, 0) => unreachable!(),
