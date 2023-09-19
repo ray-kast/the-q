@@ -1,10 +1,9 @@
 #!/bin/sh
 
-[ -f .env.compose ] && . ./.env.compose
-export GF_USER
-export GF_PASSWD
+cd "$(dirname "$0")"
+set -xe
 
 COMPOSE=docker-compose
 which "$COMPOSE" || COMPOSE=podman-compose
 
-"$COMPOSE" "$@"
+"$COMPOSE" --env-file .env.compose "$@"
