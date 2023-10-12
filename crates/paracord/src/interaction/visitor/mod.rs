@@ -18,6 +18,8 @@ mod private {
         fn member(&self) -> &Option<guild::Member>;
 
         fn user(&self) -> &user::User;
+
+        fn id(&self) -> &id::InteractionId;
     }
 
     impl Interaction for application_command::ApplicationCommandInteraction {
@@ -34,6 +36,9 @@ mod private {
 
         #[inline]
         fn user(&self) -> &user::User { &self.user }
+
+        #[inline]
+        fn id(&self) -> &id::InteractionId { &self.id }
     }
 
     impl Interaction for message_component::MessageComponentInteraction {
@@ -50,6 +55,9 @@ mod private {
 
         #[inline]
         fn user(&self) -> &user::User { &self.user }
+
+        #[inline]
+        fn id(&self) -> &id::InteractionId { &self.id }
     }
 
     impl Interaction for autocomplete::AutocompleteInteraction {
@@ -66,6 +74,9 @@ mod private {
 
         #[inline]
         fn user(&self) -> &user::User { &self.user }
+
+        #[inline]
+        fn id(&self) -> &id::InteractionId { &self.id }
     }
 
     impl Interaction for modal::ModalSubmitInteraction {
@@ -82,6 +93,9 @@ mod private {
 
         #[inline]
         fn user(&self) -> &user::User { &self.user }
+
+        #[inline]
+        fn id(&self) -> &id::InteractionId { &self.id }
     }
 }
 
@@ -89,7 +103,7 @@ use std::fmt;
 
 pub use command::CommandVisitor;
 use serenity::model::{
-    application::command::CommandOptionType, guild::Member, id::GuildId, user::User,
+    application::command::CommandOptionType, guild::Member, id::GuildId, user::User, id::InteractionId,
 };
 
 /// An error caused by performing an invalid extraction
@@ -183,6 +197,10 @@ impl<'a, I: private::Interaction> BasicVisitor<'a, I> {
     #[inline]
     #[must_use]
     pub fn user(&self) -> &'a User { self.int.user() }
+
+    /// Get the ID used by Discord to identify this interaction
+    #[inline]
+    pub fn id(&self) -> InteractionId { self.int.id().clone() }
 }
 
 /// Visitor for the source guild of an interaction
