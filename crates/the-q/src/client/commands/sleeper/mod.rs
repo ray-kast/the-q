@@ -21,9 +21,9 @@ pub const COOLDOWN_PERIOD: Duration = Duration::from_secs(45 * 60);
 #[derive(Copy, Clone)]
 pub enum Outcome { TheSleeper, NotTheSleeper }
 
-pub struct LastAccusation {
-    pub time_since_accused: Duration,
-    pub outcome_and_time_since_outcome: Option<(Outcome, Duration)>
+pub struct AccusationInfo<T> {
+    pub time_accused: T,
+    pub outcome_and_time_resolved: Option<(Outcome, T)>
 }
 
 enum SleeperAction {
@@ -106,13 +106,13 @@ impl<S: SleeperStorage> SleeperCommand<S> {
 
         // TODO: fancier messages for errors, show remaining time
         let responder = match transaction.last_accusation() {
-            Some(LastAccusation { outcome_and_time_since_outcome: None, time_since_accused }) if time_since_accused <= GRACE_PERIOD => return Err(
+            Some(AccusationInfo { outcome_and_time_resolved: None, time_accused }) if transaction.accusation_time().saturating_duration_since(&time_accused) <= GRACE_PERIOD => return Err(
                 responder
                     .create_message(Message::rich(|builder| builder.user(target_user).push(" has already been accused!")).ephemeral(true)).await 
                     .context("Error sending already accused error")?
                     .into_err("User has already been accused")
             ),
-            Some(LastAccusation { outcome_and_time_since_outcome: Some((_, time_since_resolved)), .. }) if time_since_resolved <= COOLDOWN_PERIOD => return Err(
+            Some(AccusationInfo { outcome_and_time_resolved: Some((_, time_resolved)), .. }) if transaction.accusation_time().saturating_duration_since(&time_resolved) <= COOLDOWN_PERIOD => return Err(
                 responder
                     .create_message(Message::rich(|builder| builder.user(target_user).push(" has been accused too recently!")).ephemeral(true)).await 
                     .context("Error sending accused-too-recently error")?
@@ -193,10 +193,11 @@ impl<S: SleeperStorage> SleeperCommand<S> {
         let user = visitor.user();
         let (gid, _) = visitor.guild()?.required()?;
 
+        let time_awake = S::Timestamp::of_interaction(visitor.id());
         let result = match self.storage.last_accusation(gid, user.id).await? {
-            Some(LastAccusation { outcome_and_time_since_outcome: None, time_since_accused }) if time_since_accused < GRACE_PERIOD =>
+            Some(AccusationInfo { outcome_and_time_resolved: None, time_accused }) if time_awake.saturating_duration_since(&time_accused) <= GRACE_PERIOD =>
                 self.storage.record_outcome(gid, user.id, Timestamp::of_interaction(visitor.id()), Outcome::NotTheSleeper).await,
-            Some(LastAccusation { outcome_and_time_since_outcome: Some((outcome, time_since_resolved)), .. }) if time_since_resolved < COOLDOWN_PERIOD => 
+            Some(AccusationInfo { outcome_and_time_resolved: Some((outcome, time_resolved)), .. }) if time_awake.saturating_duration_since(&time_resolved) <= COOLDOWN_PERIOD => 
                 Err(RecordOutcomeError::AlreadyResolved(outcome)),
             _ => 
                 Err(RecordOutcomeError::NotAccused)

@@ -5,12 +5,13 @@ use serenity::model::prelude::{UserId, GuildId, InteractionId};
 
 use crate::prelude::*;
 
-use super::{Outcome, LastAccusation};
+use super::{Outcome, AccusationInfo};
 
 // TODO: we might be able to replace this with a concrete type like memory::DiscordTime later
 pub trait Timestamp: Sized + Send + Sync {
     fn mentionable(&self) -> Option<MentionableTimestamp>;
     fn checked_add(&self, duration: Duration) -> Option<Self>;
+    fn saturating_duration_since(&self, other: &Self) -> Duration;
     fn of_interaction(interaction: InteractionId) -> Self;
 }
 
@@ -19,7 +20,7 @@ pub trait AccusationTransaction: Send + Sync {
     type Timestamp: Timestamp;
     type ResolveFuture: Future<Output=Outcome> + Send + 'static;
 
-    fn last_accusation(&self) -> Option<LastAccusation>;
+    fn last_accusation(&self) -> Option<AccusationInfo<Self::Timestamp>>;
     fn accusation_time(&self) -> Self::Timestamp;
     async fn commit(self) -> Self::ResolveFuture; // TODO: when we have a database this will probably need to become a result as well... sucks though
 }
@@ -35,7 +36,7 @@ pub trait SleeperStorage {
     type Timestamp: Timestamp;
     type Transaction<'a>: AccusationTransaction<Timestamp = Self::Timestamp> where Self: 'a;
     
-    async fn last_accusation(&self, guild: GuildId, user: UserId) -> Result<Option<LastAccusation>>;
+    async fn last_accusation(&self, guild: GuildId, user: UserId) -> Result<Option<AccusationInfo<Self::Timestamp>>>;
     async fn begin_accuse<'a>(&'a self, guild: GuildId, user: UserId, time: Self::Timestamp) -> Result<Self::Transaction<'a>>;
     async fn record_outcome(&self, guild: GuildId, user: UserId, time: Self::Timestamp, outcome: Outcome) -> Result<(), RecordOutcomeError>;
 }
@@ -48,6 +49,9 @@ mod memory {
     use futures_util::TryFuture;
     use tokio::sync::{oneshot, RwLock, Mutex, RwLockWriteGuard, OwnedMutexGuard};
 
+    // TODO: converting between the various types here is kind of ugly. We could either:
+    // - switch to using `chrono::Duration` instead of `std::time::Duration` ourselves
+    // - drop chrono and serenity's Timestamp entirely and define our own type for a "discord snowflake time" 
     #[derive(Clone)]
     pub struct DiscordTime(serenity::model::Timestamp);
 
@@ -57,7 +61,11 @@ mod memory {
         }
 
         fn checked_add(&self, duration: Duration) -> Option<Self> {
-            Some(DiscordTime(self.0.checked_add_signed(chrono::Duration::from_std(duration).ok()?)?.into())) // this is a bit ugly
+            Some(DiscordTime(self.0.checked_add_signed(chrono::Duration::from_std(duration).ok()?)?.into()))
+        }
+
+        fn saturating_duration_since(&self, other: &Self) -> Duration {
+            self.0.signed_duration_since(other.0.deref()).to_std().unwrap_or(Duration::ZERO)
         }
 
         fn of_interaction(interaction: InteractionId) -> Self {
@@ -70,16 +78,12 @@ mod memory {
         Resolved { time_accused: DiscordTime, time_resolved: DiscordTime, outcome: Outcome },
     }
 
-    impl Accusation {
-        // TODO: resolve naming here
-        fn into_last_accusation(&self) -> LastAccusation {
-            todo!()
-            /*
-            match self {
-                Accusation::Unresolved { time_accused, .. } => LastAccusation { time_accused: *time_accused, outcome_and_time_resolved: None },
-                Accusation::Resolved { time_accused, time_resolved, outcome } => LastAccusation { time_accused: *time_accused, outcome_and_time_resolved: Some((*outcome, *time_resolved)) }
+    impl From<&Accusation> for AccusationInfo<DiscordTime> {
+        fn from(value: &Accusation) -> Self {
+            match value {
+                Accusation::Unresolved { time_accused, .. } => AccusationInfo { time_accused: time_accused.clone(), outcome_and_time_resolved: None },
+                Accusation::Resolved { time_accused, time_resolved, outcome } => AccusationInfo { time_accused: time_accused.clone(), outcome_and_time_resolved: Some((*outcome, time_resolved.clone())) }
             }
-             */
         }
     }
 
@@ -94,8 +98,8 @@ mod memory {
             self.accusations.read().await.get(&(guild, user)).cloned()
         }
 
-        async fn _last_accusation(&self, guild: GuildId, user: UserId) -> Option<LastAccusation> {
-            Some(self.get_accusation_mutex(guild, user).await?.lock().await.into_last_accusation())
+        async fn _last_accusation(&self, guild: GuildId, user: UserId) -> Option<AccusationInfo<DiscordTime>> {
+            Some(self.get_accusation_mutex(guild, user).await?.lock().await.deref().into())
         }
     }
 
@@ -103,7 +107,7 @@ mod memory {
         kind: TransactionKind<'a>,
         guild: GuildId, 
         user: UserId,
-        time_accused: DiscordTime, // TODO: rename this
+        time_accused: DiscordTime, // TODO: is this the best name for this field?
     }
 
     enum TransactionKind<'a> {
@@ -141,9 +145,9 @@ mod memory {
 
         fn accusation_time(&self) -> DiscordTime { self.time_accused.clone() }
 
-        fn last_accusation(&self) -> Option<LastAccusation> {
+        fn last_accusation(&self) -> Option<AccusationInfo<DiscordTime>> {
             match &self.kind {
-                TransactionKind::Replacing(guard) => Some(guard.into_last_accusation()),
+                TransactionKind::Replacing(guard) => Some(guard.deref().into()),
                 TransactionKind::Creating(_) => None,
             }
         }
@@ -165,7 +169,7 @@ mod memory {
         type Timestamp = DiscordTime;
         type Transaction<'a> = Transaction<'a>;
 
-        async fn last_accusation(&self, guild: GuildId, user: UserId) -> Result<Option<LastAccusation>> { Ok(self._last_accusation(guild, user).await) }
+        async fn last_accusation(&self, guild: GuildId, user: UserId) -> Result<Option<AccusationInfo<DiscordTime>>> { Ok(self._last_accusation(guild, user).await) }
 
         async fn begin_accuse<'a>(&'a self, guild: GuildId, user: UserId, time_accused: DiscordTime) -> Result<Self::Transaction<'a>> {
             let mutex = match self.get_accusation_mutex(guild, user).await {
