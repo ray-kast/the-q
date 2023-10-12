@@ -103,7 +103,10 @@ use std::fmt;
 
 pub use command::CommandVisitor;
 use serenity::model::{
-    application::command::CommandOptionType, guild::Member, id::GuildId, user::User, id::InteractionId,
+    application::command::CommandOptionType,
+    guild::Member,
+    id::{GuildId, InteractionId},
+    user::User,
 };
 
 /// An error caused by performing an invalid extraction
