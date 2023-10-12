@@ -73,7 +73,8 @@ impl<S: SleeperStorage> SleeperCommand<S> {
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         let user = visitor.user();
-        let (target_user, _) = visitor.target().user()?;
+        // let (target_user, _) = visitor.target().user()?;
+        let (target_user, _) = visitor.visit_user("target")?.required()?;
         let (gid, _) = visitor.guild()?.required()?;
 
         /* restrict the lifetime of voice_states */
@@ -371,7 +372,17 @@ impl<S: SleeperStorage> SleeperCommand<S> {
 impl<S: SleeperStorage + Debug + Sync + Send + 'static> CommandHandler<Schema>
     for SleeperCommand<S>
 {
-    fn register_global(&self) -> CommandInfo { CommandInfo::user(&self.name) }
+    fn register_global(&self) -> CommandInfo {
+        CommandInfo::build_slash(&self.name, "Play the sleeper game", |a| {
+            a.build_subcmd(
+                Self::ACCUSE_NAME,
+                "Accuse a user in your voice channel of having fallen asleep",
+                |a| a.user("target", "The user to accuse", true),
+            )
+            .build_subcmd(Self::AWAKE_NAME, "Prove that you are awake", id)
+        })
+        .unwrap()
+    }
 
     async fn respond<'a>(
         &self,
