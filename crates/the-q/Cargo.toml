@@ -12,8 +12,10 @@ build = "build.rs"
 [dependencies]
 anyhow = "1.0.72"
 async-trait = "0.1.72"
+chrono = "0.4.31"
 clap = { version = "4.3.19", features = ["env", "cargo", "derive"] }
 dotenv = "0.15.0"
+futures-lite = { version = "1.13.0", default-features = false }
 futures-util = "0.3.28"
 hostname = "0.3.1"
 jpeggr = { version = "=0.1.0", path = "../jpeggr" }
