@@ -12,7 +12,8 @@ impl MentionableTimestamp {
     const MAX_SECONDS: i64 =  86400 * 100_000_000;
     const MIN_SECONDS: i64 = -86400 * 100_000_000;
 
-    /// Creates a [MentionableTimestamp] representing a particular number of seconds after the Unix epoch
+    /// Creates a [`MentionableTimestamp`] representing a particular number of seconds after the Unix epoch
+    #[must_use]
     pub fn from_seconds_since_unix_epoch(seconds_since_unix_epoch: i64) -> Option<MentionableTimestamp> { // TODO: should be Result like TryFrom
         match seconds_since_unix_epoch {
             seconds if seconds < Self::MIN_SECONDS => None,
@@ -21,14 +22,16 @@ impl MentionableTimestamp {
         }
     }
 
-    /// Gets the number of seconds that have passed between the Unix epoch and this [MentionableTimestamp]. If this timestamp comes before the Unix epoch, the value is negative.
+    /// Gets the number of seconds that have passed between the Unix epoch and this [`MentionableTimestamp`]. If this timestamp comes before the Unix epoch, the value is negative.
+    #[must_use]
     pub fn seconds_since_unix_epoch(&self) -> i64 { self.seconds_since_unix_epoch }
 
     /// Creates a [Mention] which will display this timestamp in the specified style
+    #[must_use]
     pub fn mention(&self, style: TimestampStyle) -> Mention { Mention::Timestamp(self.clone(), style) }
 }
 
-/// An error indicating that a value was out of range for a [MentionableTimestamp]
+/// An error indicating that a value was out of range for a [`MentionableTimestamp`]
 #[derive(Copy, Clone, Debug)]
 pub struct OutOfMentionableRange;
 
@@ -40,7 +43,7 @@ impl TryFrom<serenity::model::Timestamp> for MentionableTimestamp {
     }
 }
 
-/// A struct that represents some way to insert a timestamp into a message. Can be thought of as an extension of [serenity::model::mention::Mention].
+/// A struct that represents some way to insert a timestamp into a message. Can be thought of as an extension of [`serenity::model::mention::Mention`].
 // TODO: Should we have a variant that wraps a serenity mention for completeness?
 #[derive(Debug, Clone)]
 pub enum Mention {

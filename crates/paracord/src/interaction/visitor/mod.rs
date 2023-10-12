@@ -200,7 +200,8 @@ impl<'a, I: private::Interaction> BasicVisitor<'a, I> {
 
     /// Get the ID used by Discord to identify this interaction
     #[inline]
-    pub fn id(&self) -> InteractionId { self.int.id().clone() }
+    #[must_use]
+    pub fn id(&self) -> InteractionId { *self.int.id() }
 }
 
 /// Visitor for the source guild of an interaction

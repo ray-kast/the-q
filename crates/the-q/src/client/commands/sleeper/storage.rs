@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use paracord::mention::MentionableTimestamp;
-use serenity::model::prelude::{UserId, GuildId, InteractionId};
+use serenity::model::prelude::*;
 
 use crate::prelude::*;
 
@@ -42,9 +42,13 @@ pub trait SleeperStorage {
 }
 
 mod memory {
-    use super::*;
+    use std::{ops::Deref, pin::Pin, time::Duration};
 
-    use std::{ops::Deref, ops::DerefMut, pin::Pin};
+    use crate::prelude::*;
+    use super::{Outcome, AccusationInfo, AccusationTransaction, RecordOutcomeError, SleeperStorage};
+
+    use serenity::model::prelude::*;
+    use paracord::mention::MentionableTimestamp;
 
     use futures_util::TryFuture;
     use tokio::sync::{oneshot, RwLock, Mutex, RwLockWriteGuard, OwnedMutexGuard};
@@ -65,7 +69,7 @@ mod memory {
         }
 
         fn saturating_duration_since(&self, other: &Self) -> Duration {
-            self.0.signed_duration_since(other.0.deref()).to_std().unwrap_or(Duration::ZERO)
+            self.0.signed_duration_since(*other.0).to_std().unwrap_or(Duration::ZERO)
         }
 
         fn of_interaction(interaction: InteractionId) -> Self {
@@ -172,14 +176,11 @@ mod memory {
         async fn last_accusation(&self, guild: GuildId, user: UserId) -> Result<Option<AccusationInfo<DiscordTime>>> { Ok(self._last_accusation(guild, user).await) }
 
         async fn begin_accuse<'a>(&'a self, guild: GuildId, user: UserId, time_accused: DiscordTime) -> Result<Self::Transaction<'a>> {
-            let mutex = match self.get_accusation_mutex(guild, user).await {
-                Some(mutex) => mutex,
-                None => {
-                    let guard = self.accusations.write().await;
-                    match guard.deref().get(&(guild, user)).cloned() {
-                        Some(mutex) => mutex,
-                        None => return Ok(Transaction { kind: TransactionKind::Creating(guard), guild, user, time_accused })
-                    }
+            let mutex = if let Some(mutex) = self.get_accusation_mutex(guild, user).await { mutex } else {
+                let guard = self.accusations.write().await;
+                match guard.deref().get(&(guild, user)).cloned() {
+                    Some(mutex) => mutex,
+                    None => return Ok(Transaction { kind: TransactionKind::Creating(guard), guild, user, time_accused })
                 }
             };
 
@@ -189,7 +190,7 @@ mod memory {
         async fn record_outcome(&self, guild: GuildId, user: UserId, time_resolved: DiscordTime, outcome: Outcome) -> Result<(), RecordOutcomeError> {
             let Some(mutex) = self.get_accusation_mutex(guild, user).await else { return Err(RecordOutcomeError::NotAccused) };
             let mut guard = mutex.lock().await;
-            let accusation = guard.deref_mut();
+            let accusation = &mut *guard;
             match accusation {
                 Accusation::Resolved { outcome, .. } => Err(RecordOutcomeError::AlreadyResolved(*outcome)),
                 Accusation::Unresolved { time_accused, .. } => {

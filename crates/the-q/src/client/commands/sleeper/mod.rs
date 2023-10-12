@@ -52,7 +52,7 @@ impl<S: SleeperStorage> SleeperCommand<S> {
 
     fn sleeper_action(&self, ctx: &Context, guild: GuildId) -> Result<SleeperAction> {
         // TODO: make this configurable
-        Ok(match ctx.cache.guild_field(guild, |guild| guild.afk_channel_id.clone()).context("Could not determiner sleeper action")? {
+        Ok(match ctx.cache.guild_field(guild, |guild| guild.afk_channel_id).context("Could not determiner sleeper action")? {
             Some(afk_channel_id) => SleeperAction::MoveToChannel(afk_channel_id),
             None => SleeperAction::Disconnect
         })
