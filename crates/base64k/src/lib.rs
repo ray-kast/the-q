@@ -11,9 +11,13 @@
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
 
+mod arr;
 mod dec;
 mod enc;
 
+// A flag indicating a trailing byte.  All code points are converted from
+// two-byte pairs thus this value exceeds the range of non-trailing code point
+// inputs.
 pub(self) const TRAIL_MASK: u32 = 0x0001_0000;
 
 pub use dec::Decoder;
@@ -44,6 +48,24 @@ pub(self) mod test {
         char::from_u32(safe).unwrap()
     }
 
+    fn zip_eq<A: IntoIterator, B: IntoIterator<Item = u8>>(a: A, b: B)
+    where
+        A::Item: Into<u8>,
+        A::IntoIter: ExactSizeIterator,
+        B::IntoIter: ExactSizeIterator,
+    {
+        let a = a.into_iter();
+        let b = b.into_iter();
+        let a_len = a.len();
+        let b_len = b.len();
+
+        for (i, (a, b)) in a.map(Into::into).zip(b.map(Into::into)).enumerate() {
+            assert_eq!(a, b, "Mismatch at index {i}: {a:#08x} vs {b:#08x}");
+        }
+
+        assert_eq!(a_len, b_len, "Length mismatch");
+    }
+
     fn assert_roundtrip(inp: &[u8]) {
         let mut enc = Encoder::<String>::default();
         enc.write_all(inp).unwrap();
@@ -51,17 +73,17 @@ pub(self) mod test {
         let mut dec = Decoder::new(s.chars());
         let mut out = vec![];
         dec.read_to_end(&mut out).unwrap();
-        assert_eq!(inp, out);
+        zip_eq(inp.iter().copied(), out);
     }
 
     proptest::proptest! {
         #[test]
-        fn test_roundtrip_small(v in prop::collection::vec(0_u8..255, 0..256)) {
+        fn test_roundtrip_small(v in prop::collection::vec(0_u8..=255, 0..256)) {
             assert_roundtrip(&v);
         }
 
         #[test]
-        fn test_roundtrip_kib(v in prop::collection::vec(0_u8..255, 0..(10 * 1024))) {
+        fn test_roundtrip_kib(v in prop::collection::vec(0_u8..=255, 0..(10 * 1024))) {
             assert_roundtrip(&v);
         }
     }
@@ -74,7 +96,7 @@ pub(self) mod test {
 
         #[cfg(not(debug_assertions))]
         #[test]
-        fn test_roundtrip_mib(v in prop::collection::vec(0_u8..255, (4 * 1024)..(10 * 1024 * 1024))) {
+        fn test_roundtrip_mib(v in prop::collection::vec(0_u8..=255, (4 * 1024)..(10 * 1024 * 1024))) {
             assert_roundtrip(&v);
         }
     }
