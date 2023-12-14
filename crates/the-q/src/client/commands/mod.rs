@@ -4,6 +4,7 @@ mod point;
 mod re;
 mod rpc;
 mod say;
+mod sleeper;
 mod sound;
 mod test;
 
