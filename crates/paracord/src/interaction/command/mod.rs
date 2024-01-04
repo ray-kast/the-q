@@ -6,7 +6,7 @@ mod arg_builder;
 mod info;
 mod registered;
 mod sim;
-pub(self) mod try_from_value;
+mod try_from_value;
 
 pub use arg::*;
 pub use arg_builder::*;

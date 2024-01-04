@@ -25,9 +25,7 @@ impl<'a> GlobalScope<'a> {
     pub fn new(fildes_set: &'a FileDescriptorSet) -> Self {
         Self(fildes_set.file.iter().fold(Scope::default(), |mut p, f| {
             split_package(&f.package)
-                .fold(&mut p, |n, p| {
-                    n.children.entry(p).or_insert_with(Scope::default)
-                })
+                .fold(&mut p, |n, p| n.children.entry(p).or_default())
                 .package(f);
             p
         }))

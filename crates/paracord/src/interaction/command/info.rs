@@ -2,11 +2,8 @@ use std::{collections::BTreeMap, num::NonZeroU8};
 
 use qcore::builder;
 use serenity::{
-    builder::{CreateApplicationCommand, CreateApplicationCommandOption},
-    model::{
-        application::command::{CommandOption, CommandOptionType},
-        prelude::command::CommandType,
-    },
+    builder::{CreateCommand, CreateCommandOption},
+    model::application::{CommandOption, CommandOptionType, CommandType},
 };
 
 use super::{Arg, ArgBuilder, ArgType, TryFromError};
@@ -44,9 +41,14 @@ impl CommandInfo {
     pub fn build_slash(
         name: impl Into<String>,
         desc: impl Into<String>,
+        // TODO: can these be removed from the API surface?
         f: impl FnOnce(ArgBuilder) -> ArgBuilder,
     ) -> Result<Self, TryFromError> {
-        Ok(Self::slash(name, desc, f(ArgBuilder::default()).build()?))
+        Ok(Self::slash(
+            name,
+            desc,
+            f(ArgBuilder::default()).try_into()?,
+        ))
     }
 
     /// Construct a new description of a user context menu command
@@ -75,43 +77,6 @@ impl CommandInfo {
     #[inline]
     #[must_use]
     pub fn name(&self) -> &String { &self.name }
-
-    /// Apply the data contained within this command description to a
-    /// [`serenity`] command builder
-    pub fn build(self, cmd: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
-        let Self { name, can_dm, data } = self;
-        cmd.name(name).dm_permission(can_dm);
-
-        match data {
-            Data::Slash { desc, trie } => {
-                cmd.description(desc);
-                match trie {
-                    Trie::Branch { height, children } => {
-                        for pair in children {
-                            cmd.create_option(|o| Subcommand::build_child(height, pair, o));
-                        }
-                    },
-                    Trie::Leaf {
-                        mut args,
-                        arg_order,
-                    } => {
-                        for (name, arg) in arg_order
-                            .into_iter()
-                            .map(|a| args.remove_entry(&a).unwrap_or_else(|| unreachable!()))
-                        {
-                            cmd.create_option(|o| arg.build(name, o));
-                        }
-                        if !args.is_empty() {
-                            unreachable!("Trailing parameters in CommandInfo")
-                        }
-                    },
-                }
-                cmd
-            },
-            Data::User => cmd.kind(CommandType::User),
-            Data::Message => cmd.kind(CommandType::Message),
-        }
-    }
 }
 
 #[builder(trait_name = CommandInfoExt)]
@@ -120,6 +85,43 @@ impl CommandInfo {
     /// Set whether this command should be usable in DM (i.e. non-guild)
     /// channels
     pub fn can_dm(&mut self, can_dm: bool) { self.can_dm = can_dm; }
+}
+
+impl From<CommandInfo> for CreateCommand {
+    fn from(value: CommandInfo) -> Self {
+        let CommandInfo { name, can_dm, data } = value;
+        let cmd = Self::new(name).dm_permission(can_dm);
+
+        match data {
+            Data::Slash { desc, trie } => {
+                #[repr(transparent)]
+                struct Visitor(CreateCommand);
+
+                impl TrieVisitor<CreateCommand> for Visitor {
+                    #[inline]
+                    fn branch<C: Iterator<Item = CreateCommandOption>>(
+                        self,
+                        _: NonZeroU8,
+                        children: C,
+                    ) -> CreateCommand {
+                        self.0.set_options(children.collect())
+                    }
+
+                    #[inline]
+                    fn leaf<C: Iterator<Item = CreateCommandOption>>(
+                        self,
+                        args: C,
+                    ) -> CreateCommand {
+                        self.0.set_options(args.collect())
+                    }
+                }
+
+                trie.visit(Visitor(cmd.description(desc)))
+            },
+            Data::User => cmd.kind(CommandType::User),
+            Data::Message => cmd.kind(CommandType::Message),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -154,7 +156,39 @@ impl Default for Trie {
     }
 }
 
+trait TrieVisitor<T> {
+    fn branch<C: Iterator<Item = CreateCommandOption>>(self, height: NonZeroU8, children: C) -> T;
+
+    fn leaf<C: Iterator<Item = CreateCommandOption>>(self, args: C) -> T;
+}
+
 impl Trie {
+    fn visit<T, V: TrieVisitor<T>>(self, visitor: V) -> T {
+        match self {
+            Self::Branch { height, children } => visitor.branch(
+                height,
+                children
+                    .into_iter()
+                    .map(|p| Subcommand::build_child(height, p)),
+            ),
+            Self::Leaf {
+                mut args,
+                arg_order,
+            } => {
+                let ret = visitor.leaf(arg_order.into_iter().map(|a| {
+                    let (name, arg) = args.remove_entry(&a).unwrap_or_else(|| unreachable!());
+                    arg.build(name)
+                }));
+
+                if !args.is_empty() {
+                    unreachable!("Trailing parameters in trie leaf")
+                }
+
+                ret
+            },
+        }
+    }
+
     pub(super) fn try_build(
         opts: impl IntoIterator<Item = CommandOption>,
     ) -> Result<Self, TryFromError> {
@@ -257,45 +291,35 @@ pub(super) struct Subcommand {
 }
 
 impl Subcommand {
-    fn build(
-        self,
-        opt: &mut CreateApplicationCommandOption,
-    ) -> &mut CreateApplicationCommandOption {
-        let Self { desc, node } = self;
-        opt.description(desc);
+    fn build_child(height: NonZeroU8, (name, cmd): (String, Self)) -> CreateCommandOption {
+        #[repr(transparent)]
+        struct Visitor(CreateCommandOption);
 
-        match node {
-            Trie::Branch { height, children } => {
-                for pair in children {
-                    opt.create_sub_option(|s| Subcommand::build_child(height, pair, s));
-                }
-            },
-            Trie::Leaf {
-                mut args,
-                arg_order,
-            } => {
-                for (name, arg) in arg_order
-                    .into_iter()
-                    .map(|a| args.remove_entry(&a).unwrap_or_else(|| unreachable!()))
-                {
-                    opt.create_sub_option(|s| arg.build(name, s));
-                }
-                assert!(args.is_empty());
-            },
+        impl TrieVisitor<CreateCommandOption> for Visitor {
+            #[inline]
+            fn branch<C: Iterator<Item = CreateCommandOption>>(
+                self,
+                _: NonZeroU8,
+                children: C,
+            ) -> CreateCommandOption {
+                children.fold(self.0, CreateCommandOption::add_sub_option)
+            }
+
+            #[inline]
+            fn leaf<C: Iterator<Item = CreateCommandOption>>(self, args: C) -> CreateCommandOption {
+                args.fold(self.0, CreateCommandOption::add_sub_option)
+            }
         }
 
-        opt
-    }
-
-    fn build_child(
-        height: NonZeroU8,
-        (name, cmd): (String, Subcommand),
-        opt: &mut CreateApplicationCommandOption,
-    ) -> &mut CreateApplicationCommandOption {
-        cmd.build(opt.name(name).kind(match height.into() {
-            1 => CommandOptionType::SubCommand,
-            2 => CommandOptionType::SubCommandGroup,
-            _ => unreachable!(),
-        }))
+        let Self { desc, node } = cmd;
+        node.visit(Visitor(CreateCommandOption::new(
+            match height.into() {
+                1 => CommandOptionType::SubCommand,
+                2 => CommandOptionType::SubCommandGroup,
+                _ => unreachable!(),
+            },
+            name,
+            desc,
+        )))
     }
 }

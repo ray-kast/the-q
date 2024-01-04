@@ -18,13 +18,13 @@ mod enc;
 // A flag indicating a trailing byte.  All code points are converted from
 // two-byte pairs thus this value exceeds the range of non-trailing code point
 // inputs.
-pub(self) const TRAIL_MASK: u32 = 0x0001_0000;
+const TRAIL_MASK: u32 = 0x0001_0000;
 
 pub use dec::Decoder;
 pub use enc::Encoder;
 
 #[cfg(test)]
-pub(self) mod test {
+mod test {
     use std::io::prelude::*;
 
     use proptest::prelude::*;

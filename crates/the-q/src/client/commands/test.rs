@@ -25,9 +25,11 @@ impl CommandHandler<Schema> for TestCommand {
     ) -> CommandResult<'a> {
         Ok(responder
             .modal(|s| {
-                Modal::new(s, ModalPayload::Rename(modal::Rename {}), "Hi!").build_row(|r| {
-                    r.build_text_long(ComponentPayload::Role(component::Role {}), "foo", id)
-                })
+                Modal::new(s, ModalPayload::Rename(modal::Rename {}), "Hi!").text_long(
+                    ComponentPayload::Role(component::Role {}),
+                    "foo",
+                    id,
+                )
             })
             .await
             .context("Error creating modal")?

@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 
-use serenity::model::{
-    application::{
-        command::{CommandOptionType, CommandType},
-        interaction::application_command::{
-            CommandData, CommandDataOption, CommandDataOptionValue, CommandDataResolved,
-        },
+use serenity::{
+    all::{ResolvedOption, ResolvedValue},
+    model::{
+        application::{CommandData, CommandDataResolved, CommandOptionType, CommandType},
+        channel::{Attachment, Message, PartialChannel},
+        guild::{PartialMember, Role},
+        user::User,
     },
-    channel::{Attachment, Message, PartialChannel},
-    guild::{PartialMember, Role},
-    user::User,
 };
 
 use super::{BasicVisitor, Describe, Error, Result};
@@ -27,7 +25,7 @@ pub enum OptionValueType {
     Unknown,
 }
 
-impl Describe for CommandDataOptionValue {
+impl Describe for ResolvedValue<'_> {
     type Desc = OptionValueType;
 
     fn describe(&self) -> Self::Desc {
@@ -46,7 +44,7 @@ impl Describe for CommandDataOptionValue {
 }
 
 type Subcommand<'a> = Vec<&'a str>;
-type OptionMap<'a> = HashMap<&'a str, &'a CommandDataOption>;
+type OptionMap<'a> = HashMap<&'a str, ResolvedOption<'a>>;
 
 #[derive(Debug)]
 enum VisitorState<'a> {
@@ -84,6 +82,48 @@ impl<'a, I> std::ops::DerefMut for CommandVisitor<'a, I> {
 macro_rules! visit_basic {
     () => {};
 
+    // TODO: hack
+    (
+        #[autocomplete($ac_name:ident)]
+        #[doc = $desc:literal]
+        $vis:vis fn $name:ident() -> $ty:ty { $($tt:tt)* }
+        $($rest:tt)*
+    ) => {
+        visit_basic! { #[doc = $desc] $vis fn $name() -> $ty { $($tt)* } }
+        visit_basic! { @autocomplete #[doc = $desc] $vis fn $ac_name() -> $ty { $($tt)* } }
+        visit_basic! { $($rest)* }
+    };
+
+    (
+        @autocomplete
+        #[doc = $desc:literal]
+        $vis:vis fn $name:ident() -> $ty:ty { $var:ident($($val:pat),*) => $expr:expr }
+    ) => {
+        #[doc = concat!("Visit ", $desc, " argument or its partial autocomplete equivalent")]
+        ///
+        /// # Errors
+        /// This method returns an error if the command does not take arguments
+        #[doc = concat!("or the named argument is not ", $desc)]
+        /// or an equivalent autocomplete argument
+        $vis fn $name(&mut self, name: &'a str) -> Result<AutocompleteOptionVisitor<$ty>> {
+            let opt = self.visit_opt(name)?;
+            if let Some(opt) = opt {
+                match opt.value {
+                    ResolvedValue::$var($($val),*) => Ok(Some(Autocomplete::Complete($expr))),
+                    ResolvedValue::Autocomplete {
+                        kind: CommandOptionType::$var,
+                        value,
+                    } => {
+                        Ok(Some(Autocomplete::Partial(value)))
+                    },
+                    v => return Err(Error::BadOptionValueType(name.into(), $desc, v.describe())),
+                }.map(|v| OptionVisitor(name, v))
+            } else {
+                Ok(OptionVisitor(name, None))
+            }
+        }
+    };
+
     (
         #[doc = $desc:literal]
         $vis:vis fn $name:ident() -> $ty:ty { $var:ident($($val:pat),*) => $expr:expr }
@@ -97,14 +137,9 @@ macro_rules! visit_basic {
         $vis fn $name(&mut self, name: &'a str) -> Result<OptionVisitor<$ty>> {
             let opt = self.visit_opt(name)?;
             if let Some(opt) = opt {
-                match (opt.kind) {
-                    CommandOptionType::$var => (),
-                    t => return Err(Error::BadOptionType(name.into(), $desc, t)),
-                }
-                match &opt.resolved {
-                    Some(CommandDataOptionValue::$var($($val),*)) => Ok(Some($expr)),
-                    Some(v) => Err(Error::BadOptionValueType(name.into(), $desc, v.describe())),
-                    None => Ok(None),
+                match opt.value {
+                    ResolvedValue::$var($($val),*) => Ok(Some($expr)),
+                    v => return Err(Error::BadOptionValueType(name.into(), $desc, v.describe())),
                 }.map(|v| OptionVisitor(name, v))
             } else {
                 Ok(OptionVisitor(name, None))
@@ -117,17 +152,19 @@ macro_rules! visit_basic {
 
 impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, I> {
     visit_basic! {
+        #[autocomplete(visit_string_autocomplete)]
         ///a string
-        pub fn visit_string() -> &'a String { String(s) => s }
+        pub fn visit_string() -> &'a str { String(s) => s }
 
+        #[autocomplete(visit_i64_autocomplete)]
         ///an integer
-        pub fn visit_i64() -> i64 { Integer(i) => *i }
+        pub fn visit_i64() -> i64 { Integer(i) => i }
 
         ///a Boolean
-        pub fn visit_bool() -> bool { Boolean(b) => *b }
+        pub fn visit_bool() -> bool { Boolean(b) => b }
 
         ///a user
-        pub fn visit_user() -> (&'a User, &'a Option<PartialMember>) {
+        pub fn visit_user() -> (&'a User, Option<&'a PartialMember>) {
             User(u, m) => (u, m)
         }
 
@@ -137,8 +174,9 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
         ///a role
         pub fn visit_role() -> &'a Role { Role(r) => r }
 
+        #[autocomplete(visit_number_autocomplete)]
         ///a number
-        pub fn visit_number() -> f64 { Number(f) => *f }
+        pub fn visit_number() -> f64 { Number(f) => f }
 
         ///an attachment
         pub fn visit_attachment() -> &'a Attachment { Attachment(a) => a }
@@ -154,32 +192,44 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
         }
 
         let mut subcmd = Vec::new();
-        let mut opts = self.base.int.data().options.iter().enumerate().peekable();
+        let mut opts = self
+            .base
+            .int
+            .data()
+            .options()
+            .into_iter()
+            .enumerate()
+            .peekable();
 
         while let Some((_, opt)) = opts.next_if(|(i, o)| {
             *i == 0
                 && matches!(
-                    o.kind,
-                    CommandOptionType::SubCommand | CommandOptionType::SubCommandGroup
+                    o.value,
+                    ResolvedValue::SubCommand(_) | ResolvedValue::SubCommandGroup(_),
                 )
         }) {
-            subcmd.push(&*opt.name);
+            subcmd.push(opt.name);
             if opts.next().is_some() {
                 return Err(Error::Malformed("Found normal option after subcommand"));
             }
-            opts = opt.options.iter().enumerate().peekable();
+            match opt.value {
+                ResolvedValue::SubCommand(v) | ResolvedValue::SubCommandGroup(v) => {
+                    opts = v.into_iter().enumerate().peekable();
+                },
+                _ => (),
+            }
         }
 
         let map = opts
             .map(|(_, o)| {
                 if matches!(
-                    o.kind,
-                    CommandOptionType::SubCommand | CommandOptionType::SubCommandGroup
+                    o.value,
+                    ResolvedValue::SubCommand(_) | ResolvedValue::SubCommandGroup(_),
                 ) {
                     return Err(Error::Malformed("Found subcommand after normal option(s)"));
                 }
 
-                Ok((&*o.name, o))
+                Ok((o.name, o))
             })
             .collect::<Result<_>>()?;
 
@@ -191,7 +241,7 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
     }
 
     #[inline]
-    fn visit_opt(&mut self, name: &'a str) -> Result<Option<&'a CommandDataOption>> {
+    fn visit_opt(&mut self, name: &'a str) -> Result<Option<ResolvedOption<'a>>> {
         let (subcmd, opts) = self.visit_opts()?;
 
         if let Some(subcmd) = subcmd {
@@ -256,6 +306,14 @@ impl<'a, T> OptionVisitor<'a, T> {
     pub fn optional(self) -> Option<T> { self.1 }
 
     pub fn required(self) -> Result<T> { self.1.ok_or_else(|| Error::MissingOption(self.0.into())) }
+}
+
+pub type AutocompleteOptionVisitor<'a, T> = OptionVisitor<'a, Autocomplete<'a, T>>;
+
+#[derive(Debug)]
+pub enum Autocomplete<'a, T> {
+    Complete(T),
+    Partial(&'a str),
 }
 
 #[derive(Debug)]

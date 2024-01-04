@@ -6,9 +6,7 @@
 
 use std::fmt;
 
-use serenity::model::application::interaction::{
-    message_component::MessageComponentInteraction, modal::ModalSubmitInteraction,
-};
+use serenity::model::application::{ComponentInteraction, ModalInteraction};
 
 use super::response::ModalSource;
 
@@ -34,14 +32,14 @@ pub trait Schema: fmt::Debug {
     type Component: ComponentId<Key = Self::ComponentKey, Payload = Self::ComponentPayload>;
     /// The key type identifying the kind of a [`Component`](Self::Component)
     /// message
-    type ComponentKey: Key<Payload = Self::ComponentPayload, Interaction = MessageComponentInteraction>;
+    type ComponentKey: Key<Payload = Self::ComponentPayload, Interaction = ComponentInteraction>;
     /// The payload of a [`Component`](Self::Component) message
     type ComponentPayload: fmt::Debug;
 
     /// The message type for modal custom IDs
     type Modal: ModalId<Key = Self::ModalKey, Payload = Self::ModalPayload>;
     /// The key type identifying the kind of a [`Modal`](Self::Modal) message
-    type ModalKey: Key<Payload = Self::ModalPayload, Interaction = ModalSubmitInteraction>;
+    type ModalKey: Key<Payload = Self::ModalPayload, Interaction = ModalInteraction>;
     /// The payload of a [`Modal`](Self::Modal) message
     type ModalPayload: fmt::Debug;
 }

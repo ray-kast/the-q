@@ -3,9 +3,9 @@ use std::{collections::BTreeSet, ops::RangeInclusive};
 use ordered_float::{NotNan, OrderedFloat};
 use serde_json::Number;
 use serenity::{
-    builder::CreateApplicationCommandOption,
+    builder::CreateCommandOption,
     model::{
-        application::command::{CommandOptionChoice, CommandOptionType},
+        application::{CommandOptionChoice, CommandOptionType},
         channel::ChannelType,
     },
 };
@@ -29,13 +29,9 @@ impl Arg {
     }
 
     #[inline]
-    pub(super) fn build(
-        self,
-        name: String,
-        opt: &mut CreateApplicationCommandOption,
-    ) -> &mut CreateApplicationCommandOption {
+    pub(super) fn build(self, name: String) -> CreateCommandOption {
         let Self { desc, required, ty } = self;
-        opt.name(name).description(desc).required(required);
+        let opt = CreateCommandOption::new(ty.option_ty(), name, desc).required(required);
 
         match ty {
             ArgType::String {
@@ -43,96 +39,87 @@ impl Arg {
                 min_len,
                 max_len,
             } => Self::build_bounds(
-                opt.kind(CommandOptionType::String)
-                    .set_autocomplete(autocomplete),
+                opt.set_autocomplete(autocomplete),
                 min_len..=max_len,
-                CreateApplicationCommandOption::min_length,
-                CreateApplicationCommandOption::max_length,
+                CreateCommandOption::min_length,
+                CreateCommandOption::max_length,
             ),
-            ArgType::StringChoice(c) => Self::build_choices(
-                opt.kind(CommandOptionType::String),
-                c,
-                CreateApplicationCommandOption::add_string_choice,
-            ),
+            ArgType::StringChoice(c) => {
+                Self::build_choices(opt, c, CreateCommandOption::add_string_choice)
+            },
             ArgType::Int {
                 autocomplete,
                 min,
                 max,
             } => Self::build_bounds(
-                opt.kind(CommandOptionType::Integer)
-                    .set_autocomplete(autocomplete),
+                opt.set_autocomplete(autocomplete),
                 min..=max,
-                CreateApplicationCommandOption::min_int_value,
-                CreateApplicationCommandOption::max_int_value,
+                // TODO: check for a version of serenity that fixes this
+                |c, v| c.min_int_value(v.try_into().expect("Serenity bug encountered")),
+                |c, v| c.max_int_value(v.try_into().expect("Serenity bug encountered")),
             ),
             ArgType::IntChoice(c) => Self::build_choices(
-                opt.kind(CommandOptionType::Integer),
+                opt,
                 #[allow(clippy::cast_possible_truncation)] // serenity type error
                 c.into_iter().map(|Choice { name, val }| Choice {
                     name,
                     val: val as i32,
                 }),
-                CreateApplicationCommandOption::add_int_choice,
+                CreateCommandOption::add_int_choice,
             ),
-            ArgType::Bool => opt.kind(CommandOptionType::Boolean),
-            ArgType::User => opt.kind(CommandOptionType::User),
-            ArgType::Channel(c) => opt
-                .kind(CommandOptionType::Channel)
-                .channel_types(&c.into_iter().collect::<Vec<_>>()),
-            ArgType::Role => opt.kind(CommandOptionType::Role),
-            ArgType::Mention => opt.kind(CommandOptionType::Mentionable),
+            ArgType::Channel(c) => opt.channel_types(c.into_iter().collect::<Vec<_>>()),
             ArgType::Real {
                 autocomplete,
                 min,
                 max,
             } => Self::build_bounds(
-                opt.kind(CommandOptionType::Number)
-                    .set_autocomplete(autocomplete),
+                opt.set_autocomplete(autocomplete),
                 min.map(Into::into)..=max.map(Into::into),
-                CreateApplicationCommandOption::min_number_value,
-                CreateApplicationCommandOption::max_number_value,
+                CreateCommandOption::min_number_value,
+                CreateCommandOption::max_number_value,
             ),
             ArgType::RealChoice(c) => Self::build_choices(
-                opt.kind(CommandOptionType::Number),
+                opt,
                 c.into_iter().map(|Choice { name, val }| Choice {
                     name,
                     val: val.into(),
                 }),
-                CreateApplicationCommandOption::add_number_choice,
+                CreateCommandOption::add_number_choice,
             ),
-            ArgType::Attachment => opt.kind(CommandOptionType::Attachment),
+            ArgType::Bool
+            | ArgType::User
+            | ArgType::Role
+            | ArgType::Mention
+            | ArgType::Attachment => opt,
         }
     }
 
     #[inline]
     fn build_bounds<T>(
-        opt: &mut CreateApplicationCommandOption,
+        mut opt: CreateCommandOption,
         bounds: RangeInclusive<Option<T>>,
-        min: impl FnOnce(&mut CreateApplicationCommandOption, T) -> &mut CreateApplicationCommandOption,
-        max: impl FnOnce(&mut CreateApplicationCommandOption, T) -> &mut CreateApplicationCommandOption,
-    ) -> &mut CreateApplicationCommandOption {
+        min: impl FnOnce(CreateCommandOption, T) -> CreateCommandOption,
+        max: impl FnOnce(CreateCommandOption, T) -> CreateCommandOption,
+    ) -> CreateCommandOption {
         let (min_val, max_val) = bounds.into_inner();
         if let Some(v) = min_val {
-            min(opt, v);
+            opt = min(opt, v);
         }
         if let Some(v) = max_val {
-            max(opt, v);
+            opt = max(opt, v);
         }
         opt
     }
 
     #[inline]
     fn build_choices<T>(
-        opt: &mut CreateApplicationCommandOption,
+        mut opt: CreateCommandOption,
         choices: impl IntoIterator<Item = Choice<T>>,
-        choice: impl Fn(
-            &mut CreateApplicationCommandOption,
-            String,
-            T,
-        ) -> &mut CreateApplicationCommandOption,
-    ) -> &mut CreateApplicationCommandOption {
+        choice: impl Fn(CreateCommandOption, String, T) -> CreateCommandOption,
+    ) -> CreateCommandOption {
+        // TODO: is there a batch choice mutator?
         for c in choices {
-            choice(opt, c.name, c.val);
+            opt = choice(opt, c.name, c.val);
         }
         opt
     }
@@ -189,6 +176,22 @@ pub enum ArgType {
     RealChoice(Choices<OrderedFloat<f64>>),
     /// An uploaded attachment
     Attachment,
+}
+
+impl ArgType {
+    fn option_ty(&self) -> CommandOptionType {
+        match self {
+            Self::String { .. } | Self::StringChoice(_) => CommandOptionType::String,
+            Self::Int { .. } | Self::IntChoice(_) => CommandOptionType::Integer,
+            Self::Bool => CommandOptionType::Boolean,
+            Self::User => CommandOptionType::User,
+            Self::Channel(_) => CommandOptionType::Channel,
+            Self::Role => CommandOptionType::Role,
+            Self::Mention => CommandOptionType::Mentionable,
+            Self::Real { .. } | Self::RealChoice(_) => CommandOptionType::Number,
+            Self::Attachment => CommandOptionType::Attachment,
+        }
+    }
 }
 
 #[inline]

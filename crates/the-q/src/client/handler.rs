@@ -1,6 +1,6 @@
 use paracord::interaction;
 use serenity::{
-    model::{application::interaction::Interaction, gateway::Ready},
+    model::{application::Interaction, gateway::Ready},
     prelude::*,
 };
 
@@ -33,10 +33,12 @@ impl serenity::client::EventHandler for Handler {
         match int {
             Interaction::Ping(_) => (),
 
-            Interaction::ApplicationCommand(aci) => self.registry.handle_command(&ctx, aci).await,
-            Interaction::MessageComponent(mc) => self.registry.handle_component(&ctx, mc).await,
-            Interaction::Autocomplete(ac) => self.registry.handle_autocomplete(&ctx, ac).await,
-            Interaction::ModalSubmit(ms) => self.registry.handle_modal(&ctx, ms).await,
+            Interaction::Command(c) => self.registry.handle_command(&ctx, c).await,
+            Interaction::Component(c) => self.registry.handle_component(&ctx, c).await,
+            Interaction::Autocomplete(a) => self.registry.handle_autocomplete(&ctx, a).await,
+            Interaction::Modal(m) => self.registry.handle_modal(&ctx, m).await,
+
+            i => warn!(interaction = ?i, "Unknown interaction"),
         }
     }
 

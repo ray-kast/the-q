@@ -8,6 +8,7 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
+arrayvec = "0.7.4"
 wide = "0.7.11"
 
 [dev-dependencies]

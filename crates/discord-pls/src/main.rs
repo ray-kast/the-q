@@ -18,7 +18,7 @@ use std::{
 
 use rand::prelude::*;
 use serenity::{
-    builder::{CreateApplicationCommand, CreateApplicationCommandOption},
+    builder::{CreateCommand, CreateCommandOption},
     model::prelude::*,
     prelude::*,
     utils::MessageBuilder,
@@ -30,15 +30,15 @@ use tracing_subscriber::prelude::*;
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
 enum InteractionType {
-    Command(command::CommandType),
+    Command(CommandType),
     MessageComponent,
 }
 
 impl InteractionType {
-    fn get(int: &interaction::Interaction) -> Option<Self> {
+    fn get(int: &Interaction) -> Option<Self> {
         match int {
-            interaction::Interaction::ApplicationCommand(aci) => Some(Self::Command(aci.data.kind)),
-            interaction::Interaction::MessageComponent(_) => Some(Self::MessageComponent),
+            Interaction::Command(c) => Some(Self::Command(c.data.kind)),
+            Interaction::Component(_) => Some(Self::MessageComponent),
             _ => None,
         }
     }
@@ -53,10 +53,10 @@ enum FlowType {
 }
 
 impl FlowType {
-    fn get(int: &interaction::Interaction) -> Result<Option<Self>, serde_json::Error> {
-        if let interaction::Interaction::ModalSubmit(ms) = int {
+    fn get(int: &Interaction) -> Result<Option<Self>, serde_json::Error> {
+        if let Interaction::Modal(m) = int {
             Ok(Some(Self::ModalSubmit(serde_json::from_str(
-                &ms.data.custom_id,
+                &m.data.custom_id,
             )?)))
         } else {
             Ok(InteractionType::get(int).map(Self::TopLevel))
@@ -80,25 +80,32 @@ enum ResponseType {
 }
 
 impl ResponseType {
-    fn create(self) -> interaction::InteractionResponseType {
+    fn create(self) -> RawResponseType {
         match self {
-            Self::Message => interaction::InteractionResponseType::ChannelMessageWithSource,
-            Self::UpdateMessage => interaction::InteractionResponseType::UpdateMessage,
-            Self::Modal => interaction::InteractionResponseType::Modal,
+            Self::Message => RawResponseType::ChannelMessageWithSource,
+            Self::UpdateMessage => RawResponseType::UpdateMessage,
+            Self::Modal => RawResponseType::Modal,
         }
     }
 
-    fn defer(self) -> Option<interaction::InteractionResponseType> {
+    fn defer(self) -> Option<RawResponseType> {
         match self {
-            Self::Message => {
-                Some(interaction::InteractionResponseType::DeferredChannelMessageWithSource)
-            },
-            Self::UpdateMessage => {
-                Some(interaction::InteractionResponseType::DeferredUpdateMessage)
-            },
+            Self::Message => Some(RawResponseType::DeferredChannelMessageWithSource),
+            Self::UpdateMessage => Some(RawResponseType::DeferredUpdateMessage),
             Self::Modal => None,
         }
     }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+enum RawResponseType {
+    ChannelMessageWithSource,
+    DeferredChannelMessageWithSource,
+    DeferredUpdateMessage,
+    UpdateMessage,
+    Modal,
 }
 
 #[derive(
@@ -140,55 +147,28 @@ impl CommandOpt {
         Self::Group(s.to_string(), o.into_iter().collect())
     }
 
-    fn build_cmd<'a>(
-        opts: &[Self],
-        cmd: &'a mut CreateApplicationCommand,
-    ) -> &'a mut CreateApplicationCommand {
-        cmd.name("foo")
-            .kind(command::CommandType::ChatInput)
-            .description("a command");
-
-        for opt in opts {
-            cmd.create_option(|o| opt.build(o));
-        }
-
-        cmd
+    fn build_cmd(opts: &[Self]) -> CreateCommand {
+        CreateCommand::new("foo")
+            .kind(CommandType::ChatInput)
+            .description("a command")
+            .set_options(opts.iter().map(CommandOpt::build).collect())
     }
 
-    fn build<'a>(
-        &self,
-        opt: &'a mut CreateApplicationCommandOption,
-    ) -> &'a mut CreateApplicationCommandOption {
+    fn build(&self) -> CreateCommandOption {
         match *self {
-            CommandOpt::String(ref s, r) => opt
-                .kind(command::CommandOptionType::String)
-                .name(s)
-                .description("a string")
-                .required(r),
-
-            CommandOpt::Subcommand(ref s, ref o) => {
-                opt.kind(command::CommandOptionType::SubCommand)
-                    .name(s)
-                    .description("a subcommand");
-
-                for o in o {
-                    opt.create_sub_option(|s| o.build(s));
-                }
-
-                opt
+            CommandOpt::String(ref s, r) => {
+                CreateCommandOption::new(CommandOptionType::String, s, "a string").required(r)
             },
 
-            CommandOpt::Group(ref s, ref o) => {
-                opt.kind(command::CommandOptionType::SubCommandGroup)
-                    .name(s)
-                    .description("a group");
+            CommandOpt::Subcommand(ref s, ref o) => o.iter().fold(
+                CreateCommandOption::new(CommandOptionType::SubCommand, s, "a subcommand"),
+                |o, p| o.add_sub_option(p.build()),
+            ),
 
-                for o in o {
-                    opt.create_sub_option(|s| o.build(s));
-                }
-
-                opt
-            },
+            CommandOpt::Group(ref s, ref o) => o.iter().fold(
+                CreateCommandOption::new(CommandOptionType::SubCommandGroup, s, "a group"),
+                |o, p| o.add_sub_option(p.build()),
+            ),
         }
     }
 }
@@ -197,8 +177,8 @@ type CrudResults = BTreeMap<(FlowType, Box<[CrudOp<ResponseType>]>), bool>;
 
 enum TestMode {
     Cartesian {
-        untried: BTreeSet<(InteractionType, interaction::InteractionResponseType)>,
-        results: BTreeMap<(InteractionType, interaction::InteractionResponseType), bool>,
+        untried: BTreeSet<(InteractionType, RawResponseType)>,
+        results: BTreeMap<(InteractionType, RawResponseType), bool>,
         modals: bool,
     },
     CrudBrute {
@@ -210,7 +190,7 @@ enum TestMode {
     CommandReg {
         untried: BTreeSet<Vec<CommandOpt>>,
         results: BTreeMap<Vec<CommandOpt>, bool>,
-        cmd: Option<command::Command>,
+        cmd: Option<Command>,
     },
 }
 
@@ -218,18 +198,17 @@ struct Handler {
     state: tokio::sync::RwLock<TestMode>,
 }
 
-fn sample_create_response<'a, 'b>(
+fn sample_create_response(
     int_ty: InteractionType,
-    res_ty: interaction::InteractionResponseType,
-    builder: &'a mut serenity::builder::CreateInteractionResponse<'b>,
-) -> &'a mut serenity::builder::CreateInteractionResponse<'b> {
-    builder.kind(res_ty);
+    res_ty: RawResponseType,
+) -> serenity::builder::CreateInteractionResponse {
     match res_ty {
-        interaction::InteractionResponseType::ChannelMessageWithSource => builder
-            .interaction_response_data(|d| {
-                d.content("foo").components(|c| {
-                    c.create_action_row(|r| {
-                        r.create_button(|b| {
+        RawResponseType::ChannelMessageWithSource => {
+            serenity::builder::CreateInteractionResponse::Message(
+                serenity::builder::CreateInteractionResponseMessage::new()
+                    .content("foo")
+                    .components(vec![serenity::builder::CreateActionRow::Buttons(vec![
+                        serenity::builder::CreateButton::new({
                             let mut id = "\0".to_owned();
 
                             std::iter::from_fn(|| {
@@ -240,69 +219,57 @@ fn sample_create_response<'a, 'b>(
 
                             tracing::trace!(id);
 
-                            b.style(component::ButtonStyle::Primary)
-                                .label("hi")
-                                .custom_id(id)
+                            id
                         })
-                    })
-                })
-            }),
-        interaction::InteractionResponseType::DeferredChannelMessageWithSource
-        | interaction::InteractionResponseType::DeferredUpdateMessage => builder,
-        interaction::InteractionResponseType::UpdateMessage => {
-            builder.interaction_response_data(|d| d.content("bar").ephemeral(true))
+                        .style(ButtonStyle::Primary)
+                        .label("hi"),
+                    ])]),
+            )
         },
-        interaction::InteractionResponseType::Modal => builder.interaction_response_data(|d| {
-            d.title("help")
-                .custom_id(serde_json::to_string(&int_ty).unwrap())
-                .components(|c| {
-                    c.create_action_row(|r| {
-                        r.create_input_text(|t| {
-                            t.style(component::InputTextStyle::Short)
-                                .label("hi")
-                                .custom_id("hi")
-                        })
-                    })
-                })
-        }),
-        _ => unreachable!(),
+        RawResponseType::DeferredChannelMessageWithSource => {
+            serenity::builder::CreateInteractionResponse::Defer(
+                // TODO: can you do anything with this?
+                serenity::builder::CreateInteractionResponseMessage::new(),
+            )
+        },
+        RawResponseType::DeferredUpdateMessage => {
+            serenity::builder::CreateInteractionResponse::Acknowledge
+        },
+        RawResponseType::UpdateMessage => {
+            serenity::builder::CreateInteractionResponse::UpdateMessage(
+                serenity::builder::CreateInteractionResponseMessage::new()
+                    .content("bar")
+                    .ephemeral(true),
+            )
+        },
+        RawResponseType::Modal => serenity::builder::CreateInteractionResponse::Modal(
+            serenity::builder::CreateModal::new(serde_json::to_string(&int_ty).unwrap(), "help")
+                .components(vec![serenity::builder::CreateActionRow::InputText(
+                    serenity::builder::CreateInputText::new(InputTextStyle::Short, "hi", "hi"),
+                )]),
+        ),
     }
 }
 
-fn sample_edit_response(
-    builder: &mut serenity::builder::EditInteractionResponse,
-) -> &mut serenity::builder::EditInteractionResponse {
-    builder.content("foo").components(|c| {
-        c.create_action_row(|r| {
-            r.create_button(|b| {
-                b.style(component::ButtonStyle::Primary)
-                    .label("hi")
-                    .custom_id("hi")
-            })
-        })
-    })
+fn sample_edit_response() -> serenity::builder::EditInteractionResponse {
+    serenity::builder::EditInteractionResponse::new()
+        .content("foo")
+        .components(vec![serenity::builder::CreateActionRow::Buttons(vec![
+            serenity::builder::CreateButton::new("hi")
+                .style(ButtonStyle::Primary)
+                .label("hi"),
+        ])])
 }
 
-async fn create_response<'a, F>(
-    int: &interaction::Interaction,
-    http: impl AsRef<serenity::http::Http>,
-    build: F,
-) -> serenity::Result<()>
-where
-    for<'b> F: FnOnce(
-        &'b mut serenity::builder::CreateInteractionResponse<'a>,
-    ) -> &'b mut serenity::builder::CreateInteractionResponse<'a>,
-{
+async fn create_response<'a>(
+    int: &Interaction,
+    http: impl CacheHttp,
+    res: serenity::builder::CreateInteractionResponse,
+) -> serenity::Result<()> {
     match int {
-        interaction::Interaction::ApplicationCommand(aci) => {
-            aci.create_interaction_response(http, build).await
-        },
-        interaction::Interaction::MessageComponent(mc) => {
-            mc.create_interaction_response(http, build).await
-        },
-        interaction::Interaction::ModalSubmit(ms) => {
-            ms.create_interaction_response(http, build).await
-        },
+        Interaction::Command(c) => c.create_response(http, res).await,
+        Interaction::Component(c) => c.create_response(http, res).await,
+        Interaction::Modal(m) => m.create_response(http, res).await,
         _ => unreachable!(),
     }
 }
@@ -312,7 +279,7 @@ where
 //     http: impl AsRef<serenity::http::Http>,
 // ) -> serenity::Result<Message> {
 //     match int {
-//         interaction::Interaction::ApplicationCommand(aci) => {
+//         interaction::Interaction::Command(aci) => {
 //             aci.get_interaction_response(http).await
 //         },
 //         interaction::Interaction::MessageComponent(mc) => mc.get_interaction_response(http).await,
@@ -321,81 +288,55 @@ where
 //     }
 // }
 
-async fn edit_response<F>(
-    int: &interaction::Interaction,
-    http: impl AsRef<serenity::http::Http>,
-    build: F,
-) -> serenity::Result<Message>
-where
-    for<'b> F: FnOnce(
-        &'b mut serenity::builder::EditInteractionResponse,
-    ) -> &'b mut serenity::builder::EditInteractionResponse,
-{
+async fn edit_response(
+    int: &Interaction,
+    http: impl CacheHttp,
+    res: serenity::builder::EditInteractionResponse,
+) -> serenity::Result<Message> {
     match int {
-        interaction::Interaction::ApplicationCommand(aci) => {
-            aci.edit_original_interaction_response(http, build).await
-        },
-        interaction::Interaction::MessageComponent(mc) => {
-            mc.edit_original_interaction_response(http, build).await
-        },
-        interaction::Interaction::ModalSubmit(ms) => {
-            ms.edit_original_interaction_response(http, build).await
-        },
+        Interaction::Command(c) => c.edit_response(http, res).await,
+        Interaction::Component(c) => c.edit_response(http, res).await,
+        Interaction::Modal(m) => m.edit_response(http, res).await,
         _ => unreachable!(),
     }
 }
 
 async fn delete_response(
-    int: &interaction::Interaction,
+    int: &Interaction,
     http: impl AsRef<serenity::http::Http>,
 ) -> serenity::Result<()> {
     match int {
-        interaction::Interaction::ApplicationCommand(aci) => {
-            aci.delete_original_interaction_response(http).await
-        },
-        interaction::Interaction::MessageComponent(mc) => {
-            mc.delete_original_interaction_response(http).await
-        },
-        interaction::Interaction::ModalSubmit(ms) => {
-            ms.delete_original_interaction_response(http).await
-        },
+        Interaction::Command(c) => c.delete_response(http).await,
+        Interaction::Component(c) => c.delete_response(http).await,
+        Interaction::Modal(m) => m.delete_response(http).await,
         _ => unreachable!(),
     }
 }
 
-async fn create_followup<'a, F>(
-    int: &interaction::Interaction,
-    http: impl AsRef<serenity::http::Http>,
-    build: F,
-) -> serenity::Result<Message>
-where
-    for<'b> F: FnOnce(
-        &'b mut serenity::builder::CreateInteractionResponseFollowup<'a>,
-    ) -> &'b mut serenity::builder::CreateInteractionResponseFollowup<'a>,
-{
+async fn create_followup<'a>(
+    int: &Interaction,
+    http: impl CacheHttp,
+    res: serenity::builder::CreateInteractionResponseFollowup,
+) -> serenity::Result<Message> {
     match int {
-        interaction::Interaction::ApplicationCommand(aci) => {
-            aci.create_followup_message(http, build).await
-        },
-        interaction::Interaction::MessageComponent(mc) => {
-            mc.create_followup_message(http, build).await
-        },
-        interaction::Interaction::ModalSubmit(ms) => ms.create_followup_message(http, build).await,
+        Interaction::Command(c) => c.create_followup(http, res).await,
+        Interaction::Component(c) => c.create_followup(http, res).await,
+        Interaction::Modal(m) => m.create_followup(http, res).await,
         _ => unreachable!(),
     }
 }
 
 async fn try_pair(
-    int: &interaction::Interaction,
-    http: impl AsRef<serenity::http::Http> + Clone,
+    int: &Interaction,
+    http: impl CacheHttp + AsRef<serenity::http::Http> + Clone,
     int_ty: InteractionType,
-    untried: &mut BTreeSet<(InteractionType, interaction::InteractionResponseType)>,
-    results: &mut BTreeMap<(InteractionType, interaction::InteractionResponseType), bool>,
+    untried: &mut BTreeSet<(InteractionType, RawResponseType)>,
+    results: &mut BTreeMap<(InteractionType, RawResponseType), bool>,
 ) {
     #[tracing::instrument(level = "error", name = "try_pair", skip(f))]
     async fn run(
         int: InteractionType,
-        res: interaction::InteractionResponseType,
+        res: RawResponseType,
         f: impl std::future::Future<Output = serenity::Result<()>>,
     ) -> serenity::Result<()> {
         let res = f.await;
@@ -417,7 +358,7 @@ async fn try_pair(
 
     let h = http.clone();
     let res = run(int_ty, res_ty, async move {
-        create_response(int, h, |res| sample_create_response(int_ty, res_ty, res)).await
+        create_response(int, h, sample_create_response(int_ty, res_ty)).await
     })
     .await;
 
@@ -425,7 +366,7 @@ async fn try_pair(
 
     match res {
         Ok(()) => mb.push_bold("Success!"),
-        Err(ref e) => mb.push_bold("ERROR: ").push_mono_safe(e),
+        Err(ref e) => mb.push_bold("ERROR: ").push_mono_safe(e.to_string()),
     }
     .push('\n');
 
@@ -463,13 +404,18 @@ async fn try_pair(
     }
 
     if res.is_ok() {
-        create_followup(int, http, |res| res.content(mb))
-            .await
-            .map(|_| ())
+        create_followup(
+            int,
+            http,
+            serenity::builder::CreateInteractionResponseFollowup::new().content(mb.build()),
+        )
+        .await
+        .map(|_| ())
     } else {
-        create_response(int, http, |res| {
-            res.kind(interaction::InteractionResponseType::ChannelMessageWithSource)
-                .interaction_response_data(|d| d.content(mb))
+        create_response(int, http, {
+            serenity::builder::CreateInteractionResponse::Message(
+                serenity::builder::CreateInteractionResponseMessage::new().content(mb.build()),
+            )
         })
         .await
     }
@@ -478,17 +424,17 @@ async fn try_pair(
 }
 
 async fn try_cmdreg(
-    int: &interaction::Interaction,
-    http: impl AsRef<serenity::http::Http> + Clone,
+    int: &Interaction,
+    http: impl CacheHttp + AsRef<serenity::http::Http> + Clone,
     untried: &mut BTreeSet<Vec<CommandOpt>>,
     results: &mut BTreeMap<Vec<CommandOpt>, bool>,
-    cmd: &mut Option<command::Command>,
+    cmd: &mut Option<Command>,
 ) {
     #[tracing::instrument(level = "error", name = "try_pair", skip(f))]
     async fn run(
         opts: &[CommandOpt],
-        f: impl std::future::Future<Output = serenity::Result<command::Command>>,
-    ) -> serenity::Result<command::Command> {
+        f: impl std::future::Future<Output = serenity::Result<Command>>,
+    ) -> serenity::Result<Command> {
         let res = f.await;
         match &res {
             Ok(cmd) => tracing::info!(?cmd, "Success!"),
@@ -505,15 +451,10 @@ async fn try_cmdreg(
     let h = http.clone();
     let res = run(&opts, async {
         let c = match cmd {
-            Some(c) => {
-                command::Command::edit_global_application_command(h, c.id, |c| {
-                    CommandOpt::build_cmd(&opts, c)
-                })
-                .await
-            },
+            Some(c) => Command::edit_global_command(h, c.id, CommandOpt::build_cmd(&opts)).await,
             None => {
-                command::Command::create_global_application_command(h, |c| {
-                    CommandOpt::build_cmd(&opts, c);
+                Command::create_global_command(h, {
+                    let c = CommandOpt::build_cmd(&opts);
                     tracing::debug!(?c);
                     c
                 })
@@ -531,10 +472,13 @@ async fn try_cmdreg(
         let mut mb = MessageBuilder::new();
         mb.push_codeblock_safe(format!("{:?}", c.options), None);
 
-        create_response(int, http.clone(), |res| {
-            res.kind(interaction::InteractionResponseType::ChannelMessageWithSource)
-                .interaction_response_data(|d| d.content(mb))
-        })
+        create_response(
+            int,
+            http.clone(),
+            serenity::builder::CreateInteractionResponse::Message(
+                serenity::builder::CreateInteractionResponseMessage::new().content(mb.build()),
+            ),
+        )
         .await
         .map_err(|err| tracing::warn!(%err, "Error sending created command"))
         .ok();
@@ -544,7 +488,7 @@ async fn try_cmdreg(
 
     match res {
         Ok(_) => mb.push_bold("Success!"),
-        Err(ref e) => mb.push_bold("ERROR: ").push_mono_safe(e),
+        Err(ref e) => mb.push_bold("ERROR: ").push_mono_safe(e.to_string()),
     }
     .push('\n');
 
@@ -577,14 +521,21 @@ async fn try_cmdreg(
     }
 
     if res.is_ok() {
-        create_followup(int, http, |res| res.content(mb))
-            .await
-            .map(|_| ())
+        create_followup(
+            int,
+            http,
+            serenity::builder::CreateInteractionResponseFollowup::new().content(mb.build()),
+        )
+        .await
+        .map(|_| ())
     } else {
-        create_response(int, http, |res| {
-            res.kind(interaction::InteractionResponseType::ChannelMessageWithSource)
-                .interaction_response_data(|d| d.content(mb))
-        })
+        create_response(
+            int,
+            http,
+            serenity::builder::CreateInteractionResponse::Message(
+                serenity::builder::CreateInteractionResponseMessage::new().content(mb.build()),
+            ),
+        )
         .await
     }
     .map_err(|err| tracing::warn!(%err, "Sending followup failed"))
@@ -628,7 +579,7 @@ fn print_crud_results(results: &CrudResults) -> MessageBuilder {
 #[async_trait::async_trait]
 impl EventHandler for Handler {
     #[allow(clippy::too_many_lines)]
-    async fn interaction_create(&self, ctx: Context, int: interaction::Interaction) {
+    async fn interaction_create(&self, ctx: Context, int: Interaction) {
         let mut state = self.state.write().await;
 
         let Some(flow) = FlowType::get(&int).unwrap() else {
@@ -646,25 +597,21 @@ impl EventHandler for Handler {
                     try_pair(&int, &ctx.http, int_ty, untried, results).await;
                 },
                 (FlowType::ModalSubmit(int_ty), false) => {
-                    create_response(&int, &ctx.http, |res| {
-                        sample_create_response(
-                            int_ty,
-                            interaction::InteractionResponseType::DeferredUpdateMessage,
-                            res,
-                        )
-                    })
+                    create_response(
+                        &int,
+                        &ctx.http,
+                        sample_create_response(int_ty, RawResponseType::DeferredUpdateMessage),
+                    )
                     .await
                     .map_err(|e| tracing::warn!(%e))
                     .ok();
                 },
                 (FlowType::TopLevel(int_ty), true) => {
-                    create_response(&int, &ctx.http, |res| {
-                        sample_create_response(
-                            int_ty,
-                            interaction::InteractionResponseType::Modal,
-                            res,
-                        )
-                    })
+                    create_response(
+                        &int,
+                        &ctx.http,
+                        sample_create_response(int_ty, RawResponseType::Modal),
+                    )
                     .await
                     .map_err(|e| tracing::error!(%e))
                     .ok();
@@ -734,26 +681,27 @@ impl EventHandler for Handler {
 
                     let op_res = match op {
                         CrudOp::Create(_) => {
-                            create_response(&int, &ctx.http, |res| {
-                                sample_create_response(flow.initial_interaction(), ty.create(), res)
-                            })
+                            create_response(
+                                &int,
+                                &ctx.http,
+                                sample_create_response(flow.initial_interaction(), ty.create()),
+                            )
                             .await
                         },
                         CrudOp::Defer(_) => {
-                            create_response(&int, &ctx.http, |res| {
+                            create_response(
+                                &int,
+                                &ctx.http,
                                 sample_create_response(
                                     flow.initial_interaction(),
                                     ty.defer().unwrap(),
-                                    res,
-                                )
-                            })
+                                ),
+                            )
                             .await
                         },
-                        CrudOp::Edit => {
-                            edit_response(&int, &ctx.http, |res| sample_edit_response(res))
-                                .await
-                                .map(|_| ())
-                        },
+                        CrudOp::Edit => edit_response(&int, &ctx.http, sample_edit_response())
+                            .await
+                            .map(|_| ()),
                         CrudOp::Delete => delete_response(&int, &ctx.http).await,
                     };
 
@@ -774,25 +722,31 @@ impl EventHandler for Handler {
                     let last_ok = results.insert((flow, ops), ok);
                     assert!(last_ok.map_or(true, |o| ok == o));
 
-                    let mb = print_crud_results(results);
+                    let mut mb = print_crud_results(results);
 
-                    create_followup(&int, &ctx.http, |m| m.content(mb))
-                        .await
-                        .map_err(|err| tracing::warn!(%err, "Error sending followup"))
-                        .ok();
+                    create_followup(
+                        &int,
+                        &ctx.http,
+                        serenity::builder::CreateInteractionResponseFollowup::new()
+                            .content(mb.build()),
+                    )
+                    .await
+                    .map_err(|err| tracing::warn!(%err, "Error sending followup"))
+                    .ok();
                 }
                 .instrument(span)
                 .await;
             },
 
             TestMode::PingPong => {
-                create_response(&int, &ctx.http, |res| {
+                create_response(
+                    &int,
+                    &ctx.http,
                     sample_create_response(
                         flow.initial_interaction(),
-                        interaction::InteractionResponseType::ChannelMessageWithSource,
-                        res,
-                    )
-                })
+                        RawResponseType::ChannelMessageWithSource,
+                    ),
+                )
                 .await
                 .map_err(|e| tracing::warn!(%e))
                 .ok();
@@ -803,8 +757,8 @@ impl EventHandler for Handler {
                 ref mut results,
                 ref mut cmd,
             } => match flow {
-                FlowType::TopLevel(InteractionType::Command(command::CommandType::ChatInput)) => {
-                    let interaction::Interaction::ApplicationCommand(ref cmd) = int else {
+                FlowType::TopLevel(InteractionType::Command(CommandType::ChatInput)) => {
+                    let Interaction::Command(ref cmd) = int else {
                         unreachable!()
                     };
 
@@ -814,10 +768,14 @@ impl EventHandler for Handler {
                     let mut mb = MessageBuilder::new();
                     mb.push_mono_safe(format!("{info:?}"));
 
-                    create_response(&int, &ctx.http, |res| {
-                        res.kind(interaction::InteractionResponseType::ChannelMessageWithSource)
-                            .interaction_response_data(|d| d.content(mb))
-                    })
+                    create_response(
+                        &int,
+                        &ctx.http,
+                        serenity::builder::CreateInteractionResponse::Message(
+                            serenity::builder::CreateInteractionResponseMessage::new()
+                                .content(mb.build()),
+                        ),
+                    )
                     .await
                     .map_err(|e| tracing::warn!(%e))
                     .ok();
@@ -826,13 +784,14 @@ impl EventHandler for Handler {
                     try_cmdreg(&int, &ctx.http, untried, results, cmd).await;
                 },
                 f => {
-                    create_response(&int, &ctx.http, |res| {
+                    create_response(
+                        &int,
+                        &ctx.http,
                         sample_create_response(
                             f.initial_interaction(),
-                            interaction::InteractionResponseType::ChannelMessageWithSource,
-                            res,
-                        )
-                    })
+                            RawResponseType::ChannelMessageWithSource,
+                        ),
+                    )
                     .await
                     .map_err(|e| tracing::warn!(%e))
                     .ok();
@@ -875,11 +834,13 @@ async fn main() {
 
     [".env.local", ".env.dev", ".env"]
         .into_iter()
-        .for_each(|p| match dotenv::from_filename(p) {
-            Ok(_) => (),
-            Err(dotenv::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => (),
-            Err(e) => Err(e).unwrap(),
-        });
+        .try_for_each(|p| {
+            dotenv::from_filename(p).map(|_| ()).or_else(|e| match e {
+                dotenv::Error::Io(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                e => Err(e),
+            })
+        })
+        .unwrap();
 
     let Opts {
         log_filter,
@@ -896,18 +857,18 @@ async fn main() {
     let mode = match subcommand {
         Subcommand::Cartesian { modals } => {
             let int_types = [
-                InteractionType::Command(command::CommandType::ChatInput),
-                InteractionType::Command(command::CommandType::User),
-                InteractionType::Command(command::CommandType::Message),
+                InteractionType::Command(CommandType::ChatInput),
+                InteractionType::Command(CommandType::User),
+                InteractionType::Command(CommandType::Message),
                 InteractionType::MessageComponent,
             ];
 
             let res_types = [
-                interaction::InteractionResponseType::ChannelMessageWithSource,
-                interaction::InteractionResponseType::DeferredChannelMessageWithSource,
-                interaction::InteractionResponseType::DeferredUpdateMessage,
-                interaction::InteractionResponseType::UpdateMessage,
-                interaction::InteractionResponseType::Modal,
+                RawResponseType::ChannelMessageWithSource,
+                RawResponseType::DeferredChannelMessageWithSource,
+                RawResponseType::DeferredUpdateMessage,
+                RawResponseType::UpdateMessage,
+                RawResponseType::Modal,
             ];
 
             let untried = int_types
@@ -981,5 +942,5 @@ async fn main() {
         r = client.start() => r.unwrap(),
     }
 
-    client.shard_manager.lock_owned().await.shutdown_all().await;
+    client.shard_manager.shutdown_all().await;
 }

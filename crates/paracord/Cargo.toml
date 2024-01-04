@@ -12,15 +12,15 @@ anyhow = "1.0.72"
 async-trait = "0.1.72"
 base64k = { version = "=0.1.0", path = "../base64k" }
 chrono = "0.4.26"
-ordered-float = "3.7.0"
-prost = "0.11.9"
+ordered-float = "4.2.0"
+prost = "0.12.3"
 qcore = { version = "0.1.0", path = "../qcore" }
 serde = { version = "1.0.178", features = ["derive"] }
 serde_json = "1.0.104"
 serenity = { workspace = true }
-strsim = "0.10.0"
+strsim = "0.11.0"
 thiserror = "1.0.44"
 tokio = { version = "1.29.1", default-features = false, features = ["sync"] }
 tracing = "0.1.37"
 url = "2.4.0"
-zstd = { version = "0.12.4", features = ["experimental"] }
+zstd = { version = "0.13.0", features = ["experimental"] }

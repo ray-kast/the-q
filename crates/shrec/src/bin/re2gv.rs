@@ -11,9 +11,12 @@
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
 
-use shrec::re::Regex;
+use shrec::re::{Regex, RegexBag};
 
 fn main() {
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    struct Proto;
+
     // let re = Regex::Cat(vec![
     //     Regex::Alt(vec![
     //         Regex::Cat(vec![
@@ -34,7 +37,22 @@ fn main() {
     //         ]),
     //     ]),
     // ]);
-    let re = shrec::re::syntax::token_re();
+    // let re = shrec::re::syntax::token_re();
+    let re: RegexBag<_, _> = vec![(
+        Regex::Cat(vec![
+            Regex::Lit("pro".chars()),
+            Regex::Star(
+                Regex::Cat(vec![
+                    Regex::Alt(vec![Regex::Lit("".chars()), Regex::Lit("ta".chars())]),
+                    Regex::Lit("to".chars()),
+                ])
+                .into(),
+            ),
+            Regex::Lit("gen".chars()),
+        ]),
+        Proto,
+    )]
+    .into();
 
     let non_dfa = re.compile();
     let dfa = non_dfa.compile().copied();

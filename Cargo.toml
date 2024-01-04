@@ -3,10 +3,9 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies.serenity]
-version = "0.11.6"
+version = "0.12.0"
 default-features = false
 features = [
-  "tokio",
   "parking_lot",
   "client",
   "builder",

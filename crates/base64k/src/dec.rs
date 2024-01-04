@@ -1,6 +1,6 @@
 use std::io;
 
-use wide::u32x8;
+use arrayvec::ArrayVec;
 
 use super::TRAIL_MASK;
 use crate::arr::ShortArray;
@@ -10,7 +10,7 @@ use crate::arr::ShortArray;
 pub struct Decoder<I> {
     it: I,
     // TODO: I bet there's a deranged way to use ShortArray for this
-    buf: Vec<u8>,
+    buf: ArrayVec<u8, { ShortArray::BYTE_WIDTH }>,
 }
 
 impl<I: Iterator<Item = char>> Decoder<I> {
@@ -19,7 +19,7 @@ impl<I: Iterator<Item = char>> Decoder<I> {
     pub fn new<J: IntoIterator<IntoIter = I>>(it: J) -> Self {
         Self {
             it: it.into_iter(),
-            buf: Vec::default(),
+            buf: ArrayVec::default(),
         }
     }
 }
@@ -105,7 +105,7 @@ impl<I: Iterator<Item = char>> io::Read for Decoder<I> {
             }
 
             let dec = chunk.decode();
-            if dec & u32x8::splat(TRAIL_MASK) != u32x8::ZERO {
+            if dec.trail_mask_hint() {
                 break 'hot;
             }
 
@@ -145,7 +145,7 @@ impl<I: Iterator<Item = char>> io::Read for Decoder<I> {
             !buf.is_empty()
                 && (buf.len() < ShortArray::BYTE_WIDTH
                     || chunk_len < ShortArray::WIDTH
-                    || chunk.decode() & u32x8::splat(TRAIL_MASK) != u32x8::ZERO)
+                    || chunk.decode().trail_mask_hint())
         );
 
         let dws = chunk.decode().to_array();
@@ -178,8 +178,7 @@ impl<I: Iterator<Item = char>> io::Read for Decoder<I> {
                     self.buf.extend(has_hi.then_some(hi));
                 },
                 _ if cfg!(debug_assertions) => unreachable!(),
-                // SAFETY: chunks does not return empty slices and the maximum
-                //         chunk length is the requested 2
+                // SAFETY: The maximum chunk length is the requested 2
                 _ => unsafe { std::hint::unreachable_unchecked() },
             }
         }
@@ -202,9 +201,9 @@ mod test {
     where B::IntoIter: ExactSizeIterator {
         let mut buf = vec![];
         if pathological > 0 {
-            let mut chunk = vec![];
+            let mut chunk;
             loop {
-                chunk.resize(pathological, 0);
+                chunk = vec![0; pathological];
                 match a.read(&mut chunk).unwrap() {
                     0 => break,
                     n => {

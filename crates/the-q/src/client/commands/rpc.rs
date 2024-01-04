@@ -1,6 +1,4 @@
-use serenity::model::application::interaction::{
-    message_component::MessageComponentInteraction, modal::ModalSubmitInteraction,
-};
+use serenity::model::application::{ComponentInteraction, ModalInteraction};
 
 use super::prelude::*;
 
@@ -64,7 +62,9 @@ impl rpc::ModalId for modal::Modal {
 
     fn try_into_parts(self) -> Option<(ModalSource, Self::Payload)> {
         let Self { source, payload } = self;
-        modal::ModalSource::from_i32(source)
+        source
+            .try_into()
+            .ok()
             .and_then(|s| match s {
                 modal::ModalSource::Unknown => None,
                 modal::ModalSource::Command => Some(ModalSource::Command),
@@ -75,7 +75,7 @@ impl rpc::ModalId for modal::Modal {
 }
 
 impl rpc::Key for ComponentKey {
-    type Interaction = MessageComponentInteraction;
+    type Interaction = ComponentInteraction;
     type Payload = ComponentPayload;
 }
 
@@ -93,6 +93,6 @@ impl From<&ModalPayload> for ModalKey {
 }
 
 impl rpc::Key for ModalKey {
-    type Interaction = ModalSubmitInteraction;
+    type Interaction = ModalInteraction;
     type Payload = ModalPayload;
 }

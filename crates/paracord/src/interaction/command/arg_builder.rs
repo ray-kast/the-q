@@ -72,21 +72,6 @@ impl ArgBuilder {
             self.0 = ArgBuilderState::Error("Maximum subcommand nesting depth exceeded");
         }
     }
-
-    /// Construct a new chat input command signature from this builder
-    ///
-    /// # Errors
-    /// This method returns an error if the builder state is invalid (e.g. if
-    /// both subcommand and non-subcommand methods are invoked on the same
-    /// builder instance).
-    pub fn build(self) -> Result<Args, TryFromError> {
-        Ok(Args(match self.0 {
-            ArgBuilderState::Default => Trie::default(),
-            ArgBuilderState::Leaf(args, arg_order) => Trie::Leaf { args, arg_order },
-            ArgBuilderState::Branch(height, children) => Trie::Branch { height, children },
-            ArgBuilderState::Error(e) => return Err(TryFromError(e)),
-        }))
-    }
 }
 
 #[builder(trait_name = ArgBuilderExt)]
@@ -347,11 +332,24 @@ impl ArgBuilder {
         desc: impl Into<String>,
         f: impl FnOnce(ArgBuilder) -> ArgBuilder,
     ) {
-        match f(ArgBuilder::default()).build() {
+        match f(ArgBuilder::default()).try_into() {
             Ok(a) => {
                 self.subcmd(name, desc, a);
             },
             Err(TryFromError(e)) => self.0 = ArgBuilderState::Error(e),
         }
+    }
+}
+
+impl TryFrom<ArgBuilder> for Args {
+    type Error = TryFromError;
+
+    fn try_from(value: ArgBuilder) -> Result<Self, Self::Error> {
+        Ok(Self(match value.0 {
+            ArgBuilderState::Default => Trie::default(),
+            ArgBuilderState::Leaf(args, arg_order) => Trie::Leaf { args, arg_order },
+            ArgBuilderState::Branch(height, children) => Trie::Branch { height, children },
+            ArgBuilderState::Error(e) => return Err(TryFromError(e)),
+        }))
     }
 }

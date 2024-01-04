@@ -1,7 +1,6 @@
 use serenity::model::{
-    application::command::Command,
+    application::{Command, CommandType},
     id::{ApplicationId, CommandId, CommandVersionId, GuildId},
-    prelude::command::CommandType,
 };
 
 use super::{CommandInfo, Data, Trie, TryFromError};

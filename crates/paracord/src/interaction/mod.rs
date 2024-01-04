@@ -9,3 +9,5 @@ pub mod rpc;
 pub mod visitor;
 
 pub use registry::Registry;
+
+// TODO: serenity dropped a lot of &mut's, we probably can too

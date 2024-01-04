@@ -4,233 +4,83 @@ use std::{
     marker::PhantomData,
 };
 
-use qcore::{build_range::BuildRange, builder};
+use qcore::{
+    build_range::BuildRange,
+    build_with::{BuildWith, BuilderHelpers},
+    builder,
+};
 use serenity::{
+    all::{ChannelId, RoleId, UserId},
     builder::{
-        CreateActionRow, CreateButton, CreateInputText, CreateInteractionResponseData,
-        CreateInteractionResponseFollowup, CreateSelectMenu, CreateSelectMenuOption,
-        EditInteractionResponse,
+        CreateActionRow, CreateButton, CreateInputText, CreateInteractionResponseFollowup,
+        CreateInteractionResponseMessage, CreateModal, CreateSelectMenu, CreateSelectMenuKind,
+        CreateSelectMenuOption, EditInteractionResponse,
     },
     model::{
-        application::component::{ButtonStyle as ButtonStyleModel, InputTextStyle},
+        application::{ButtonStyle as ButtonStyleModel, InputTextStyle},
         channel::{ChannelType, ReactionType},
     },
 };
 use url::Url;
 
-use super::{super::rpc::ComponentId, id, ResponseData};
-
-mod private {
-    use serenity::builder::CreateActionRow;
-
-    pub trait BuildComponent {
-        fn build_component(self, row: &mut CreateActionRow) -> &mut CreateActionRow;
-    }
-}
+use super::{super::rpc::ComponentId, id, Prepare};
 
 /// A set of components to attach to a message
 #[derive(Debug)]
-pub struct Components<I, T, E>(pub(super) Vec<ActionRow<I, T, E>>);
+#[repr(transparent)]
+pub struct Components<R>(pub(super) Vec<R>);
 
-impl<I, T, E> Default for Components<I, T, E> {
+impl<R> Default for Components<R> {
+    #[inline]
     fn default() -> Self { Self(vec![]) }
 }
 
 macro_rules! build_components {
     ($self:expr, $builder:expr) => {{
-        let Self(rows) = $self;
-        $builder.components(|b| {
-            rows.into_iter().fold(b, |b, r| {
-                let ActionRow {
-                    err,
-                    components,
-                    id: _,
-                } = r;
-                assert!(err.0.is_none());
-                b.create_action_row(|b| components.into_iter().fold(b, |b, c| c.build_component(b)))
-            })
-        })
+        let Components(rows) = $self;
+        $builder.components(rows.into_iter().map(Into::into).collect())
     }};
 }
 
-impl<I, T, E> Components<I, T, E> {
-    /// Purge any validation errors caused during initialization
-    ///
-    /// # Errors
-    /// If any component contains an error it will be returned.
-    #[inline]
-    pub fn prepare(self) -> Result<Components<I, T, Infallible>, E> {
-        let Self(rows) = self;
-        Ok(Components(
-            rows.into_iter()
-                .map(ActionRow::prepare)
-                .collect::<Result<_, E>>()?,
-        ))
-    }
-}
-
-impl<I, T: private::BuildComponent> Components<I, T, Infallible> {
-    #[inline]
-    pub(super) fn build_edit_response(
-        self,
-        res: &mut EditInteractionResponse,
-    ) -> &mut EditInteractionResponse {
-        build_components!(self, res)
-    }
-
-    #[inline]
-    pub(super) fn build_followup<'a, 'b>(
-        self,
-        fup: &'a mut CreateInteractionResponseFollowup<'b>,
-    ) -> &'a mut CreateInteractionResponseFollowup<'b> {
-        build_components!(self, fup).components(|c| c)
+impl<I: ComponentId> Components<MessageComponent<I, id::Error>> {
+    fn menu_parts(
+        &mut self,
+        payload: I::Payload,
+        ty: MenuType<I, id::Error>,
+        placeholder: impl Into<Option<String>>,
+        count: impl BuildRange<u8>,
+        disabled: bool,
+    ) {
+        let (min_count, max_count) = count.build_range().into_inner();
+        self.0.push(MessageComponent::Menu(Menu {
+            id: id::write(&I::from_parts(payload)),
+            ty,
+            placeholder: placeholder.into(),
+            min_count: min_count.unwrap_or(0),
+            max_count, // max allowed
+            disabled,
+            rpc_id: PhantomData,
+        }));
     }
 }
 
 #[builder(trait_name = ComponentsExt)]
 /// Helper methods for mutating [`Components`]
-impl<I, T, E> Components<I, T, E> {
+impl<R> Components<R> {
     /// Add a new action row to the component set
-    pub fn row(&mut self, row: ActionRow<I, T, E>) { self.0.push(row); }
-
-    /// Add a new action row to the component set using the given closure
-    #[inline]
-    pub fn build_row(&mut self, f: impl FnOnce(ActionRow<I, T, E>) -> ActionRow<I, T, E>) {
-        self.row(f(ActionRow::default()));
-    }
+    pub fn row(&mut self, row: R) { self.0.push(row); }
 }
 
-impl<'a, I, T: private::BuildComponent> ResponseData<'a> for Components<I, T, Infallible> {
-    fn build_response_data<'b>(
-        self,
-        data: &'b mut CreateInteractionResponseData<'a>,
-    ) -> &'b mut CreateInteractionResponseData<'a> {
-        build_components!(self, data)
-    }
-}
-
-// TODO: clean this up
-#[derive(Debug)]
-struct RowError<E>(Option<E>);
-
-impl<E> RowError<E> {
-    fn catch(&mut self, f: impl FnOnce() -> Result<(), E>) {
-        match (&mut self.0, f()) {
-            (_, Ok(())) | (Some(_), Err(_)) => (),
-            (e @ None, Err(f)) => *e = Some(f),
-        }
-    }
-}
-
-/// A single row of components
-#[derive(Debug)]
-pub struct ActionRow<I, T, E> {
-    err: RowError<E>,
-    components: Vec<T>,
-    id: PhantomData<fn(I)>,
-}
-
-impl<I, T, E> Default for ActionRow<I, T, E> {
-    fn default() -> Self {
-        Self {
-            err: RowError(None),
-            components: vec![],
-            id: PhantomData::default(),
-        }
-    }
-}
-
-impl<I, T, E> ActionRow<I, T, E> {
-    #[inline]
-    fn prepare(self) -> Result<ActionRow<I, T, Infallible>, E> {
-        let Self {
-            err,
-            components,
-            id,
-        } = self;
-        if let RowError(Some(err)) = err {
-            return Err(err);
-        }
-
-        Ok(ActionRow {
-            err: RowError(None),
-            components,
-            id,
-        })
-    }
-}
-
-impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
-    fn menu_parts(
-        &mut self,
-        payload: I::Payload,
-        ty: Result<MenuType, id::Error>,
-        placeholder: impl Into<Option<String>>,
-        count: impl BuildRange<u8>,
-        disabled: bool,
-    ) {
-        self.err.catch(|| {
-            let (min_count, max_count) = count.build_range().into_inner();
-            self.components.push(MessageComponent {
-                ty: MessageComponentType::Menu {
-                    id: id::write(&I::from_parts(payload))?,
-                    ty: ty?,
-                    placeholder: placeholder.into(),
-                    min_count: min_count.unwrap_or(0),
-                    max_count, // max allowed
-                },
-                disabled,
-            });
-
-            Ok(())
-        });
-    }
-}
-
-#[builder(trait_name = MessageActionRow)]
-/// Helper methods for mutating an [`ActionRow`] for messages
-impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
-    /// Add a button to this row
-    pub fn button(
-        &mut self,
-        payload: I::Payload,
-        style: ButtonStyle,
-        label: impl Into<ButtonLabel>,
-        disabled: bool,
-    ) {
-        self.err.catch(|| {
-            self.components.push(MessageComponent {
-                ty: MessageComponentType::Button {
-                    label: label.into(),
-                    ty: ButtonType::Custom {
-                        id: id::write(&I::from_parts(payload))?,
-                        style,
-                    },
-                },
-                disabled,
-            });
-
-            Ok(())
-        });
+/// Helper methods for mutating [`Components`] for messages
+#[builder(trait_name = MessageComponents)]
+impl<I: ComponentId> Components<MessageComponent<I, id::Error>> {
+    /// Create a row with buttons using the given closure
+    pub fn buttons(&mut self, f: impl FnOnce(ButtonsBuilder<I>) -> ButtonsBuilder<I>) {
+        self.0
+            .push(MessageComponent::Buttons(f(ButtonsBuilder::default()).0));
     }
 
-    /// Add a new link-style button to this row
-    pub fn link_button(
-        &mut self,
-        url: impl Into<Url>,
-        label: impl Into<ButtonLabel>,
-        disabled: bool,
-    ) {
-        self.components.push(MessageComponent {
-            ty: MessageComponentType::Button {
-                label: label.into(),
-                ty: ButtonType::Link(url.into()),
-            },
-            disabled,
-        });
-    }
-
-    /// Add a new string dropdown menu to this row
+    /// Add a new row with a string dropdown menu
     pub fn menu<J: Into<MenuItem>>(
         &mut self,
         payload: I::Payload,
@@ -240,37 +90,38 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         default: impl IntoIterator<Item = usize>,
         options: impl IntoIterator<Item = (I::Payload, J)>,
     ) {
-        let res = options.into_iter().try_fold(
+        let (items, order) = options.into_iter().fold(
             (HashMap::new(), vec![]),
             |(mut items, mut order), (payload, item)| {
-                let id = id::write(&I::from_parts(payload))?;
+                let id = id::write(&I::from_parts(payload));
 
-                order.push(id.clone());
-                assert!(items.insert(id, item.into()).is_none());
+                if let Ok(ref id) = id {
+                    assert!(items.insert(id.clone(), item.into()).is_none());
+                }
+                order.push(id);
 
-                Ok((items, order))
+                (items, order)
             },
         );
 
         let default: HashSet<_> = default.into_iter().collect();
-        if let Ok((_, ref order)) = res {
-            assert!(default.iter().all(|d| order.len() > *d));
-        }
+        assert!(default.iter().all(|d| order.len() > *d));
 
         self.menu_parts(
             payload,
-            res.map(|(items, order)| MenuType::String {
+            MenuType::String {
                 items,
                 order,
                 default,
-            }),
+                rpc_id: PhantomData,
+            },
             placeholder,
             count,
             disabled,
         );
     }
 
-    /// Add a new user handle dropdown menu to this row
+    /// Add a new row with a user handle dropdown menu
     #[inline]
     pub fn user_menu(
         &mut self,
@@ -278,11 +129,18 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         placeholder: impl Into<Option<String>>,
         count: impl BuildRange<u8>,
         disabled: bool,
+        default: impl IntoIterator<Item = UserId>,
     ) {
-        self.menu_parts(payload, Ok(MenuType::User), placeholder, count, disabled);
+        self.menu_parts(
+            payload,
+            MenuType::User(default.into_iter().collect()),
+            placeholder,
+            count,
+            disabled,
+        );
     }
 
-    /// Add a new role handle dropdown menu to this row
+    /// Add a new row with a role handle dropdown menu
     #[inline]
     pub fn role_menu(
         &mut self,
@@ -290,11 +148,18 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         placeholder: impl Into<Option<String>>,
         count: impl BuildRange<u8>,
         disabled: bool,
+        default: impl IntoIterator<Item = RoleId>,
     ) {
-        self.menu_parts(payload, Ok(MenuType::Role), placeholder, count, disabled);
+        self.menu_parts(
+            payload,
+            MenuType::Role(default.into_iter().collect()),
+            placeholder,
+            count,
+            disabled,
+        );
     }
 
-    /// Add a new user or role handle dropdown menu to this row
+    /// Add a new row with a user or role handle dropdown menu
     #[inline]
     pub fn mention_menu(
         &mut self,
@@ -302,11 +167,22 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         placeholder: impl Into<Option<String>>,
         count: impl BuildRange<u8>,
         disabled: bool,
+        default_user: impl IntoIterator<Item = UserId>,
+        default_role: impl IntoIterator<Item = RoleId>,
     ) {
-        self.menu_parts(payload, Ok(MenuType::Mention), placeholder, count, disabled);
+        self.menu_parts(
+            payload,
+            MenuType::Mention(
+                default_user.into_iter().collect(),
+                default_role.into_iter().collect(),
+            ),
+            placeholder,
+            count,
+            disabled,
+        );
     }
 
-    /// Add a new channel dropdown menu to this row
+    /// Add a new row with a channel dropdown menu
     #[inline]
     pub fn channel_menu(
         &mut self,
@@ -315,10 +191,11 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
         count: impl BuildRange<u8>,
         disabled: bool,
         tys: impl IntoIterator<Item = ChannelType>,
+        default: impl IntoIterator<Item = ChannelId>,
     ) {
         self.menu_parts(
             payload,
-            Ok(MenuType::Channel(tys.into_iter().collect())),
+            MenuType::Channel(tys.into_iter().collect(), default.into_iter().collect()),
             placeholder,
             count,
             disabled,
@@ -326,128 +203,198 @@ impl<I: ComponentId> ActionRow<I, MessageComponent, id::Error> {
     }
 }
 
-#[builder(trait_name = ModalActionRow)]
-/// Helper methods for mutating an [`ActionRow`] for modals
-impl<I: ComponentId> ActionRow<I, TextInput<I>, id::Error> {
-    /// Add a new textbox to this row
+/// Helper methods for mutating [`Components`] for modals
+#[builder(trait_name = ModalComponents)]
+impl<I: ComponentId> Components<TextInput<I, id::Error>> {
+    /// Create a row with a short textbox using the given closure
     #[inline]
-    pub fn text(&mut self, input: TextInput<I>) { self.components.push(input); }
-
-    /// Add a new short textbox to this row using the given closure
-    #[inline]
-    pub fn build_text_short(
+    pub fn text_short(
         &mut self,
         payload: I::Payload,
         label: impl Into<String>,
-        f: impl FnOnce(TextInput<I>) -> TextInput<I>,
+        f: impl FnOnce(TextInput<I, id::Error>) -> TextInput<I, id::Error>,
     ) {
-        self.err.catch(|| {
-            self.components.push(f(TextInput::short(payload, label)?));
-            Ok(())
-        });
+        self.0.push(f(TextInput::short(payload, label)));
     }
 
-    /// Add a new paragraph textbox to this row using the given closure
+    /// Create a row with a paragraph textbox using the given closure
     #[inline]
-    pub fn build_text_long(
+    pub fn text_long(
         &mut self,
         payload: I::Payload,
         label: impl Into<String>,
-        f: impl FnOnce(TextInput<I>) -> TextInput<I>,
+        f: impl FnOnce(TextInput<I, id::Error>) -> TextInput<I, id::Error>,
     ) {
-        self.err.catch(|| {
-            self.components.push(f(TextInput::long(payload, label)?));
-            Ok(())
-        });
+        self.0.push(f(TextInput::long(payload, label)));
     }
 }
 
-#[inline]
-fn visit<T, V: IntoIterator>(
-    vals: V,
-    row: &mut T,
-    f: impl FnMut(&mut T, V::Item) -> &mut T,
-) -> &mut T {
-    vals.into_iter().fold(row, f)
+impl<R: Prepare> Prepare for Components<R> {
+    type Error = R::Error;
+    type Output = Components<R::Output>;
+
+    fn prepare(self) -> Result<Self::Output, Self::Error> {
+        self.0
+            .into_iter()
+            .map(R::prepare)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Components)
+    }
 }
 
-/// A single component valid for message component lists
-// TODO: add constructors and an ID type parameter
+impl<R> BuildWith<Components<R>> for CreateInteractionResponseMessage
+where CreateActionRow: From<R>
+{
+    #[inline]
+    fn build_with(self, value: Components<R>) -> Self { build_components!(value, self) }
+}
+
+impl<R> BuildWith<Components<R>> for EditInteractionResponse
+where CreateActionRow: From<R>
+{
+    #[inline]
+    fn build_with(self, value: Components<R>) -> Self { build_components!(value, self) }
+}
+
+impl<R> BuildWith<Components<R>> for CreateInteractionResponseFollowup
+where CreateActionRow: From<R>
+{
+    #[inline]
+    fn build_with(self, value: Components<R>) -> Self { build_components!(value, self) }
+}
+
+impl<R> BuildWith<Components<R>> for CreateModal
+where CreateActionRow: From<R>
+{
+    #[inline]
+    fn build_with(self, value: Components<R>) -> Self { build_components!(value, self) }
+}
+
+/// Helper for building a row of buttons
 #[derive(Debug)]
-pub struct MessageComponent {
-    ty: MessageComponentType,
-    disabled: bool,
+#[repr(transparent)]
+pub struct ButtonsBuilder<I>(Vec<Button<I, id::Error>>);
+
+impl<I> Default for ButtonsBuilder<I> {
+    #[inline]
+    fn default() -> Self { Self(vec![]) }
 }
 
-impl private::BuildComponent for MessageComponent {
-    fn build_component(self, row: &mut CreateActionRow) -> &mut CreateActionRow {
-        let Self { ty, disabled } = self;
-        match ty {
-            MessageComponentType::Button { label, ty } => row.create_button(|b| {
-                b.disabled(disabled);
-                match label {
-                    ButtonLabel::Text(e, t) => visit(e, b.label(t), CreateButton::emoji),
-                    ButtonLabel::Emoji(r) => b.emoji(r),
-                };
-                match ty {
-                    ButtonType::Link(u) => b.style(ButtonStyleModel::Link).url(u),
-                    ButtonType::Custom { id, style } => b.custom_id(id).style(style.into()),
-                }
-            }),
-            MessageComponentType::Menu {
-                id,
-                ty,
-                placeholder,
-                min_count,
-                max_count,
-            } => row.create_select_menu(|b| {
-                b.disabled(disabled).custom_id(id);
-                visit(placeholder, b, CreateSelectMenu::placeholder).min_values(min_count.into());
-                visit(max_count, b, |b, c| b.max_values(c.into()));
-                match ty {
-                    MenuType::String {
-                        mut items,
-                        order,
-                        default,
-                    } => b.options(|b| {
-                        for (i, id) in order.into_iter().enumerate() {
-                            let MenuItem { label, desc, emoji } =
-                                items.remove(&id).unwrap_or_else(|| unreachable!());
+#[builder(trait_name = ButtonsBuilderExt)]
+/// Helper methods for mutating an [`ActionRow`] for messages
+impl<I: ComponentId> ButtonsBuilder<I> {
+    /// Add a button to this row by value
+    pub fn push(&mut self, btn: Button<I, id::Error>) { self.0.push(btn); }
 
-                            b.create_option(|b| {
-                                b.value(id).label(label);
-                                visit(desc, b, CreateSelectMenuOption::description);
-                                visit(emoji, b, CreateSelectMenuOption::emoji);
-                                b.default_selection(default.contains(&i))
-                            });
-                        }
-                        assert!(items.is_empty());
-                        b
-                    }),
-                    t => todo!("Select menu type {t:?} unsupported by Serenity"),
-                    // MenuType::User => todo!(),
-                    // MenuType::Role => todo!(),
-                    // MenuType::Mention => todo!(),
-                    // MenuType::Channel(tys) => todo!(),
-                }
-            }),
+    /// Add a button to this row
+    pub fn button(
+        &mut self,
+        payload: I::Payload,
+        style: ButtonStyle,
+        label: impl Into<ButtonLabel>,
+        disabled: bool,
+    ) {
+        self.0.push(Button {
+            label: label.into(),
+            ty: ButtonType::Custom {
+                id: id::write(&I::from_parts(payload)),
+                style,
+                rpc_id: PhantomData,
+            },
+            disabled,
+        });
+    }
+
+    /// Add a new link-style button to this row
+    pub fn link(&mut self, url: impl Into<Url>, label: impl Into<ButtonLabel>, disabled: bool) {
+        self.0.push(Button {
+            ty: ButtonType::Link(url.into()),
+            label: label.into(),
+            disabled,
+        });
+    }
+}
+
+/// A single row of components that are valid inside a message
+#[derive(Debug)]
+pub enum MessageComponent<I, E> {
+    /// A row of buttons
+    Buttons(Vec<Button<I, E>>),
+    /// A single menu occupying a full row
+    Menu(Menu<I, E>),
+}
+
+impl<I, E> Prepare for MessageComponent<I, E> {
+    type Error = E;
+    type Output = MessageComponent<I, Infallible>;
+
+    fn prepare(self) -> Result<Self::Output, Self::Error> {
+        match self {
+            Self::Buttons(b) => b
+                .into_iter()
+                .map(Prepare::prepare)
+                .collect::<Result<Vec<_>, _>>()
+                .map(MessageComponent::Buttons),
+            Self::Menu(m) => m.prepare().map(MessageComponent::Menu),
         }
     }
 }
 
+impl<I> From<MessageComponent<I, Infallible>> for CreateActionRow {
+    fn from(value: MessageComponent<I, Infallible>) -> Self {
+        match value {
+            MessageComponent::Buttons(b) => Self::Buttons(b.into_iter().map(Into::into).collect()),
+            MessageComponent::Menu(m) => Self::SelectMenu(m.into()),
+        }
+    }
+}
+
+/// A single button component
 #[derive(Debug)]
-enum MessageComponentType {
-    Button {
-        label: ButtonLabel,
-        ty: ButtonType,
-    },
-    Menu {
-        id: id::Id<'static>,
-        ty: MenuType,
-        placeholder: Option<String>,
-        min_count: u8,
-        max_count: Option<u8>,
-    },
+pub struct Button<I, E> {
+    ty: ButtonType<I, E>,
+    label: ButtonLabel,
+    disabled: bool,
+}
+
+impl<I, E> Prepare for Button<I, E> {
+    type Error = E;
+    type Output = Button<I, Infallible>;
+
+    #[inline]
+    fn prepare(self) -> Result<Self::Output, Self::Error> {
+        let Self {
+            ty,
+            label,
+            disabled,
+        } = self;
+        Ok(Button {
+            ty: ty.prepare()?,
+            label,
+            disabled,
+        })
+    }
+}
+
+impl<I> From<Button<I, Infallible>> for CreateButton {
+    fn from(value: Button<I, Infallible>) -> Self {
+        let Button {
+            ty,
+            label,
+            disabled,
+        } = value;
+        match ty {
+            ButtonType::Link(l) => CreateButton::new_link(l),
+            ButtonType::Custom {
+                id,
+                style,
+                rpc_id: _,
+            } => CreateButton::new(id.unwrap_or_else(|_| unreachable!()).to_string())
+                .style(style.into()),
+        }
+        .build_with(label)
+        .disabled(disabled)
+    }
 }
 
 /// The label of a button, composed of text and/or an emoji
@@ -479,18 +426,46 @@ impl From<(Option<ReactionType>, String)> for ButtonLabel {
     fn from((emoji, text): (Option<ReactionType>, String)) -> Self { Self::Text(emoji, text) }
 }
 
+impl BuildWith<ButtonLabel> for CreateButton {
+    fn build_with(self, value: ButtonLabel) -> Self {
+        match value {
+            ButtonLabel::Text(e, t) => self.fold_opt(e, Self::emoji).label(t),
+            ButtonLabel::Emoji(e) => self.emoji(e),
+        }
+    }
+}
+
 /// The type of a button component
 #[derive(Debug)]
-pub enum ButtonType {
+pub enum ButtonType<I, E> {
     /// A link-style button
     Link(Url),
+    // TODO: make this a struct?
     /// A non-link button
     Custom {
         /// Button ID for callbacks
-        id: id::Id<'static>,
+        id: Result<id::Id<'static>, E>,
         /// Button style
         style: ButtonStyle,
+        /// RPC component ID info
+        rpc_id: PhantomData<fn(I)>,
     },
+}
+
+impl<I, E> Prepare for ButtonType<I, E> {
+    type Error = E;
+    type Output = ButtonType<I, Infallible>;
+
+    fn prepare(self) -> Result<Self::Output, Self::Error> {
+        Ok(match self {
+            Self::Link(u) => ButtonType::Link(u),
+            Self::Custom { id, style, rpc_id } => ButtonType::Custom {
+                id: Ok(id?),
+                style,
+                rpc_id,
+            },
+        })
+    }
 }
 
 /// Style for non-link buttons
@@ -517,17 +492,162 @@ impl From<ButtonStyle> for ButtonStyleModel {
     }
 }
 
+/// A single dropdown menu component
 #[derive(Debug)]
-enum MenuType {
+pub struct Menu<I, E> {
+    id: Result<id::Id<'static>, E>,
+    ty: MenuType<I, E>,
+    placeholder: Option<String>,
+    min_count: u8,
+    max_count: Option<u8>,
+    disabled: bool,
+    rpc_id: PhantomData<fn(I)>,
+}
+
+impl<I, E> Prepare for Menu<I, E> {
+    type Error = E;
+    type Output = Menu<I, Infallible>;
+
+    fn prepare(self) -> Result<Self::Output, Self::Error> {
+        let Self {
+            id,
+            ty,
+            placeholder,
+            min_count,
+            max_count,
+            disabled,
+            rpc_id,
+        } = self;
+        Ok(Menu {
+            id: Ok(id?),
+            ty: ty.prepare()?,
+            placeholder,
+            min_count,
+            max_count,
+            disabled,
+            rpc_id,
+        })
+    }
+}
+
+impl<I> From<Menu<I, Infallible>> for CreateSelectMenu {
+    fn from(value: Menu<I, Infallible>) -> Self {
+        let Menu {
+            id,
+            ty,
+            placeholder,
+            min_count,
+            max_count,
+            disabled,
+            rpc_id: _,
+        } = value;
+        // TODO: use into_ok() for id
+        CreateSelectMenu::new(id.unwrap_or_else(|_| unreachable!()).to_string(), ty.into())
+            .fold_opt(placeholder, CreateSelectMenu::placeholder)
+            .min_values(min_count)
+            .fold_opt(max_count, CreateSelectMenu::max_values)
+            .disabled(disabled)
+    }
+}
+
+#[derive(Debug)]
+enum MenuType<I, E> {
     String {
         items: HashMap<id::Id<'static>, MenuItem>,
-        order: Vec<id::Id<'static>>,
+        order: Vec<Result<id::Id<'static>, E>>,
         default: HashSet<usize>,
+        rpc_id: PhantomData<fn(I)>,
     },
-    User,
-    Role,
-    Mention,
-    Channel(HashSet<ChannelType>),
+    User(HashSet<UserId>),
+    Role(HashSet<RoleId>),
+    Mention(HashSet<UserId>, HashSet<RoleId>),
+    Channel(HashSet<ChannelType>, HashSet<ChannelId>),
+}
+
+impl<I, E> Prepare for MenuType<I, E> {
+    type Error = E;
+    type Output = MenuType<I, Infallible>;
+
+    fn prepare(self) -> Result<Self::Output, Self::Error> {
+        Ok(match self {
+            Self::String {
+                items,
+                order,
+                default,
+                rpc_id,
+            } => MenuType::String {
+                items,
+                order: order
+                    .into_iter()
+                    .map(|r| r.map(Ok))
+                    .collect::<Result<Vec<_>, _>>()?,
+                default,
+                rpc_id,
+            },
+            Self::User(u) => MenuType::User(u),
+            Self::Role(r) => MenuType::Role(r),
+            Self::Mention(u, r) => MenuType::Mention(u, r),
+            Self::Channel(c, u) => MenuType::Channel(c, u),
+        })
+    }
+}
+
+impl<I> From<MenuType<I, Infallible>> for CreateSelectMenuKind {
+    fn from(value: MenuType<I, Infallible>) -> Self {
+        fn opt_vec<T>(set: HashSet<T>) -> Option<Vec<T>> {
+            if set.is_empty() {
+                None
+            } else {
+                Some(set.into_iter().collect())
+            }
+        }
+
+        match value {
+            MenuType::String {
+                mut items,
+                order,
+                default,
+                rpc_id: _,
+            } => {
+                let ret = Self::String {
+                    options: order
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, id)| {
+                            // TODO: use into_ok
+                            let id = id.unwrap_or_else(|_| unreachable!());
+
+                            items
+                                .remove(&id)
+                                .unwrap_or_else(|| unreachable!())
+                                .build(&id)
+                                .default_selection(default.contains(&i))
+                        })
+                        .collect(),
+                };
+
+                if !items.is_empty() {
+                    unreachable!("Trailing items in MenuType::String");
+                }
+
+                ret
+            },
+            MenuType::User(u) => Self::User {
+                default_users: opt_vec(u),
+            },
+            MenuType::Role(r) => Self::Role {
+                default_roles: opt_vec(r),
+            },
+            MenuType::Mention(u, r) => Self::Mentionable {
+                default_users: opt_vec(u),
+                default_roles: opt_vec(r),
+            },
+            MenuType::Channel(c, d) => Self::Channel {
+                channel_types: opt_vec(c),
+                default_channels: opt_vec(d),
+            },
+        }
+    }
 }
 
 /// An item from a dropdown menu
@@ -536,6 +656,15 @@ pub struct MenuItem {
     label: String,
     desc: Option<String>,
     emoji: Option<ReactionType>,
+}
+
+impl MenuItem {
+    fn build(self, id: &id::Id<'_>) -> CreateSelectMenuOption {
+        let Self { label, desc, emoji } = self;
+        CreateSelectMenuOption::new(label, id.to_string())
+            .fold_opt(desc, CreateSelectMenuOption::description)
+            .fold_opt(emoji, CreateSelectMenuOption::emoji)
+    }
 }
 
 impl From<String> for MenuItem {
@@ -560,27 +689,23 @@ impl From<&str> for MenuItem {
 
 /// A textbox component, valid only for modals
 #[derive(Debug)]
-pub struct TextInput<I> {
-    id: id::Id<'static>,
+pub struct TextInput<I, E> {
+    id: Result<id::Id<'static>, E>,
     style: InputTextStyle,
     label: String,
-    min_len: Option<u64>,
-    max_len: Option<u64>,
+    min_len: Option<u16>,
+    max_len: Option<u16>,
     required: bool,
     value: String,
     placeholder: Option<String>,
     rpc_id: PhantomData<fn(I)>,
 }
 
-impl<I: ComponentId> TextInput<I> {
+impl<I: ComponentId> TextInput<I, id::Error> {
     #[inline]
-    fn new(
-        payload: I::Payload,
-        style: InputTextStyle,
-        label: impl Into<String>,
-    ) -> Result<Self, id::Error> {
-        Ok(Self {
-            id: id::write(&I::from_parts(payload))?,
+    fn new(payload: I::Payload, style: InputTextStyle, label: impl Into<String>) -> Self {
+        Self {
+            id: id::write(&I::from_parts(payload)),
             style,
             label: label.into(),
             min_len: None,
@@ -588,8 +713,8 @@ impl<I: ComponentId> TextInput<I> {
             required: true,
             value: String::new(),
             placeholder: None,
-            rpc_id: PhantomData::default(),
-        })
+            rpc_id: PhantomData,
+        }
     }
 
     /// Construct a new short textbox
@@ -598,7 +723,7 @@ impl<I: ComponentId> TextInput<I> {
     /// This function returns an error if the given ID payload cannot be encoded
     /// correctly.
     #[inline]
-    pub fn short(payload: I::Payload, label: impl Into<String>) -> Result<Self, id::Error> {
+    pub fn short(payload: I::Payload, label: impl Into<String>) -> Self {
         Self::new(payload, InputTextStyle::Short, label)
     }
 
@@ -608,16 +733,16 @@ impl<I: ComponentId> TextInput<I> {
     /// This function returns an error if the given ID payload cannot be encoded
     /// correctly.
     #[inline]
-    pub fn long(payload: I::Payload, label: impl Into<String>) -> Result<Self, id::Error> {
+    pub fn long(payload: I::Payload, label: impl Into<String>) -> Self {
         Self::new(payload, InputTextStyle::Paragraph, label)
     }
 }
 
 #[builder(trait_name = TextInputExt)]
 /// Helper methods for mutating [`TextInput`]
-impl<I> TextInput<I> {
+impl<I, E> TextInput<I, E> {
     /// Set the valid length range for this textbox
-    pub fn len(&mut self, len: impl BuildRange<u64>) {
+    pub fn len(&mut self, len: impl BuildRange<u16>) {
         let (min_len, max_len) = len.build_range().into_inner();
         self.min_len = min_len;
         self.max_len = max_len;
@@ -635,8 +760,11 @@ impl<I> TextInput<I> {
     }
 }
 
-impl<I> private::BuildComponent for TextInput<I> {
-    fn build_component(self, row: &mut CreateActionRow) -> &mut CreateActionRow {
+impl<I, E> Prepare for TextInput<I, E> {
+    type Error = E;
+    type Output = TextInput<I, Infallible>;
+
+    fn prepare(self) -> Result<Self::Output, Self::Error> {
         let Self {
             id,
             style,
@@ -646,15 +774,50 @@ impl<I> private::BuildComponent for TextInput<I> {
             required,
             value,
             placeholder,
-            rpc_id: _,
+            rpc_id,
         } = self;
-        row.create_input_text(|t| {
-            t.custom_id(id).style(style).label(label);
-            visit(min_len, t, CreateInputText::min_length);
-            visit(max_len, t, CreateInputText::max_length)
-                .required(required)
-                .value(value);
-            visit(placeholder, t, CreateInputText::placeholder)
+        Ok(TextInput {
+            id: Ok(id?),
+            style,
+            label,
+            min_len,
+            max_len,
+            required,
+            value,
+            placeholder,
+            rpc_id,
         })
     }
+}
+
+impl<I> From<TextInput<I, Infallible>> for CreateInputText {
+    fn from(value: TextInput<I, Infallible>) -> Self {
+        let TextInput {
+            id,
+            style,
+            label,
+            min_len,
+            max_len,
+            required,
+            value,
+            placeholder,
+            rpc_id: _,
+        } = value;
+        // TODO: use into_ok() for id
+        Self::new(
+            style,
+            label,
+            id.unwrap_or_else(|_| unreachable!()).to_string(),
+        )
+        .fold_opt(min_len, Self::min_length)
+        .fold_opt(max_len, Self::max_length)
+        .required(required)
+        .value(value)
+        .fold_opt(placeholder, Self::placeholder)
+    }
+}
+
+impl<I> From<TextInput<I, Infallible>> for CreateActionRow {
+    #[inline]
+    fn from(value: TextInput<I, Infallible>) -> Self { Self::InputText(value.into()) }
 }

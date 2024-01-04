@@ -7,22 +7,13 @@ use std::{
 use anyhow::Context as _;
 use ordered_float::OrderedFloat;
 use serenity::{
+    builder::{CreateAutocompleteResponse, CreateInteractionResponse},
     client::{Cache, Context},
     model::{
         application::{
-            command::{Command, CommandOptionType, CommandType},
-            component::ComponentType,
-            interaction::{
-                application_command::{
-                    ApplicationCommandInteraction, CommandData, CommandDataOption,
-                    CommandDataOptionValue,
-                },
-                autocomplete::AutocompleteInteraction,
-                message_component::MessageComponentInteraction,
-                modal::ModalSubmitInteraction,
-            },
+            Command, CommandData, CommandInteraction, CommandType, ComponentInteraction,
+            ComponentInteractionDataKind, ModalInteraction, ResolvedOption, ResolvedValue,
         },
-        channel::Channel,
         id::{ChannelId, CommandId, GuildId, InteractionId},
         user::User,
     },
@@ -48,7 +39,7 @@ fn write_string(f: impl FnOnce(&mut String) -> fmt::Result) -> String {
     s
 }
 
-fn visit_opts(opts: &[CommandDataOption]) -> impl Iterator<Item = &CommandDataOption> {
+fn visit_opts<'a>(opts: &'a [ResolvedOption<'a>]) -> impl Iterator<Item = &'a ResolvedOption<'a>> {
     let mut stk = vec![opts.iter()];
     std::iter::from_fn(move || {
         loop {
@@ -57,7 +48,12 @@ fn visit_opts(opts: &[CommandDataOption]) -> impl Iterator<Item = &CommandDataOp
                 let _ = stk.pop().unwrap();
                 continue;
             };
-            stk.push(next.options.iter());
+            match next.value {
+                ResolvedValue::SubCommand(ref v) | ResolvedValue::SubCommandGroup(ref v) => {
+                    stk.push(v.iter());
+                },
+                _ => (),
+            }
             break Some(next);
         }
     })
@@ -68,48 +64,47 @@ fn command_name(w: &mut impl Write, cache: &Cache, data: &CommandData) -> fmt::R
         CommandType::ChatInput => {
             write!(w, "/{}", data.name)?;
 
-            for opt in visit_opts(&data.options) {
-                match opt.kind {
-                    CommandOptionType::SubCommand | CommandOptionType::SubCommandGroup => {
-                        let cmd = match opt.resolved {
-                            Some(CommandDataOptionValue::String(ref s)) => s,
-                            Some(_) | None => &opt.name,
-                        };
+            let focused = data.autocomplete().map(|a| a.name);
+            for opt in visit_opts(&data.options()) {
+                let subcmd = matches!(
+                    opt.value,
+                    ResolvedValue::SubCommand(_) | ResolvedValue::SubCommandGroup(_)
+                );
 
-                        write!(w, " {cmd}")
+                match (focused == Some(opt.name), subcmd) {
+                    (true, true) => write!(w, " !{}", opt.name),
+                    (false, true) => write!(w, " {}", opt.name),
+                    (true, false) => write!(w, " !:{}(", opt.name),
+                    (false, false) => write!(w, " {}(", opt.name),
+                }?;
+
+                match opt.value {
+                    ResolvedValue::SubCommand(_)
+                    | ResolvedValue::SubCommandGroup(_)
+                    | ResolvedValue::Autocomplete { .. } => Ok(()),
+                    ResolvedValue::String(v) => write!(w, "{v:?}"),
+                    ResolvedValue::Integer(i) => write!(w, "{i}"),
+                    ResolvedValue::Boolean(b) => write!(w, "{b:?}"),
+                    ResolvedValue::User(u, _) => write!(w, "u:").and_then(|()| write_user(w, u)),
+                    ResolvedValue::Channel(c) => {
+                        // TODO: resolve
+                        write!(w, "#{}", c.name.as_deref().unwrap_or("<???>"))
+                    },
+                    ResolvedValue::Role(r) => {
+                        write!(w, "r:@{}", r.name)
+                    },
+                    ResolvedValue::Number(f) => write!(w, "{f:.2}"),
+                    ResolvedValue::Attachment(a) => {
+                        write!(w, "<{}>", a.filename)
                     },
                     _ => {
-                        if opt.focused {
-                            write!(w, " !:{}(", opt.name)
-                        } else {
-                            write!(w, " {}(", opt.name)
-                        }?;
-                        if let Some(ref val) = opt.resolved {
-                            match val {
-                                CommandDataOptionValue::String(v) => write!(w, "{v:?}"),
-                                CommandDataOptionValue::Integer(i) => write!(w, "{i}"),
-                                CommandDataOptionValue::Boolean(b) => write!(w, "{b:?}"),
-                                CommandDataOptionValue::User(u, _) => {
-                                    write!(w, "u:").and_then(|()| write_user(w, u))
-                                },
-                                CommandDataOptionValue::Channel(c) => {
-                                    write!(w, "#{}", c.name.as_deref().unwrap_or("<???>"))
-                                },
-                                CommandDataOptionValue::Role(r) => {
-                                    write!(w, "r:@{}", r.name)
-                                },
-                                CommandDataOptionValue::Number(f) => write!(w, "{f:.2}"),
-                                CommandDataOptionValue::Attachment(a) => {
-                                    write!(w, "<{}>", a.filename)
-                                },
-                                _ => {
-                                    write!(w, "<???>")
-                                },
-                            }?;
-                        }
-                        write!(w, ")")
+                        write!(w, "<???>")
                     },
                 }?;
+
+                if !subcmd {
+                    write!(w, ")")?;
+                }
             }
             Ok(())
         },
@@ -173,38 +168,40 @@ fn write_issuer(
 
 #[inline]
 fn write_user(w: &mut impl Write, u: &User) -> fmt::Result {
-    write!(w, "@{}#{:04}", u.name, u.discriminator)
+    write!(w, "@{}", u.name)?;
+    u.discriminator.map_or(Ok(()), |d| write!(w, "#{d:04}"))
 }
 
 #[inline]
 fn write_channel(w: &mut impl Write, cache: &Cache, chan: ChannelId) -> fmt::Result {
     if let Some(chan) = cache.channel(chan) {
-        match chan {
-            Channel::Guild(c) => write!(w, "#{}", c.name),
-            Channel::Private(d) => {
-                write!(w, "to ")?;
-                write_user(w, &d.recipient)
-            },
-            Channel::Category(c) => write!(w, "[#{}]", c.name),
-            _ => write!(w, "#???"),
-        }
+        write!(w, "#{}", chan.name)
+
+        // TODO: what happened here?
+        // match chan {
+        //     Channel::Guild(c) => write!(w, "#{}", c.name),
+        //     Channel::Private(d) => {
+        //         write!(w, "to ")?;
+        //         write_user(w, &d.recipient)
+        //     },
+        //     Channel::Category(c) => write!(w, "[#{}]", c.name),
+        //     _ => write!(w, "#???"),
+        // }
     } else {
         write!(w, "<#{chan}>")
     }
 }
 
 #[inline]
-fn aci_name(cache: &Cache, aci: &ApplicationCommandInteraction) -> String {
+fn aci_name(cache: &Cache, aci: &CommandInteraction) -> String {
     write_string(|s| command_name(s, cache, &aci.data))
 }
 
 #[inline]
-fn aci_id(aci: &ApplicationCommandInteraction) -> String {
-    write_string(|s| command_id(s, &aci.data, aci.id))
-}
+fn aci_id(aci: &CommandInteraction) -> String { write_string(|s| command_id(s, &aci.data, aci.id)) }
 
 #[inline]
-fn aci_issuer(cache: &Cache, aci: &ApplicationCommandInteraction) -> String {
+fn aci_issuer(cache: &Cache, aci: &CommandInteraction) -> String {
     write_string(|s| write_issuer(s, cache, &aci.user, aci.guild_id, aci.channel_id))
 }
 
@@ -221,14 +218,16 @@ fn write_custom_id<T: prost::Message + Default>(w: &mut impl Write, id: &str) ->
 }
 
 #[inline]
-fn mc_name<S: Schema>(mc: &MessageComponentInteraction) -> String {
+fn mc_name<S: Schema>(mc: &ComponentInteraction) -> String {
     write_string(|s| {
-        let ty = match mc.data.component_type {
-            ComponentType::ActionRow => "action_row",
-            ComponentType::Button => "button",
-            ComponentType::SelectMenu => "combo",
-            ComponentType::InputText => "textbox",
-            _ => "???",
+        let ty = match mc.data.kind {
+            ComponentInteractionDataKind::Button => "button",
+            ComponentInteractionDataKind::StringSelect { .. } => "combo",
+            ComponentInteractionDataKind::UserSelect { .. } => "combo_user",
+            ComponentInteractionDataKind::RoleSelect { .. } => "combo_role",
+            ComponentInteractionDataKind::MentionableSelect { .. } => "combo_ping",
+            ComponentInteractionDataKind::ChannelSelect { .. } => "combo_chan",
+            ComponentInteractionDataKind::Unknown(_) => "???",
         };
 
         write!(s, "{ty}::")?;
@@ -237,32 +236,30 @@ fn mc_name<S: Schema>(mc: &MessageComponentInteraction) -> String {
 }
 
 #[inline]
-fn mc_id(mc: &MessageComponentInteraction) -> String { format!("{}:{}", mc.id, mc.message.id) }
+fn mc_id(mc: &ComponentInteraction) -> String { format!("{}:{}", mc.id, mc.message.id) }
 
 #[inline]
-fn mc_issuer(cache: &Cache, mc: &MessageComponentInteraction) -> String {
+fn mc_issuer(cache: &Cache, mc: &ComponentInteraction) -> String {
     write_string(|s| write_issuer(s, cache, &mc.user, mc.guild_id, mc.channel_id))
 }
 
-fn ac_name(cache: &Cache, ac: &AutocompleteInteraction) -> String {
+fn ac_name(cache: &Cache, ac: &CommandInteraction) -> String {
     write_string(|s| command_name(s, cache, &ac.data))
 }
 
-fn ac_id(ac: &AutocompleteInteraction) -> String {
-    write_string(|s| command_id(s, &ac.data, ac.id))
-}
+fn ac_id(ac: &CommandInteraction) -> String { write_string(|s| command_id(s, &ac.data, ac.id)) }
 
-fn ac_issuer(cache: &Cache, ac: &AutocompleteInteraction) -> String {
+fn ac_issuer(cache: &Cache, ac: &CommandInteraction) -> String {
     write_string(|s| write_issuer(s, cache, &ac.user, ac.guild_id, ac.channel_id))
 }
 
-fn ms_name<S: Schema>(ms: &ModalSubmitInteraction) -> String {
+fn ms_name<S: Schema>(ms: &ModalInteraction) -> String {
     write_string(|s| write_custom_id::<S::Modal>(s, &ms.data.custom_id))
 }
 
-fn ms_id(ms: &ModalSubmitInteraction) -> String { ms.id.to_string() }
+fn ms_id(ms: &ModalInteraction) -> String { ms.id.to_string() }
 
-fn ms_issuer(cache: &Cache, ms: &ModalSubmitInteraction) -> String {
+fn ms_issuer(cache: &Cache, ms: &ModalInteraction) -> String {
     write_string(|s| write_issuer(s, cache, &ms.user, ms.guild_id, ms.channel_id))
 }
 
@@ -305,7 +302,7 @@ impl<S: Schema> Registry<S> {
         let handler::Handlers { commands, .. } = init;
         let mut handlers = HashMap::new();
 
-        let existing = Command::get_global_application_commands(&ctx.http)
+        let existing = Command::get_global_commands(&ctx.http)
             .await
             .context("Error fetching initial command list")?
             .into_iter()
@@ -364,10 +361,9 @@ impl<S: Schema> Registry<S> {
                 old = ?existing.info.name(),
                 "Updating global command {new_name:?}"
             );
-            let res =
-                Command::edit_global_application_command(&ctx.http, existing.id, |c| inf.build(c))
-                    .await
-                    .with_context(|| format!("Error updating command {new_name:?}"))?;
+            let res = Command::edit_global_command(&ctx.http, existing.id, inf.into())
+                .await
+                .with_context(|| format!("Error updating command {new_name:?}"))?;
             assert_eq!(existing.id, res.id);
             assert!(handlers.insert(res.id, Arc::clone(cmd)).is_none());
         }
@@ -377,7 +373,7 @@ impl<S: Schema> Registry<S> {
         for name in unpaired_new {
             let (cmd, inf) = new.remove(&name).unwrap_or_else(|| unreachable!());
             tracing::info!("Creating global command {name:?}");
-            let res = Command::create_global_application_command(&ctx.http, |c| inf.build(c))
+            let res = Command::create_global_command(&ctx.http, inf.into())
                 .await
                 .with_context(|| format!("Error creating command {name:?}"))?;
 
@@ -390,7 +386,7 @@ impl<S: Schema> Registry<S> {
                 inf.name(),
                 reg.id,
             );
-            Command::delete_global_application_command(&ctx.http, reg.id)
+            Command::delete_global_command(&ctx.http, reg.id)
                 .await
                 .with_context(|| format!("Error deleting command {:?}", inf.name()))?;
         }
@@ -492,10 +488,10 @@ impl<S: Schema> Registry<S> {
         Ok((handler, source, payload))
     }
 
-    fn pretty_handler_error<'a, I>(
+    fn pretty_handler_error<I>(
         err: handler::HandlerError<S, I>,
         desc: &'static str,
-    ) -> Option<Message<'a, S::Component, id::Error>> {
+    ) -> Option<Message<S::Component, id::Error>> {
         match err {
             handler::HandlerError::Parse(err) => match err {
                 visitor::Error::GuildRequired => {
@@ -526,7 +522,7 @@ impl<S: Schema> Registry<S> {
                         b.push("Unexpected error parsing ")
                             .push(desc)
                             .push(": ")
-                            .push_mono_safe(err)
+                            .push_mono_safe(err.to_string())
                     })
                     .ephemeral(true)
                     .into()
@@ -538,7 +534,7 @@ impl<S: Schema> Registry<S> {
             },
             handler::HandlerError::Other(err) => {
                 tracing::error!(?err, "Unexpected error handling {desc}");
-                Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err))
+                Message::rich(|b| b.push("Unexpected error: ").push_mono_safe(err.to_string()))
                     .ephemeral(true)
                     .into()
             },
@@ -581,7 +577,7 @@ impl<S: Schema> Registry<S> {
     async fn try_handle_command(
         &self,
         ctx: &Context,
-        aci: ApplicationCommandInteraction,
+        aci: CommandInteraction,
         name: String,
         id: String,
         issuer: String,
@@ -622,7 +618,7 @@ impl<S: Schema> Registry<S> {
     async fn try_handle_component(
         &self,
         ctx: &Context,
-        mc: MessageComponentInteraction,
+        mc: ComponentInteraction,
         name: String,
         id: String,
         issuer: String,
@@ -674,7 +670,7 @@ impl<S: Schema> Registry<S> {
     async fn try_handle_autocomplete(
         &self,
         ctx: &Context,
-        ac: AutocompleteInteraction,
+        ac: CommandInteraction,
         name: String,
         id: String,
         issuer: String,
@@ -690,24 +686,23 @@ impl<S: Schema> Registry<S> {
                 .complete(ctx, &mut vis)
                 .await
                 .map_err(|err| tracing::error!(%err, "Error in command completion"))
-                .and_then(|c| {
-                    serde_json::to_value(c).map_err(
-                        |err| tracing::error!(%err, "Error serializing command completions"),
-                    )
-                })
                 .ok()
         } else {
             None
         };
         tracing::trace!(?handler, "Command handler selected");
 
-        ac.create_autocomplete_response(&ctx.http, |ac| {
-            if let Some(choices) = choices {
-                ac.set_choices(choices)
-            } else {
-                ac
-            }
-        })
+        ac.create_response(
+            &ctx.http,
+            CreateInteractionResponse::Autocomplete({
+                let ac = CreateAutocompleteResponse::new();
+                if let Some(choices) = choices {
+                    ac.set_choices(choices.into_iter().map(Into::into).collect())
+                } else {
+                    ac
+                }
+            }),
+        )
         .await
     }
 
@@ -715,7 +710,7 @@ impl<S: Schema> Registry<S> {
     async fn try_handle_modal(
         &self,
         ctx: &Context,
-        ms: ModalSubmitInteraction,
+        ms: ModalInteraction,
         name: String,
         id: String,
         issuer: String,
@@ -736,7 +731,7 @@ impl<S: Schema> Registry<S> {
             },
         };
         tracing::debug!(?handler, ?src, ?payload, "Modal handler selected");
-        let src = src; // TODO: use this
+        let _ = src; // TODO: use this
 
         let mut vis = visitor::BasicVisitor { int: &ms };
         let mut responder = BorrowedResponder::Init(responder);
@@ -762,7 +757,7 @@ impl<S: Schema> Registry<S> {
     /// Dispatch a command interaction to the proper handler and submit a
     /// response
     #[inline]
-    pub async fn handle_command(&self, ctx: &Context, aci: ApplicationCommandInteraction) {
+    pub async fn handle_command(&self, ctx: &Context, aci: CommandInteraction) {
         let cache = &ctx.cache;
         let (name, id, iss) = (aci_name(cache, &aci), aci_id(&aci), aci_issuer(cache, &aci));
         self.try_handle_command(ctx, aci, name, id, iss).await.ok();
@@ -771,7 +766,7 @@ impl<S: Schema> Registry<S> {
     /// Dispatch a component interaction to the proper handler and submit a
     /// response
     #[inline]
-    pub async fn handle_component(&self, ctx: &Context, mc: MessageComponentInteraction) {
+    pub async fn handle_component(&self, ctx: &Context, mc: ComponentInteraction) {
         let cache = &ctx.cache;
         let (name, id, iss) = (mc_name::<S>(&mc), mc_id(&mc), mc_issuer(cache, &mc));
         self.try_handle_component(ctx, mc, name, id, iss).await.ok();
@@ -780,7 +775,7 @@ impl<S: Schema> Registry<S> {
     /// Dispatch an autocomplete interaction to the proper handler and submit a
     /// response
     #[inline]
-    pub async fn handle_autocomplete(&self, ctx: &Context, ac: AutocompleteInteraction) {
+    pub async fn handle_autocomplete(&self, ctx: &Context, ac: CommandInteraction) {
         let cache = &ctx.cache;
         let (name, id, iss) = (ac_name(cache, &ac), ac_id(&ac), ac_issuer(cache, &ac));
         self.try_handle_autocomplete(ctx, ac, name, id, iss)
@@ -791,7 +786,7 @@ impl<S: Schema> Registry<S> {
     /// Dispatch a modal-submit interaction to the proper handler and submit a
     /// response
     #[inline]
-    pub async fn handle_modal(&self, ctx: &Context, ms: ModalSubmitInteraction) {
+    pub async fn handle_modal(&self, ctx: &Context, ms: ModalInteraction) {
         let cache = &ctx.cache;
         let (name, id, iss) = (ms_name::<S>(&ms), ms_id(&ms), ms_issuer(cache, &ms));
         self.try_handle_modal(ctx, ms, name, id, iss).await.ok();

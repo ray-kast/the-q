@@ -18,7 +18,7 @@ mod builder;
 
 pub(crate) mod prelude {
     pub use proc_macro2::{Span, TokenStream};
-    pub use quote::{quote_spanned, ToTokens, TokenStreamExt};
+    pub use quote::{quote_spanned, ToTokens};
     pub use syn::spanned::Spanned;
 
     pub trait SpanExt {

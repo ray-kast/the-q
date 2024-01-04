@@ -3,47 +3,50 @@ use std::{
     convert::Infallible,
 };
 
-use qcore::builder;
+use qcore::{build_with::BuildWith, builder};
 use serenity::{
     builder::{
-        CreateInteractionResponseData, CreateInteractionResponseFollowup, EditInteractionResponse,
+        CreateAllowedMentions, CreateAttachment, CreateInteractionResponseFollowup,
+        CreateInteractionResponseMessage, EditInteractionResponse,
     },
-    model::{
-        id::{RoleId, UserId},
-        prelude::AttachmentType,
-    },
+    model::id::{RoleId, UserId},
     utils::MessageBuilder,
 };
 
-use super::{Components, Embed, Embeds, MessageComponent, ResponseData};
+use super::{Components, Embed, Embeds, MessageComponent, Prepare};
 
 /// The body of a message
 #[derive(Debug, qcore::Borrow)]
-pub struct MessageBody<I, E> {
+pub struct MessageBody<I, E = Infallible> {
     content: MessageBuilder,
     embeds: Embeds,
     ping_replied: bool,
     ping_users: Vec<UserId>,
     ping_roles: Vec<RoleId>,
     #[borrow(mut)]
-    components: Components<I, MessageComponent, E>,
+    components: Components<MessageComponent<I, E>>,
 }
 
 macro_rules! build_body {
-    ($self:expr, $builder:expr, $fn:ident) => {{
-        let Self {
-            content,
+    ($self:expr, $builder:expr) => {{
+        let MessageBody {
+            mut content,
             embeds,
             ping_replied,
             ping_users,
             ping_roles,
             components,
         } = $self;
-        components.$fn(embeds.$fn($builder.content(content)).allowed_mentions(|m| {
-            m.replied_user(ping_replied)
-                .users(ping_users)
-                .roles(ping_roles)
-        }))
+        $builder
+            .content(content.build())
+            .build_with(embeds)
+            .allowed_mentions(
+                CreateAllowedMentions::new()
+                    .replied_user(ping_replied)
+                    .users(ping_users)
+                    .roles(ping_roles),
+            )
+            .build_with(components)
     }};
 }
 
@@ -68,50 +71,6 @@ impl<I, E> MessageBody<I, E> {
     pub fn plain(c: impl Into<serenity::utils::Content>) -> Self {
         Self::rich(|mb| mb.push_safe(c))
     }
-
-    /// Purge any validation errors caused during initialization
-    ///
-    /// # Errors
-    /// If any component on the message contains an error it will be returned.
-    #[inline]
-    pub fn prepare(self) -> Result<MessageBody<I, Infallible>, E> {
-        let Self {
-            content,
-            embeds,
-            ping_replied,
-            ping_users,
-            ping_roles,
-            components,
-        } = self;
-        Ok(MessageBody {
-            content,
-            embeds,
-            ping_replied,
-            ping_users,
-            ping_roles,
-            components: components.prepare()?,
-        })
-    }
-}
-
-impl<I> MessageBody<I, Infallible> {
-    /// Apply the values of this message body to a response edit builder
-    #[inline]
-    pub fn build_edit_response(
-        self,
-        res: &mut EditInteractionResponse,
-    ) -> &mut EditInteractionResponse {
-        build_body!(self, res, build_edit_response)
-    }
-
-    /// Apply the values of this message body to a followup message builder
-    #[inline]
-    pub fn build_followup<'a, 'b>(
-        self,
-        fup: &'b mut CreateInteractionResponseFollowup<'a>,
-    ) -> &'b mut CreateInteractionResponseFollowup<'a> {
-        build_body!(self, fup, build_followup)
-    }
 }
 
 #[builder(trait_name = MessageBodyExt)]
@@ -135,14 +94,43 @@ impl<I, E> MessageBody<I, E> {
     }
 }
 
-impl<'a, I> ResponseData<'a> for MessageBody<I, Infallible> {
-    #[inline]
-    fn build_response_data<'b>(
-        self,
-        data: &'b mut CreateInteractionResponseData<'a>,
-    ) -> &'b mut CreateInteractionResponseData<'a> {
-        build_body!(self, data, build_response_data)
+impl<I, E> Prepare for MessageBody<I, E> {
+    type Error = E;
+    type Output = MessageBody<I, Infallible>;
+
+    fn prepare(self) -> Result<Self::Output, Self::Error> {
+        let Self {
+            content,
+            embeds,
+            ping_replied,
+            ping_users,
+            ping_roles,
+            components,
+        } = self;
+        Ok(MessageBody {
+            content,
+            embeds,
+            ping_replied,
+            ping_users,
+            ping_roles,
+            components: components.prepare()?,
+        })
     }
+}
+
+impl<I> BuildWith<MessageBody<I>> for CreateInteractionResponseMessage {
+    #[inline]
+    fn build_with(self, value: MessageBody<I>) -> Self { build_body!(value, self) }
+}
+
+impl<I> BuildWith<MessageBody<I>> for EditInteractionResponse {
+    #[inline]
+    fn build_with(self, value: MessageBody<I>) -> Self { build_body!(value, self) }
+}
+
+impl<I> BuildWith<MessageBody<I>> for CreateInteractionResponseFollowup {
+    #[inline]
+    fn build_with(self, value: MessageBody<I>) -> Self { build_body!(value, self) }
 }
 
 /// Options to provide when creating (or deferring the creation of) a message
@@ -154,19 +142,9 @@ pub struct MessageOpts {
 
 macro_rules! build_opts {
     ($self:expr, $builder:expr) => {{
-        let Self { tts, ephemeral } = $self;
+        let MessageOpts { tts, ephemeral } = $self;
         $builder.tts(tts).ephemeral(ephemeral)
     }};
-}
-
-impl MessageOpts {
-    #[inline]
-    fn build_followup<'a, 'b>(
-        self,
-        fup: &'a mut CreateInteractionResponseFollowup<'b>,
-    ) -> &'a mut CreateInteractionResponseFollowup<'b> {
-        build_opts!(self, fup)
-    }
 }
 
 #[builder(trait_name = MessageOptsExt)]
@@ -179,48 +157,51 @@ impl MessageOpts {
     pub fn ephemeral(&mut self, ephemeral: bool) { self.ephemeral = ephemeral; }
 }
 
-impl<'a> ResponseData<'a> for MessageOpts {
+impl BuildWith<MessageOpts> for CreateInteractionResponseMessage {
     #[inline]
-    fn build_response_data<'b>(
-        self,
-        data: &'b mut CreateInteractionResponseData<'a>,
-    ) -> &'b mut CreateInteractionResponseData<'a> {
-        build_opts!(self, data)
-    }
+    fn build_with(self, value: MessageOpts) -> Self { build_opts!(value, self) }
+}
+
+impl BuildWith<MessageOpts> for CreateInteractionResponseFollowup {
+    #[inline]
+    fn build_with(self, value: MessageOpts) -> Self { build_opts!(value, self) }
 }
 
 /// A message
 #[derive(Debug, qcore::Borrow)]
-pub struct Message<'a, I, E> {
+pub struct Message<I, E = Infallible> {
     #[borrow(mut)]
     body: MessageBody<I, E>,
     #[borrow(mut)]
     opts: MessageOpts,
-    attachments: Vec<AttachmentType<'a>>,
+    attachments: Vec<CreateAttachment>,
 }
 
-impl<'a, I, E> Borrow<Components<I, MessageComponent, E>> for Message<'a, I, E> {
-    fn borrow(&self) -> &Components<I, MessageComponent, E> { &self.body.components }
+impl<I, E> Borrow<Components<MessageComponent<I, E>>> for Message<I, E> {
+    fn borrow(&self) -> &Components<MessageComponent<I, E>> { &self.body.components }
 }
 
-impl<'a, I, E> BorrowMut<Components<I, MessageComponent, E>> for Message<'a, I, E> {
-    fn borrow_mut(&mut self) -> &mut Components<I, MessageComponent, E> {
+impl<I, E> BorrowMut<Components<MessageComponent<I, E>>> for Message<I, E> {
+    fn borrow_mut(&mut self) -> &mut Components<MessageComponent<I, E>> {
         &mut self.body.components
     }
 }
 
 macro_rules! build_msg {
-    ($self:expr, $builder:expr, $fn:ident) => {{
-        let Self {
+    ($self:expr, $builder:expr) => {{
+        let Message {
             body,
             opts,
             attachments,
         } = $self;
-        opts.$fn(body.$fn($builder)).files(attachments)
+        $builder
+            .build_with(body)
+            .build_with(opts)
+            .files(attachments)
     }};
 }
 
-impl<'a, I, E> From<MessageBody<I, E>> for Message<'a, I, E> {
+impl<I, E> From<MessageBody<I, E>> for Message<I, E> {
     fn from(body: MessageBody<I, E>) -> Self {
         Self {
             body,
@@ -230,7 +211,7 @@ impl<'a, I, E> From<MessageBody<I, E>> for Message<'a, I, E> {
     }
 }
 
-impl<'a, I, E> Message<'a, I, E> {
+impl<I, E> Message<I, E> {
     /// Construct a new rich-text message using the given closure
     #[inline]
     pub fn rich(f: impl FnOnce(&mut MessageBuilder) -> &mut MessageBuilder) -> Self {
@@ -247,7 +228,7 @@ impl<'a, I, E> Message<'a, I, E> {
     pub fn from_parts(
         body: MessageBody<I, E>,
         opts: MessageOpts,
-        attachments: Vec<AttachmentType<'a>>,
+        attachments: Vec<CreateAttachment>,
     ) -> Self {
         Self {
             body,
@@ -255,13 +236,22 @@ impl<'a, I, E> Message<'a, I, E> {
             attachments,
         }
     }
+}
 
-    /// Purge any validation errors caused during initialization
-    ///
-    /// # Errors
-    /// If the message body contains an error it will be returned.
-    #[inline]
-    pub fn prepare(self) -> Result<Message<'a, I, Infallible>, E> {
+#[builder(trait_name = MessageExt)]
+/// Helper methods for mutating [`Message`]
+impl<'a, I, E> Message<I, E> {
+    /// Add an attachment to this message
+    pub fn attach(&mut self, attachments: impl IntoIterator<Item = CreateAttachment>) {
+        self.attachments.extend(attachments);
+    }
+}
+
+impl<I, E> Prepare for Message<I, E> {
+    type Error = E;
+    type Output = Message<I, Infallible>;
+
+    fn prepare(self) -> Result<Self::Output, Self::Error> {
         let Self {
             body,
             opts,
@@ -275,31 +265,12 @@ impl<'a, I, E> Message<'a, I, E> {
     }
 }
 
-impl<'a, I> Message<'a, I, Infallible> {
-    /// Apply the values of this message to a followup message builder
-    pub fn build_followup<'b>(
-        self,
-        fup: &'b mut CreateInteractionResponseFollowup<'a>,
-    ) -> &'b mut CreateInteractionResponseFollowup<'a> {
-        build_msg!(self, fup, build_followup)
-    }
-}
-
-#[builder(trait_name = MessageExt)]
-/// Helper methods for mutating [`Message`]
-impl<'a, I, E> Message<'a, I, E> {
-    /// Add an attachment to this message
-    pub fn attach(&mut self, attachments: impl IntoIterator<Item = AttachmentType<'a>>) {
-        self.attachments.extend(attachments);
-    }
-}
-
-impl<'a, I> ResponseData<'a> for Message<'a, I, Infallible> {
+impl<I> BuildWith<Message<I>> for CreateInteractionResponseMessage {
     #[inline]
-    fn build_response_data<'b>(
-        self,
-        data: &'b mut CreateInteractionResponseData<'a>,
-    ) -> &'b mut CreateInteractionResponseData<'a> {
-        build_msg!(self, data, build_response_data)
-    }
+    fn build_with(self, value: Message<I>) -> Self { build_msg!(value, self) }
+}
+
+impl<I> BuildWith<Message<I>> for CreateInteractionResponseFollowup {
+    #[inline]
+    fn build_with(self, value: Message<I>) -> Self { build_msg!(value, self) }
 }

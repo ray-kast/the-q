@@ -1,7 +1,7 @@
 use std::{io::Cursor, path::PathBuf};
 
 use jpeggr::image::{self, ImageFormat};
-use serenity::model::prelude::AttachmentType;
+use serenity::builder::CreateAttachment;
 
 use super::prelude::*;
 
@@ -118,13 +118,13 @@ impl CommandHandler<Schema> for JpegCommand {
 
         let bytes = jpeg(JpegInput::Attachment(attachment), quality).await?;
 
-        let attachment = AttachmentType::Bytes {
-            data: bytes.into(),
-            filename: PathBuf::from(&attachment.filename)
+        let attachment = CreateAttachment::bytes(
+            bytes,
+            PathBuf::from(&attachment.filename)
                 .with_extension("jpg")
                 .display()
                 .to_string(),
-        };
+        );
         responder
             .create_followup(Message::plain("").attach([attachment]))
             .await
@@ -218,13 +218,13 @@ impl CommandHandler<Schema> for JpegMessageCommand {
         let bytes = jpeg(input, None).await?;
 
         // TODO: post file size difference
-        let attachment = AttachmentType::Bytes {
-            data: bytes.into(),
-            filename: PathBuf::from(filename)
+        let attachment = CreateAttachment::bytes(
+            bytes,
+            PathBuf::from(filename)
                 .with_extension("jpg")
                 .display()
                 .to_string(),
-        };
+        );
         responder
             .create_followup(Message::plain("").attach([attachment]))
             .await

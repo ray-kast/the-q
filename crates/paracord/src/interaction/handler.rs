@@ -5,11 +5,7 @@ use std::{fmt, sync::Arc};
 use serenity::{
     client::Context,
     model::{
-        application::interaction::{
-            application_command::ApplicationCommandInteraction,
-            autocomplete::AutocompleteInteraction, message_component::MessageComponentInteraction,
-            modal::ModalSubmitInteraction,
-        },
+        application::{CommandInteraction, ComponentInteraction, ModalInteraction},
         id::GuildId,
     },
 };
@@ -36,13 +32,13 @@ pub struct Handlers<S: rpc::Schema> {
 
 // TODO: Component and Modal should have dedicated visitors
 /// Visitor for command interactions
-pub type CommandVisitor<'a> = visitor::CommandVisitor<'a, ApplicationCommandInteraction>;
+pub type CommandVisitor<'a> = visitor::CommandVisitor<'a, CommandInteraction>;
 /// Visitor for component interactions
-pub type ComponentVisitor<'a> = visitor::BasicVisitor<'a, MessageComponentInteraction>;
+pub type ComponentVisitor<'a> = visitor::BasicVisitor<'a, ComponentInteraction>;
 /// Visitor for autocomplete interactions
-pub type CompletionVisitor<'a> = visitor::CommandVisitor<'a, AutocompleteInteraction>;
+pub type CompletionVisitor<'a> = visitor::CommandVisitor<'a, CommandInteraction>;
 /// Visitor for modal-submit interactions
-pub type ModalVisitor<'a> = visitor::BasicVisitor<'a, ModalSubmitInteraction>;
+pub type ModalVisitor<'a> = visitor::BasicVisitor<'a, ModalInteraction>;
 
 /// An error arising from handling an interaction
 #[derive(Debug, thiserror::Error)]
@@ -69,15 +65,13 @@ pub type ResponseResult<'a, S, I> =
     Result<response::AckedResponder<'a, S, I>, HandlerError<'a, S, I>>;
 
 /// An error returned from a command interaction handler
-pub type CommandError<'a, S> = HandlerError<'a, S, ApplicationCommandInteraction>;
+pub type CommandError<'a, S> = HandlerError<'a, S, CommandInteraction>;
 /// Return type for the command interaction handler method
-pub type CommandResult<'a, S> = ResponseResult<'a, S, ApplicationCommandInteraction>;
+pub type CommandResult<'a, S> = ResponseResult<'a, S, CommandInteraction>;
 /// Responder type provided to command interaction handlers
-pub type CommandResponder<'a, 'b, S> =
-    response::BorrowingResponder<'a, 'b, S, ApplicationCommandInteraction>;
+pub type CommandResponder<'a, 'b, S> = response::BorrowingResponder<'a, 'b, S, CommandInteraction>;
 /// Responder type to be returned by command interaction handlers
-pub type AckedCommandResponder<'a, S> =
-    response::AckedResponder<'a, S, ApplicationCommandInteraction>;
+pub type AckedCommandResponder<'a, S> = response::AckedResponder<'a, S, CommandInteraction>;
 
 /// An error arising from handling an autocomplete interaction
 #[derive(Debug, thiserror::Error)]
@@ -135,24 +129,22 @@ pub trait CommandHandler<S>: fmt::Debug + Send + Sync {
 }
 
 /// An error returned from a component interaction handler
-pub type ComponentError<'a, S> = HandlerError<'a, S, MessageComponentInteraction>;
+pub type ComponentError<'a, S> = HandlerError<'a, S, ComponentInteraction>;
 /// An error returned from a modal-submit interaction handler
-pub type ModalError<'a, S> = HandlerError<'a, S, ModalSubmitInteraction>;
+pub type ModalError<'a, S> = HandlerError<'a, S, ModalInteraction>;
 /// Return type for the component interaction handler method
-pub type ComponentResult<'a, S> = ResponseResult<'a, S, MessageComponentInteraction>;
+pub type ComponentResult<'a, S> = ResponseResult<'a, S, ComponentInteraction>;
 /// Return type for the modal-submit interaction handler method
-pub type ModalResult<'a, S> = ResponseResult<'a, S, ModalSubmitInteraction>;
+pub type ModalResult<'a, S> = ResponseResult<'a, S, ModalInteraction>;
 /// Responder type provided to component interaction handlers
 pub type ComponentResponder<'a, 'b, S> =
-    response::BorrowingResponder<'a, 'b, S, MessageComponentInteraction>;
+    response::BorrowingResponder<'a, 'b, S, ComponentInteraction>;
 /// Responder type to be returned by component interaction handlers
-pub type AckedComponentResponder<'a, S> =
-    response::AckedResponder<'a, S, MessageComponentInteraction>;
+pub type AckedComponentResponder<'a, S> = response::AckedResponder<'a, S, ComponentInteraction>;
 /// Responder type provided to modal-submit interaction handlers
-pub type ModalResponder<'a, 'b, S> =
-    response::BorrowingResponder<'a, 'b, S, ModalSubmitInteraction>;
+pub type ModalResponder<'a, 'b, S> = response::BorrowingResponder<'a, 'b, S, ModalInteraction>;
 /// Responder type to be returned by modal-submit interaction handlers
-pub type AckedModalResponder<'a, S> = response::AckedResponder<'a, S, ModalSubmitInteraction>;
+pub type AckedModalResponder<'a, S> = response::AckedResponder<'a, S, ModalInteraction>;
 
 /// A handler for an RPC (i.e. component or modal-submit) interaction
 #[async_trait::async_trait]

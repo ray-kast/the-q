@@ -1,97 +1,42 @@
-use qcore::builder;
+use qcore::{
+    build_with::{BuildWith, BuilderHelpers},
+    builder,
+};
 use serenity::{
     builder::{
-        CreateEmbed, CreateInteractionResponseData, CreateInteractionResponseFollowup,
+        CreateEmbed, CreateInteractionResponseFollowup, CreateInteractionResponseMessage,
         EditInteractionResponse,
     },
-    utils::{Color, MessageBuilder},
+    model::Color,
+    utils::MessageBuilder,
 };
 use url::Url;
 
-use super::{prelude::*, Message, MessageBody, ResponseData};
+use super::{prelude::*, Message, MessageBody};
 
 #[derive(Debug, Default)]
 pub(super) struct Embeds(pub(super) Vec<Embed>);
 
 macro_rules! build_embeds {
     ($self:expr, $builder:expr) => {{
-        let Self(embeds) = $self;
-        embeds.into_iter().fold($builder, |b, e| {
-            let Embed {
-                title,
-                desc,
-                url,
-                timestamp,
-                color,
-                footer,
-                image,
-                thumbnail,
-                video,
-                provider,
-                author,
-                fields,
-            } = e;
-            b.embed(|b| {
-                visit(title, b, CreateEmbed::title);
-                visit(desc, b, CreateEmbed::description);
-                visit(url, b, CreateEmbed::url);
-                visit(timestamp, b, CreateEmbed::timestamp);
-                visit(color, b, CreateEmbed::color);
-                visit_build(footer, b);
-                visit_build(image, b);
-                visit_build(thumbnail, b);
-                visit_build(video, b);
-                visit_build(provider, b);
-                visit_build(author, b);
-                visit_build(fields, b)
-            })
-        })
+        let Embeds(embeds) = $self;
+        $builder.embeds(embeds.into_iter().map(Into::into).collect())
     }};
 }
 
-#[inline]
-fn visit<V: IntoIterator>(
-    vals: V,
-    embed: &mut CreateEmbed,
-    f: impl FnMut(&mut CreateEmbed, V::Item) -> &mut CreateEmbed,
-) -> &mut CreateEmbed {
-    vals.into_iter().fold(embed, f)
-}
-
-#[inline]
-fn visit_build<V: IntoIterator>(vals: V, embed: &mut CreateEmbed) -> &mut CreateEmbed
-where V::Item: BuildEmbed {
-    for v in vals {
-        v.build_embed(embed);
-    }
-    embed
-}
-
-impl Embeds {
+impl BuildWith<Embeds> for CreateInteractionResponseMessage {
     #[inline]
-    pub(super) fn build_edit_response(
-        self,
-        res: &mut EditInteractionResponse,
-    ) -> &mut EditInteractionResponse {
-        build_embeds!(self, res)
-    }
-
-    #[inline]
-    pub(super) fn build_followup<'a, 'b>(
-        self,
-        fup: &'b mut CreateInteractionResponseFollowup<'a>,
-    ) -> &'b mut CreateInteractionResponseFollowup<'a> {
-        build_embeds!(self, fup)
-    }
+    fn build_with(self, value: Embeds) -> Self { build_embeds!(value, self) }
 }
 
-impl<'a> ResponseData<'a> for Embeds {
-    fn build_response_data<'b>(
-        self,
-        data: &'b mut CreateInteractionResponseData<'a>,
-    ) -> &'b mut CreateInteractionResponseData<'a> {
-        build_embeds!(self, data)
-    }
+impl BuildWith<Embeds> for EditInteractionResponse {
+    #[inline]
+    fn build_with(self, value: Embeds) -> Self { build_embeds!(value, self) }
+}
+
+impl BuildWith<Embeds> for CreateInteractionResponseFollowup {
+    #[inline]
+    fn build_with(self, value: Embeds) -> Self { build_embeds!(value, self) }
 }
 
 /// A message rich content embed
@@ -115,8 +60,41 @@ impl<I, E> From<Embed> for MessageBody<I, E> {
     fn from(embed: Embed) -> Self { MessageBody::plain("").embed(embed) }
 }
 
-impl<'a, I, E> From<Embed> for Message<'a, I, E> {
+impl<I, E> From<Embed> for Message<I, E> {
     fn from(value: Embed) -> Self { MessageBody::from(value).into() }
+}
+
+impl From<Embed> for CreateEmbed {
+    fn from(value: Embed) -> Self {
+        let Embed {
+            title,
+            desc,
+            url,
+            timestamp,
+            color,
+            footer,
+            image,
+            thumbnail,
+            video,
+            provider,
+            author,
+            fields,
+        } = value;
+
+        CreateEmbed::new()
+            .fold_opt(title, CreateEmbed::title)
+            .fold_opt(desc, CreateEmbed::description)
+            .fold_opt(url, CreateEmbed::url)
+            .fold_opt(timestamp, CreateEmbed::timestamp)
+            .fold_opt(color, CreateEmbed::color)
+            .build_with_opt(footer)
+            .build_with_opt(image)
+            .build_with_opt(thumbnail)
+            .build_with_opt(video)
+            .build_with_opt(provider)
+            .build_with_opt(author)
+            .build_with_iter(fields)
+    }
 }
 
 #[builder(trait_name = EmbedExt)]
@@ -157,56 +135,52 @@ impl Embed {
     // TODO: footer, image, thumbnail, video, provider, author, fields
 }
 
-trait BuildEmbed {
-    fn build_embed(self, embed: &mut CreateEmbed) -> &mut CreateEmbed;
-}
-
 #[derive(Debug)]
 struct EmbedFooter {}
-impl BuildEmbed for EmbedFooter {
-    fn build_embed(self, embed: &mut CreateEmbed) -> &mut CreateEmbed {
-        embed // TODO
+impl BuildWith<EmbedFooter> for CreateEmbed {
+    fn build_with(self, value: EmbedFooter) -> Self {
+        self // TODO
     }
 }
 #[derive(Debug)]
 struct EmbedImage {}
-impl BuildEmbed for EmbedImage {
-    fn build_embed(self, embed: &mut CreateEmbed) -> &mut CreateEmbed {
-        embed // TODO
+impl BuildWith<EmbedImage> for CreateEmbed {
+    fn build_with(self, value: EmbedImage) -> Self {
+        self // TODO
     }
 }
 #[derive(Debug)]
 struct EmbedThumbnail {}
-impl BuildEmbed for EmbedThumbnail {
-    fn build_embed(self, embed: &mut CreateEmbed) -> &mut CreateEmbed {
-        embed // TODO
+impl BuildWith<EmbedThumbnail> for CreateEmbed {
+    fn build_with(self, value: EmbedThumbnail) -> Self {
+        self // TODO
     }
 }
 #[derive(Debug)]
 struct EmbedVideo {}
-impl BuildEmbed for EmbedVideo {
-    fn build_embed(self, embed: &mut CreateEmbed) -> &mut CreateEmbed {
-        embed // TODO
+impl BuildWith<EmbedVideo> for CreateEmbed {
+    fn build_with(self, value: EmbedVideo) -> Self {
+        self // TODO
     }
 }
 #[derive(Debug)]
 struct EmbedProvider {}
-impl BuildEmbed for EmbedProvider {
-    fn build_embed(self, embed: &mut CreateEmbed) -> &mut CreateEmbed {
-        embed // TODO
+impl BuildWith<EmbedProvider> for CreateEmbed {
+    fn build_with(self, value: EmbedProvider) -> Self {
+        self // TODO
     }
 }
 #[derive(Debug)]
 struct EmbedAuthor {}
-impl BuildEmbed for EmbedAuthor {
-    fn build_embed(self, embed: &mut CreateEmbed) -> &mut CreateEmbed {
-        embed // TODO
+impl BuildWith<EmbedAuthor> for CreateEmbed {
+    fn build_with(self, value: EmbedAuthor) -> Self {
+        self // TODO
     }
 }
 #[derive(Debug)]
 struct EmbedField {}
-impl BuildEmbed for EmbedField {
-    fn build_embed(self, embed: &mut CreateEmbed) -> &mut CreateEmbed {
-        embed // TODO
+impl BuildWith<EmbedField> for CreateEmbed {
+    fn build_with(self, value: EmbedField) -> Self {
+        self // TODO
     }
 }

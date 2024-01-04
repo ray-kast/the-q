@@ -50,15 +50,16 @@ fn try_impl(
         }
 
         let mut mutable = None;
-
-        match attr.parse_nested_meta(|meta| {
+        let res = attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("mut") {
                 mutable = Some(meta.path.span());
                 return Ok(());
             }
 
             Err(meta.error("Invalid #[borrow] attribute"))
-        }) {
+        });
+
+        match res {
             Ok(()) => (),
             Err(e) => {
                 diag.extend(e.into_compile_error());

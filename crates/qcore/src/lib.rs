@@ -12,5 +12,6 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod build_range;
+pub mod build_with;
 
 pub use qmacros::*;

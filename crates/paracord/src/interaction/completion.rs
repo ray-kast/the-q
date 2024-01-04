@@ -1,7 +1,9 @@
 //! Types for responding to autocomplete interactions
 
+use serenity::builder::AutocompleteChoice;
+
 /// A single completion list entry
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug)]
 pub struct Completion {
     /// The friendly name of this entry
     pub name: String,
@@ -9,20 +11,31 @@ pub struct Completion {
     pub value: CompletionValue,
 }
 
+// TODO: a lot of build() methods can probably be changed to [try_]from() now
+impl From<Completion> for AutocompleteChoice {
+    #[inline]
+    fn from(value: Completion) -> Self {
+        let Completion { name, value } = value;
+        Self::new(name, value)
+    }
+}
+
+/// An error arising from an invalid conversion from f64 to JSON
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[error("Invalid floating-point value {0:?}")]
+pub struct InvalidFloatError(f64);
+
 /// An enum of possible completion value types
-#[derive(Debug, serde::Serialize)]
-#[serde(untagged)]
+#[derive(Debug)]
 pub enum CompletionValue {
-    /// An integer value
-    Int(i64),
+    /// A numeric value
+    Num(serde_json::Number),
     /// A string value
     String(String),
-    /// A real (decimal) numeric value
-    Real(f64),
 }
 
 impl From<i64> for CompletionValue {
-    fn from(value: i64) -> Self { Self::Int(value) }
+    fn from(value: i64) -> Self { Self::Num(value.into()) }
 }
 
 impl From<String> for CompletionValue {
@@ -37,50 +50,21 @@ impl From<&str> for CompletionValue {
     fn from(value: &str) -> Self { Self::String(value.into()) }
 }
 
-impl From<f64> for CompletionValue {
-    fn from(value: f64) -> Self { Self::Real(value) }
+impl TryFrom<f64> for CompletionValue {
+    type Error = InvalidFloatError;
+
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        serde_json::Number::from_f64(value)
+            .ok_or(InvalidFloatError(value))
+            .map(Self::Num)
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use serenity::builder::CreateAutocompleteResponse;
-
-    use super::Completion;
-
-    fn assert(
-        actual: &[Completion],
-        expected: impl FnOnce(&mut CreateAutocompleteResponse) -> &mut CreateAutocompleteResponse,
-    ) {
-        let mut actual_b = CreateAutocompleteResponse::default();
-        let mut expected_b = CreateAutocompleteResponse::default();
-        actual_b.set_choices(serde_json::to_value(actual).unwrap());
-        expected(&mut expected_b);
-        assert_eq!(expected_b.0, actual_b.0);
-    }
-
-    #[test]
-    fn test_serialize() {
-        assert(&[], |b| b);
-        assert(
-            &[
-                Completion {
-                    name: "foo".into(),
-                    value: "foo".into(),
-                },
-                Completion {
-                    name: "bar".into(),
-                    value: 1.into(),
-                },
-                Completion {
-                    name: "baz".into(),
-                    value: 1.0.into(),
-                },
-            ],
-            |b| {
-                b.add_string_choice("foo", "foo")
-                    .add_int_choice("bar", 1)
-                    .add_number_choice("baz", 1.0)
-            },
-        );
+impl From<CompletionValue> for serde_json::Value {
+    fn from(value: CompletionValue) -> Self {
+        match value {
+            CompletionValue::Num(n) => serde_json::Value::Number(n),
+            CompletionValue::String(s) => serde_json::Value::String(s),
+        }
     }
 }

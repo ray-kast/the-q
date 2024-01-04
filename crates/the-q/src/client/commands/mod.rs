@@ -7,7 +7,9 @@ mod say;
 mod sound;
 mod test;
 
-pub(self) mod prelude {
+mod prelude {
+    #![allow(unused_imports)]
+
     pub use paracord::interaction::{
         command::{prelude::*, Args, CommandInfo},
         completion::Completion,
@@ -19,7 +21,7 @@ pub(self) mod prelude {
         response,
         response::{
             prelude::*, ButtonStyle, Embed, Message, MessageComponent, MessageOpts, Modal,
-            ModalSource, ResponseData, TextInput,
+            ModalSource, TextInput,
         },
         rpc, visitor,
     };
@@ -80,7 +82,7 @@ pub struct CommandOpts {
 
 // TODO: can this be attribute-macro-ified?
 pub fn handlers(opts: &CommandOpts) -> Handlers {
-    use prelude::Arc;
+    use prelude::*;
 
     let explode = Arc::new(explode::ExplodeCommand::from(opts));
     let jpeg = Arc::new(jpeg::JpegCommand::from(opts));
@@ -100,7 +102,7 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
             re,
             say,
             test,
-            Arc::clone(&sound) as Arc<dyn prelude::CommandHandler<Schema>>,
+            Arc::clone(&sound) as Arc<dyn CommandHandler<Schema>>,
         ],
         components: vec![sound],
         modals: vec![],

@@ -17,6 +17,8 @@ pub(crate) mod proto;
 pub(crate) mod util;
 
 pub(crate) mod prelude {
+    #![allow(unused_imports)]
+
     pub use std::{
         borrow::{
             Borrow, BorrowMut, Cow,

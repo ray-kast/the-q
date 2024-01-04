@@ -1,6 +1,7 @@
 use std::{collections::BinaryHeap, path::PathBuf};
 
 use ordered_float::OrderedFloat;
+use paracord::interaction::visitor::Autocomplete;
 use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 
 use super::prelude::*;
@@ -143,9 +144,13 @@ impl SoundCommand {
     ) -> Result<X, E> {
         const PATH_ERR: &str = "That isn't a valid file.";
 
-        let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;
+        let voice_chan = {
+            // gay baby jail to keep rustc from freaking out
+            let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;
+            guild.voice_states.get(&user.id).and_then(|s| s.channel_id)
+        };
 
-        let Some(voice_chan) = guild.voice_states.get(&user.id).and_then(|s| s.channel_id) else {
+        let Some(voice_chan) = voice_chan else {
             return Err(fail(
                 extra,
                 MessageBody::plain("Please connect to a voice channel first."),
@@ -175,23 +180,25 @@ impl SoundCommand {
             return Err(fail(extra, MessageBody::plain(PATH_ERR), "Stat error for file").await);
         }
 
-        let source = songbird::ffmpeg(&path)
+        let input = songbird::input::Input::from(songbird::input::File::new(path.clone()))
+            .make_live_async()
             .await
             .with_context(|| format!("Error opening sample {path:?}"))?;
 
-        let (call_lock, res) = sb.join(gid, voice_chan).await;
+        let call = match sb.join(gid, voice_chan).await {
+            Ok(l) => l,
+            Err(err) => {
+                warn!(?err, "Unable to join voice channel");
+                return Err(fail(
+                    extra,
+                    MessageBody::plain("Couldn't join that channel, sorry."),
+                    "Error joining call (missing permissions?)",
+                )
+                .await);
+            },
+        };
 
-        if let Err(err) = res {
-            warn!(?err, "Unable to join voice channel");
-            return Err(fail(
-                extra,
-                MessageBody::plain("Couldn't join that channel, sorry."),
-                "Error joining call (missing permissions?)",
-            )
-            .await);
-        }
-
-        let mut call = call_lock.lock().await;
+        let mut call_lock = call.lock().await;
         let mut handles = self.songbird_handle.lock().await;
 
         if handles
@@ -210,10 +217,11 @@ impl SoundCommand {
         let handle = Arc::new(());
         handles.insert(gid, Arc::downgrade(&handle));
 
-        call.play_source(source)
+        call_lock
+            .play_input(input)
             .add_event(
                 songbird::Event::Track(songbird::TrackEvent::End),
-                SongbirdHandler(handle, Arc::clone(&call_lock)),
+                SongbirdHandler(handle, Arc::clone(&call)),
             )
             .context("Error hooking track stop")?;
 
@@ -246,8 +254,8 @@ impl SoundCommand {
             .await?;
 
         responder
-            .edit(MessageBody::plain(";)").build_row(|c| {
-                c.link_button(
+            .edit(MessageBody::plain(";)").buttons(|b| {
+                b.link(
                     Url::parse("https://youtu.be/dQw4w9WgXcQ").unwrap(),
                     "See More",
                     false,
@@ -266,8 +274,8 @@ impl SoundCommand {
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         let responder = responder
-            .create_message(Message::plain(":3").build_row(|r| {
-                r.button(
+            .create_message(Message::plain(":3").buttons(|b| {
+                b.button(
                     ComponentPayload::Soundboard(component::Soundboard {
                         file: "BUDDY.flac".into(),
                     }),
@@ -302,9 +310,15 @@ impl CommandHandler<Schema> for SoundCommand {
             ["play"] => {
                 // TODO: unicase?
                 let path = visitor
-                    .visit_string("path")?
+                    .visit_string_autocomplete("path")?
                     .optional()
-                    .map(|s| s.to_lowercase());
+                    .map(|a| {
+                        // TODO 2: okay now this really sucks
+                        match a {
+                            Autocomplete::Complete(s) | Autocomplete::Partial(s) => s,
+                        }
+                        .to_lowercase()
+                    });
                 let path = path.as_deref().unwrap_or("");
                 let files = self.files().await?;
                 let files = files.files.read().await;
@@ -375,7 +389,7 @@ impl RpcHandler<Schema, ComponentKey> for SoundCommand {
                 let user = visitor.user();
 
                 let responder = responder
-                    .defer_update(MessageOpts::default().ephemeral(true))
+                    .defer_update()
                     .await
                     .context("Error sending deferred update")?;
 

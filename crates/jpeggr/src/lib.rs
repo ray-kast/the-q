@@ -63,6 +63,9 @@ pub fn jpeg_pixels(
 ///
 /// # Errors
 /// This function returns an error if the JPEG transcoder fails
+///
+/// # Panics
+/// This function panics if the JPEG transcoder produces an invalid buffer
 pub fn jpeg_buffer<P>(
     image: ImageBuffer<P, Vec<u8>>,
     iterations: usize,

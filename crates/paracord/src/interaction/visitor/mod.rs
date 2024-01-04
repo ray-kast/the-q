@@ -3,10 +3,7 @@
 mod command;
 
 mod private {
-    use serenity::model::{
-        application::interaction::{application_command, autocomplete, message_component, modal},
-        guild, id, user,
-    };
+    use serenity::model::{application, guild, id, user};
 
     pub trait Interaction {
         type Data;
@@ -15,13 +12,13 @@ mod private {
 
         fn guild_id(&self) -> &Option<id::GuildId>;
 
-        fn member(&self) -> &Option<guild::Member>;
+        fn member(&self) -> Option<&guild::Member>;
 
         fn user(&self) -> &user::User;
     }
 
-    impl Interaction for application_command::ApplicationCommandInteraction {
-        type Data = application_command::CommandData;
+    impl Interaction for application::CommandInteraction {
+        type Data = application::CommandData;
 
         #[inline]
         fn data(&self) -> &Self::Data { &self.data }
@@ -30,14 +27,14 @@ mod private {
         fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
 
         #[inline]
-        fn member(&self) -> &Option<guild::Member> { &self.member }
+        fn member(&self) -> Option<&guild::Member> { self.member.as_deref() }
 
         #[inline]
         fn user(&self) -> &user::User { &self.user }
     }
 
-    impl Interaction for message_component::MessageComponentInteraction {
-        type Data = message_component::MessageComponentInteractionData;
+    impl Interaction for application::ComponentInteraction {
+        type Data = application::ComponentInteractionData;
 
         #[inline]
         fn data(&self) -> &Self::Data { &self.data }
@@ -46,14 +43,14 @@ mod private {
         fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
 
         #[inline]
-        fn member(&self) -> &Option<guild::Member> { &self.member }
+        fn member(&self) -> Option<&guild::Member> { self.member.as_ref() }
 
         #[inline]
         fn user(&self) -> &user::User { &self.user }
     }
 
-    impl Interaction for autocomplete::AutocompleteInteraction {
-        type Data = application_command::CommandData;
+    impl Interaction for application::ModalInteraction {
+        type Data = application::ModalInteractionData;
 
         #[inline]
         fn data(&self) -> &Self::Data { &self.data }
@@ -62,23 +59,7 @@ mod private {
         fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
 
         #[inline]
-        fn member(&self) -> &Option<guild::Member> { &self.member }
-
-        #[inline]
-        fn user(&self) -> &user::User { &self.user }
-    }
-
-    impl Interaction for modal::ModalSubmitInteraction {
-        type Data = modal::ModalSubmitInteractionData;
-
-        #[inline]
-        fn data(&self) -> &Self::Data { &self.data }
-
-        #[inline]
-        fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
-
-        #[inline]
-        fn member(&self) -> &Option<guild::Member> { &self.member }
+        fn member(&self) -> Option<&guild::Member> { self.member.as_ref() }
 
         #[inline]
         fn user(&self) -> &user::User { &self.user }
@@ -87,10 +68,8 @@ mod private {
 
 use std::fmt;
 
-pub use command::CommandVisitor;
-use serenity::model::{
-    application::command::CommandOptionType, guild::Member, id::GuildId, user::User,
-};
+pub use command::*;
+use serenity::model::{guild::Member, id::GuildId, user::User};
 
 /// An error caused by performing an invalid extraction
 #[derive(Debug, thiserror::Error)]
@@ -124,10 +103,6 @@ pub enum Error {
     /// An argument was required but not present in the input
     #[error("Required command option {0:?} missing or already visited")]
     MissingOption(String),
-    /// An argument was present in the input but not declared to be of the
-    /// correct type
-    #[error("Command option type mismatch - expected {1}, found {2:?}")]
-    BadOptionType(String, &'static str, CommandOptionType),
     /// An argument was present in the input but its value was not of the
     /// correct type
     #[error("Type mismatch in value of command option {0:?} - expected {1}, found {2:?}")]
@@ -174,9 +149,7 @@ impl<'a, I: private::Interaction> BasicVisitor<'a, I> {
             ));
         }
 
-        Ok(GuildVisitor(
-            self.int.guild_id().zip(self.int.member().as_ref()),
-        ))
+        Ok(GuildVisitor(self.int.guild_id().zip(self.int.member())))
     }
 
     /// Visit the invoking user information for this interaction

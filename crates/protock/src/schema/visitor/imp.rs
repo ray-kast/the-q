@@ -1,13 +1,10 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use prost_types::{
-    descriptor_proto::ReservedRange,
-    enum_descriptor_proto::EnumReservedRange,
-    field_descriptor_proto::{Label, Type as TypeDesc},
-    file_options::OptimizeMode,
-    DescriptorProto, EnumDescriptorProto, EnumOptions, EnumValueDescriptorProto,
-    FieldDescriptorProto, FieldOptions, FileDescriptorProto, FileDescriptorSet, FileOptions,
-    MessageOptions, OneofDescriptorProto,
+    descriptor_proto::ReservedRange, enum_descriptor_proto::EnumReservedRange,
+    file_options::OptimizeMode, DescriptorProto, EnumDescriptorProto, EnumOptions,
+    EnumValueDescriptorProto, FieldDescriptorProto, FieldOptions, FileDescriptorProto,
+    FileDescriptorSet, FileOptions, MessageOptions, OneofDescriptorProto,
 };
 use shrec::range_map::RangeMap;
 
@@ -123,7 +120,7 @@ impl<'a> Visitor<'a> {
 
             (
                 optimize_for
-                    .and_then(OptimizeMode::from_i32)
+                    .and_then(|o| o.try_into().ok())
                     .unwrap_or_default(),
                 deprecated.unwrap_or(false),
             )
@@ -246,8 +243,8 @@ impl<'a> Visitor<'a> {
 
         let name = name.as_ref().unwrap();
         let number = number.unwrap();
-        let label = label.and_then(Label::from_i32).unwrap();
-        let ty = r#type.and_then(TypeDesc::from_i32);
+        let label = label.and_then(|l| l.try_into().ok()).unwrap();
+        let ty = r#type.and_then(|t| t.try_into().ok());
         let type_name = type_name.as_ref();
         assert!(extendee.is_none());
 
