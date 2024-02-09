@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use shrec::range_map::RangeMap;
+use shrec::range_set::RangeSet;
 
 use super::ty::TypeContext;
 use crate::{
@@ -55,7 +55,7 @@ pub struct Record<T: RecordExtra> {
     numbers: HashMap<i32, T>,
     /// `None` indicates a reserved name
     names: HashMap<String, Option<i32>>,
-    reserved: RangeMap<i64>,
+    reserved: RangeSet<i64>,
     internal: bool,
     extra: T::Extra,
 }
@@ -63,7 +63,7 @@ pub struct Record<T: RecordExtra> {
 impl<T: for<'a> RecordValue<'a>> Record<T> {
     pub fn new<R: IntoIterator<Item = String>>(
         numbers: HashMap<i32, T>,
-        reserved: RangeMap<i64>,
+        reserved: RangeSet<i64>,
         reserved_names: R,
         internal: bool,
         extra: T::Extra,
