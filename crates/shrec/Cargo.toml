@@ -11,3 +11,6 @@ repository = "https://github.com/ray-kast/the-q/"
 hashbrown = { version = "0.14.0", features = ["raw"] }
 indexmap = "2.0.0"
 thiserror = "1.0.44"
+
+[dev-dependencies]
+proptest = "1.2.0"

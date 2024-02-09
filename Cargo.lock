@@ -2625,6 +2625,7 @@ version = "0.1.0"
 dependencies = [
  "hashbrown",
  "indexmap",
+ "proptest",
  "thiserror",
 ]
 
