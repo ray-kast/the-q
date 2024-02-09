@@ -6,7 +6,7 @@ use prost_types::{
     EnumValueDescriptorProto, FieldDescriptorProto, FieldOptions, FileDescriptorProto,
     FileDescriptorSet, FileOptions, MessageOptions, OneofDescriptorProto,
 };
-use shrec::range_map::RangeMap;
+use shrec::range_set::RangeSet;
 
 use super::{scope::GlobalScope, scope_ref::ScopeRef};
 use crate::schema::{
@@ -191,7 +191,7 @@ impl<'a> Visitor<'a> {
         }
 
         let reserved = if deprecated {
-            RangeMap::full()
+            RangeSet::full()
         } else {
             reserved_range
                 .iter()
@@ -355,7 +355,7 @@ impl<'a> Visitor<'a> {
         }
 
         let reserved = if deprecated {
-            RangeMap::full()
+            RangeSet::full()
         } else {
             reserved_range
                 .iter()
