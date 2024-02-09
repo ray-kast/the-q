@@ -60,6 +60,14 @@ impl<T> PartitionBounds<T> for ops::RangeFull {
     }
 }
 
+impl<T> PartitionBounds<T> for (Option<T>, Option<T>) {
+    fn start(&self) -> Option<&T> { self.0.as_ref() }
+
+    fn end(&self) -> Option<&T> { self.1.as_ref() }
+
+    fn into_bounds(self) -> (Option<T>, Option<T>) { self }
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PartitionMap<K, V> {
     unbounded_start: V,
@@ -96,6 +104,17 @@ impl<K, V> PartitionMap<K, V> {
     pub fn partitions(&self) -> Partitions<K, V> { Partitions::new(self) }
 }
 
+#[cfg(test)]
+impl<K, V: PartialEq> PartitionMap<K, V> {
+    fn assert_invariants(&self) {
+        let mut last = &self.unbounded_start;
+
+        for val in self.ranges_from.values() {
+            assert!(val != mem::replace(&mut last, val));
+        }
+    }
+}
+
 impl<K: Ord, V> PartitionMap<K, V> {
     #[inline]
     pub fn sample<T: ?Sized + Ord>(&self, at: &T) -> &V
@@ -125,6 +144,11 @@ impl<K: Clone + Ord, V: Clone + PartialEq, B: PartitionBounds<K>> Extend<(B, V)>
         for (range, value) in it {
             let (start, end) = range.into_bounds();
 
+            match (&start, &end) {
+                (Some(s), Some(e)) => assert!(s <= e, "Invalid range, start is greater than end"),
+                (_, None) | (None, _) => (),
+            }
+
             debug_assert!(over.is_empty());
             over.extend(
                 self.ranges_from
@@ -138,7 +162,7 @@ impl<K: Clone + Ord, V: Clone + PartialEq, B: PartitionBounds<K>> Extend<(B, V)>
             });
 
             for key in over.drain(..) {
-                assert!(self.ranges_from.remove(&key).is_some());
+                debug_assert!(self.ranges_from.remove(&key).is_some());
             }
 
             let start_value = start.as_ref().map(|s| {
@@ -155,16 +179,19 @@ impl<K: Clone + Ord, V: Clone + PartialEq, B: PartitionBounds<K>> Extend<(B, V)>
 
             if start_value != Some(&value) {
                 if let Some(start) = start {
-                    assert!(self.ranges_from.insert(start, value).is_none());
+                    debug_assert!(self.ranges_from.insert(start, value).is_none());
                 } else {
                     self.unbounded_start = value;
                 }
             }
 
             if let Some((end, value)) = end {
-                assert!(self.ranges_from.insert(end, value).is_none());
+                debug_assert!(self.ranges_from.insert(end, value).is_none());
             }
         }
+
+        #[cfg(test)]
+        self.assert_invariants();
     }
 }
 
@@ -244,5 +271,91 @@ impl<'a, K, V> Iterator for Partitions<'a, K, V> {
                 value,
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Range;
+
+    use proptest::prelude::*;
+
+    use super::*;
+
+    type Map = PartitionMap<u64, char>;
+
+    fn all_bounds<T: Copy>(range: Range<T>) -> impl Iterator<Item = (Option<T>, Option<T>)> {
+        let Range { start, end } = range;
+
+        [
+            (Some(start), Some(end)),
+            (None, Some(end)),
+            (Some(start), None),
+            (None, None),
+        ]
+        .into_iter()
+    }
+
+    fn insert_one(map: &Map, range: Range<u64>, val1: char, val2: char) {
+        for b in all_bounds(range) {
+            map.clone().extend([(b, val1)]);
+            map.clone().extend([(b, val2)]);
+        }
+    }
+
+    #[test]
+    fn test_single() {
+        let map = Map::new('a');
+        map.assert_invariants();
+
+        insert_one(&map, 1..2, 'a', 'b');
+    }
+
+    #[test]
+    fn test_overlap_start() {
+        let map: Map = [(2..4, 'a')].into_iter().collect();
+
+        insert_one(&map, 1..3, 'a', 'b');
+    }
+
+    #[test]
+    fn test_overlap_end() {
+        let map: Map = [(1..3, 'a')].into_iter().collect();
+
+        insert_one(&map, 2..4, 'a', 'b');
+    }
+
+    #[test]
+    fn test_overlap_inner() {
+        let map: Map = [(1..4, 'a')].into_iter().collect();
+
+        insert_one(&map, 2..3, 'a', 'b');
+    }
+
+    #[test]
+    fn test_overlap_outer() {
+        let map: Map = [(2..3, 'a')].into_iter().collect();
+
+        insert_one(&map, 1..4, 'a', 'b');
+    }
+
+    type Part = ((Option<u64>, Option<u64>), char);
+
+    fn check_part(((start, end), _ty): &Part) -> bool {
+        start.zip(*end).map_or(true, |(s, e)| e >= s)
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn test_extend(
+            c in any::<char>(),
+            v in prop::collection::vec(
+                any::<Part>().prop_filter("Ranges must be valid", check_part),
+                0..1024
+            ),
+        ) {
+            let mut map: Map = Map::new(c);
+            map.extend(v);
+        }
     }
 }
