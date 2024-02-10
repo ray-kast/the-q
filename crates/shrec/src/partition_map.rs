@@ -312,59 +312,435 @@ mod tests {
 
     type Map = PartitionMap<u64, char>;
 
-    fn all_bounds<T: Copy>(range: Range<T>) -> impl Iterator<Item = (Option<T>, Option<T>)> {
-        let Range { start, end } = range;
-
-        [
-            (Some(start), Some(end)),
-            (None, Some(end)),
-            (Some(start), None),
-            (None, None),
-        ]
-        .into_iter()
+    fn part<K, V, R: PartitionBounds<K>>(b: R, value: V) -> Partition<K, V> {
+        let (start, end) = b.into_bounds();
+        Partition { start, end, value }
     }
 
-    fn insert_one(map: &Map, range: Range<u64>, val1: char, val2: char) {
-        for b in all_bounds(range) {
-            map.clone().extend([(b, val1)]);
-            map.clone().extend([(b, val2)]);
+    fn assert_parts<'a, P: IntoIterator<Item = &'a Partition<u64, char>>>(map: &Map, parts: P) {
+        assert_eq!(
+            map.partitions().collect::<Vec<_>>(),
+            parts
+                .into_iter()
+                .map(|Partition { start, end, value }| Partition {
+                    start: start.as_ref(),
+                    end: end.as_ref(),
+                    value
+                })
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    fn assert_sanity<'a, I: IntoIterator, P: IntoIterator<Item = &'a Partition<u64, char>>>(
+        u: char,
+        items: I,
+        parts: P,
+    ) where
+        Map: Extend<I::Item>,
+    {
+        let mut map = Map::new(u);
+        map.extend(items);
+        assert_parts(&map, parts);
+    }
+
+    fn assert_sanity_2<'a, A, B, P: IntoIterator<Item = &'a Partition<u64, char>>>(
+        u: char,
+        a: A,
+        b: B,
+        parts: P,
+    ) where
+        Map: Extend<A> + Extend<B>,
+    {
+        let mut map = Map::new(u);
+        map.extend([a]);
+        map.extend([b]);
+        assert_parts(&map, parts);
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn test_sanity() {
+        // -----[=====)-----
+        //  0   2 3   5 6
+        //    1     4     7
+
+        //      0 1 2 3 4 5 6 7
+        // 0,1 -[+)-[=====)-----
+        // 0,2 -[++)[=====)-----
+        // 0,3 -[++++)[===)-----
+        // 0,5 -[+++++++++)-----
+        // 0,6 -[+++++++++++)---
+        // 2,3 -----[)[===)-----
+        // 2,5 -----[+++++)-----
+        // 2,6 -----[+++++++)---
+        // 3,4 -----[)[+)[)-----
+        // 3,5 -----[)[+++)-----
+        // 3,6 -----[)[+++++)---
+        // 5,6 -----[====)[+)---
+        // 6,7 -----[=====)-[+)-
+
+        assert_sanity::<[(Range<u64>, char); 0], _>('a', [], &[part(.., 'a')]);
+        assert_sanity('a', [(2..5, 'b')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+
+        for t in [0, 2, 3, 5, 6] {
+            assert_sanity('a', [(2..5, 'b'), (t..t, 'c')], &[
+                part(..2, 'a'),
+                part(2..5, 'b'),
+                part(5.., 'a'),
+            ]);
         }
-    }
 
-    #[test]
-    fn test_invariants_single() {
-        let map = Map::new('a');
-        map.assert_invariants();
+        assert_sanity('a', [(2..5, 'b'), (0..1, 'c')], &[
+            part(..0, 'a'),
+            part(0..1, 'c'),
+            part(1..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..2, 'c')], &[
+            part(..0, 'a'),
+            part(0..2, 'c'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..3, 'c')], &[
+            part(..0, 'a'),
+            part(0..3, 'c'),
+            part(3..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..5, 'c')], &[
+            part(..0, 'a'),
+            part(0..5, 'c'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..6, 'c')], &[
+            part(..0, 'a'),
+            part(0..6, 'c'),
+            part(6.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (2..3, 'c')], &[
+            part(..2, 'a'),
+            part(2..3, 'c'),
+            part(3..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (2..5, 'c')], &[
+            part(..2, 'a'),
+            part(2..5, 'c'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (2..6, 'c')], &[
+            part(..2, 'a'),
+            part(2..6, 'c'),
+            part(6.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (3..4, 'c')], &[
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3..4, 'c'),
+            part(4..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (3..5, 'c')], &[
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3..5, 'c'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (3..6, 'c')], &[
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3..6, 'c'),
+            part(6.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (5..6, 'c')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5..6, 'c'),
+            part(6.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (6..7, 'c')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5..6, 'a'),
+            part(6..7, 'c'),
+            part(7.., 'a'),
+        ]);
 
-        insert_one(&map, 1..2, 'a', 'b');
-    }
+        assert_sanity('a', [(2..5, 'b'), (0..1, 'b')], &[
+            part(..0, 'a'),
+            part(0..1, 'b'),
+            part(1..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..2, 'b')], &[
+            part(..0, 'a'),
+            part(0..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..3, 'b')], &[
+            part(..0, 'a'),
+            part(0..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..5, 'b')], &[
+            part(..0, 'a'),
+            part(0..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..6, 'b')], &[
+            part(..0, 'a'),
+            part(0..6, 'b'),
+            part(6.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (2..3, 'b')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (2..5, 'b')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (2..6, 'b')], &[
+            part(..2, 'a'),
+            part(2..6, 'b'),
+            part(6.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (3..4, 'b')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (3..5, 'b')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (3..6, 'b')], &[
+            part(..2, 'a'),
+            part(2..6, 'b'),
+            part(6.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (5..6, 'b')], &[
+            part(..2, 'a'),
+            part(2..6, 'b'),
+            part(6.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (6..7, 'b')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5..6, 'a'),
+            part(6..7, 'b'),
+            part(7.., 'a'),
+        ]);
 
-    #[test]
-    fn test_invariants_overlap_start() {
-        let map: Map = [(2..4, 'a')].into_iter().collect();
+        assert_sanity('a', [(2..5, 'b'), (0..1, 'a')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..2, 'a')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..3, 'a')], &[
+            part(..3, 'a'),
+            part(3..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (0..5, 'a')], &[part(.., 'a')]);
+        assert_sanity('a', [(2..5, 'b'), (0..6, 'a')], &[part(.., 'a')]);
+        assert_sanity('a', [(2..5, 'b'), (2..3, 'a')], &[
+            part(..3, 'a'),
+            part(3..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (2..5, 'a')], &[part(.., 'a')]);
+        assert_sanity('a', [(2..5, 'b'), (2..6, 'a')], &[part(.., 'a')]);
+        assert_sanity('a', [(2..5, 'b'), (3..4, 'a')], &[
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3..4, 'a'),
+            part(4..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (3..5, 'a')], &[
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (3..6, 'a')], &[
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (5..6, 'a')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
+        assert_sanity('a', [(2..5, 'b'), (6..7, 'a')], &[
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
+        ]);
 
-        insert_one(&map, 1..3, 'a', 'b');
-    }
+        // ---[===)---
+        //  0 1 2 3 4
 
-    #[test]
-    fn test_invariants_overlap_end() {
-        let map: Map = [(1..3, 'a')].into_iter().collect();
+        //      0 1 2 3 4
+        // ..0 +)-[===)---
+        // ..1 ++)[===)---
+        // ..2 ++++)[=)---
+        // ..3 +++++++)---
+        // ..4 +++++++++)-
+        // ..  +++++++++++
+        // 0.. -[+++++++++
+        // 1.. ---[+++++++
+        // 2.. ---[)[+++++
+        // 3.. ---[==)[+++
+        // 4.. ---[===)-[+
 
-        insert_one(&map, 2..4, 'a', 'b');
-    }
+        assert_sanity_2('a', (1..3, 'b'), (..0, 'c'), &[
+            part(..0, 'c'),
+            part(0..1, 'a'),
+            part(1..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..1, 'c'), &[
+            part(..1, 'c'),
+            part(1..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..2, 'c'), &[
+            part(..2, 'c'),
+            part(2..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..3, 'c'), &[
+            part(..3, 'c'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..4, 'c'), &[
+            part(..4, 'c'),
+            part(4.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (.., 'c'), &[part(.., 'c')]);
+        assert_sanity_2('a', (1..3, 'b'), (0.., 'c'), &[
+            part(..0, 'a'),
+            part(0.., 'c'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (1.., 'c'), &[
+            part(..1, 'a'),
+            part(1.., 'c'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (2.., 'c'), &[
+            part(..1, 'a'),
+            part(1..2, 'b'),
+            part(2.., 'c'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (3.., 'c'), &[
+            part(..1, 'a'),
+            part(1..3, 'b'),
+            part(3.., 'c'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (4.., 'c'), &[
+            part(..1, 'a'),
+            part(1..3, 'b'),
+            part(3..4, 'a'),
+            part(4.., 'c'),
+        ]);
 
-    #[test]
-    fn test_invariants_overlap_inner() {
-        let map: Map = [(1..4, 'a')].into_iter().collect();
+        assert_sanity_2('a', (1..3, 'b'), (..0, 'b'), &[
+            part(..0, 'b'),
+            part(0..1, 'a'),
+            part(1..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..1, 'b'), &[
+            part(..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..2, 'b'), &[
+            part(..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..3, 'b'), &[
+            part(..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..4, 'b'), &[
+            part(..4, 'b'),
+            part(4.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (.., 'b'), &[part(.., 'b')]);
+        assert_sanity_2('a', (1..3, 'b'), (0.., 'b'), &[
+            part(..0, 'a'),
+            part(0.., 'b'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (1.., 'b'), &[
+            part(..1, 'a'),
+            part(1.., 'b'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (2.., 'b'), &[
+            part(..1, 'a'),
+            part(1.., 'b'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (3.., 'b'), &[
+            part(..1, 'a'),
+            part(1.., 'b'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (4.., 'b'), &[
+            part(..1, 'a'),
+            part(1..3, 'b'),
+            part(3..4, 'a'),
+            part(4.., 'b'),
+        ]);
 
-        insert_one(&map, 2..3, 'a', 'b');
-    }
-
-    #[test]
-    fn test_invariants_overlap_outer() {
-        let map: Map = [(2..3, 'a')].into_iter().collect();
-
-        insert_one(&map, 1..4, 'a', 'b');
+        assert_sanity_2('a', (1..3, 'b'), (..0, 'a'), &[
+            part(..1, 'a'),
+            part(1..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..1, 'a'), &[
+            part(..1, 'a'),
+            part(1..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..2, 'a'), &[
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (..3, 'a'), &[part(.., 'a')]);
+        assert_sanity_2('a', (1..3, 'b'), (..4, 'a'), &[part(.., 'a')]);
+        assert_sanity_2('a', (1..3, 'b'), (.., 'a'), &[part(.., 'a')]);
+        assert_sanity_2('a', (1..3, 'b'), (0.., 'a'), &[part(.., 'a')]);
+        assert_sanity_2('a', (1..3, 'b'), (1.., 'a'), &[part(.., 'a')]);
+        assert_sanity_2('a', (1..3, 'b'), (2.., 'a'), &[
+            part(..1, 'a'),
+            part(1..2, 'b'),
+            part(2.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (3.., 'a'), &[
+            part(..1, 'a'),
+            part(1..3, 'b'),
+            part(3.., 'a'),
+        ]);
+        assert_sanity_2('a', (1..3, 'b'), (4.., 'a'), &[
+            part(..1, 'a'),
+            part(1..3, 'b'),
+            part(3.., 'a'),
+        ]);
     }
 
     type Part = Partition<u64, char>;
