@@ -20,6 +20,7 @@ pub mod lex_cmp;
 pub mod memoize;
 pub mod nfa;
 pub mod partition_map;
+pub mod range_map;
 pub mod range_set;
 pub mod re;
 pub mod union_find;

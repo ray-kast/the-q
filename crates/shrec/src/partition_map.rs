@@ -204,9 +204,9 @@ impl<K: Clone + Ord, V: Clone + PartialEq, B: PartitionBounds<K>> Extend<(B, V)>
 
 impl<K: Clone + Ord, V: Clone + PartialEq> Extend<Partition<K, V>> for PartitionMap<K, V> {
     #[inline]
-    fn extend<T: IntoIterator<Item = Partition<K, V>>>(&mut self, iter: T) {
+    fn extend<T: IntoIterator<Item = Partition<K, V>>>(&mut self, it: T) {
         self.extend(
-            iter.into_iter()
+            it.into_iter()
                 .map(|Partition { start, end, value }| ((start, end), value)),
         );
     }
@@ -219,6 +219,17 @@ impl<K: Clone + Ord, V: Clone + Default + PartialEq, B: PartitionBounds<K>> From
         let mut me = Self::default();
         me.extend(it);
         me
+    }
+}
+
+impl<K: Clone + Ord, V: Clone + Default + PartialEq> FromIterator<Partition<K, V>>
+    for PartitionMap<K, V>
+{
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = Partition<K, V>>>(it: T) -> Self {
+        it.into_iter()
+            .map(|Partition { start, end, value }| ((start, end), value))
+            .collect()
     }
 }
 
@@ -273,6 +284,15 @@ impl<K, V> Partition<K, V> {
             start: start.as_ref(),
             end: end.as_ref(),
             value,
+        }
+    }
+
+    pub fn map_value<T, F: FnOnce(V) -> T>(self, f: F) -> Partition<K, T> {
+        let Self { start, end, value } = self;
+        Partition {
+            start,
+            end,
+            value: f(value),
         }
     }
 }
