@@ -3,7 +3,7 @@ use std::{
     cmp::Ordering,
     collections::{btree_map, BTreeMap},
     fmt, mem,
-    ops::{self, Bound},
+    ops::{self, Bound, Deref},
 };
 
 pub trait PartitionBounds<T> {
@@ -222,7 +222,7 @@ impl<K: Clone + Ord, V: Clone + Default + PartialEq, B: PartitionBounds<K>> From
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Partition<K, V> {
     pub start: Option<K>,
     pub end: Option<K>,
@@ -237,6 +237,55 @@ impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for Partition<K, V> {
                 .field(&self.value)
                 .finish()
         })
+    }
+}
+
+impl<K: ToOwned, V: ToOwned> Partition<&K, &V> {
+    #[allow(clippy::wrong_self_convention)] // It's literally to_owned
+    #[must_use]
+    pub fn to_owned(&self) -> Partition<K::Owned, V::Owned> {
+        let Self { start, end, value } = *self;
+        Partition {
+            start: start.map(ToOwned::to_owned),
+            end: end.map(ToOwned::to_owned),
+            value: value.to_owned(),
+        }
+    }
+}
+
+impl<K: Copy, V: Copy> Partition<&K, &V> {
+    #[must_use]
+    pub fn copied(&self) -> Partition<K, V> {
+        let Self { start, end, value } = *self;
+        Partition {
+            start: start.copied(),
+            end: end.copied(),
+            value: *value,
+        }
+    }
+}
+
+impl<K, V> Partition<K, V> {
+    #[must_use]
+    pub fn as_ref(&self) -> Partition<&K, &V> {
+        let Self { start, end, value } = self;
+        Partition {
+            start: start.as_ref(),
+            end: end.as_ref(),
+            value,
+        }
+    }
+}
+
+impl<K: Deref, V: Deref> Partition<K, V> {
+    #[must_use]
+    pub fn as_deref(&self) -> Partition<&K::Target, &V::Target> {
+        let Self { start, end, value } = self;
+        Partition {
+            start: start.as_deref(),
+            end: end.as_deref(),
+            value,
+        }
     }
 }
 
@@ -756,7 +805,7 @@ mod tests {
     }
 
     fn test_extend_impl(c: char, v: Vec<Part>) {
-        let mut map: Map = Map::new(c);
+        let mut map = Map::new(c);
         map.extend(v.clone());
 
         let event_vec = {
