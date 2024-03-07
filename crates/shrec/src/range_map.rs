@@ -41,6 +41,15 @@ impl<K: Ord, V> RangeMap<K, V> {
     }
 }
 
+impl<K: Clone + Ord, V: Clone + PartialEq> RangeMap<K, V> {
+    #[inline]
+    pub fn insert<B: PartitionBounds<K>>(&mut self, range: B, value: V) {
+        self.0.set(range, Some(value));
+    }
+
+    #[inline]
+    pub fn remove<B: PartitionBounds<K>>(&mut self, range: B) { self.0.set(range, None); }
+}
 impl<K, V> ops::Deref for RangeMap<K, V> {
     type Target = PartitionMap<K, Option<V>>;
 

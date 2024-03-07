@@ -76,7 +76,7 @@ mod test {
         zip_eq(inp.iter().copied(), out);
     }
 
-    proptest::proptest! {
+    proptest! {
         #[test]
         fn test_roundtrip_small(v in prop::collection::vec(0_u8..=255, 0..256)) {
             assert_roundtrip(&v);
@@ -88,7 +88,7 @@ mod test {
         }
     }
 
-    proptest::proptest! {
+    proptest! {
         #![proptest_config(ProptestConfig {
             cases: 5,
             ..ProptestConfig::default()

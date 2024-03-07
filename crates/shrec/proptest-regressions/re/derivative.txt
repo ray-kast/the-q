@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3980ae65bc473a1bebac50571dfd5e1a354b05f0f77db42c816a4359dccfe4fa # shrinks to chars = {'o', 'm', 'a', 'q', 'c', 'l', 'e', 'p', 'g', 'd', 'r', 's', 'f', 'h', 'j', 'i'}, re = Cat(Con(Con(Cat(Sym('g'), Sym('b')), Con(Never, Nil)), Not(Con(Nil, Sym('v')))), Never)
+cc 9b4d63c7073dd8701d4605d3cfe2439b54233cf4bd093279f689a2ae4adf9511 # shrinks to chars = {'n', 'c', 'j', 'm', 'h', 't', 'b', 'd', 'o', 'p', 'a', 'g', 'l', 'i', 'e', 'f'}, re = Star(Cat(Sym('a'), Star(Sym('a'))))
+cc f373af51855106203c0ccbce134435aece2526826ac1abb95a37cfcf912c3a72 # shrinks to chars = {'d', 'l', 'k', 'h', 'b', 'f', 'u', 'n', 'm', 'g', 'e', 'i', 'c', 'a', 'o', 'y'}, re = Dis(Not(Nil), Cat(Nil, Con(Sym({}), Sym({}))))
+cc c44cd86121e2c68e0ae9ed10eaa1f2e56199b0097047cc40c495b7ac6e74902d # shrinks to chars = {}, re = Not(Con(Sym({}), Sym({})))

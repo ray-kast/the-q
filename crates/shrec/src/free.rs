@@ -1,12 +1,15 @@
-use std::mem;
+use std::{mem, ops::RangeFrom};
 
+// TODO: Step trait when
 pub trait Succ {
     #[must_use]
     fn succ(self) -> Self;
 }
 
-impl<T: From<u8> + std::ops::Add<T, Output = T>> Succ for T {
-    fn succ(self) -> Self { self + 1.into() }
+impl<T> Succ for T
+where RangeFrom<T>: Iterator<Item = T>
+{
+    fn succ(self) -> Self { (self..).next().unwrap() }
 }
 
 #[derive(Debug, Default)]
