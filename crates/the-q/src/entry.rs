@@ -71,12 +71,12 @@ pub fn main() {
         ".env",
     ]
     .into_iter()
-    .try_for_each(|p| match dotenv::from_filename(p) {
+    .try_for_each(|p| match dotenvy::from_filename(p) {
         Ok(p) => {
             trace!("Loaded env from {p:?}");
             Ok(())
         },
-        Err(dotenv::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(dotenvy::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e).with_context(|| format!("Error loading env from {p:?}")),
     })
     .unwrap_or_else(|e| init_error!("Error loading .env files: {e:?}"));

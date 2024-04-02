@@ -835,8 +835,8 @@ async fn main() {
     [".env.local", ".env.dev", ".env"]
         .into_iter()
         .try_for_each(|p| {
-            dotenv::from_filename(p).map(|_| ()).or_else(|e| match e {
-                dotenv::Error::Io(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            dotenvy::from_filename(p).map(|_| ()).or_else(|e| match e {
+                dotenvy::Error::Io(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 e => Err(e),
             })
         })
