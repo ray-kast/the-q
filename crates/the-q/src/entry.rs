@@ -82,7 +82,7 @@ pub fn main() {
     .unwrap_or_else(|e| init_error!("Error loading .env files: {e:?}"));
 
     let opts: Opts = clap::Parser::parse();
-    mem::drop(span);
+    drop(span);
     let span = error_span!("boot", ?opts).entered();
 
     let hostname = hostname::get()
@@ -115,7 +115,7 @@ pub fn main() {
         None
     };
 
-    mem::drop((span, tmp_logger));
+    drop((span, tmp_logger));
 
     let rt = {
         let mut builder = tokio::runtime::Builder::new_multi_thread();
