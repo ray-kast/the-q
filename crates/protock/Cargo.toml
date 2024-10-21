@@ -9,11 +9,11 @@ repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
 anyhow = "1.0.72"
-clap = { version = "4.3.19", features = ["derive", "cargo"] }
+clap = { version = "4.5.20", features = ["derive", "cargo"] }
 git2 = "0.18.1"
 prost = "0.12.3"
 prost-types = "0.12.3"
 shrec = { version = "0.1.0", path = "../shrec" }
 tempfile = "3.7.0"
 tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.17", features = ["tracing-log", "fmt"] }
+tracing-subscriber = { version = "0.3.18", features = ["tracing-log", "fmt"] }
