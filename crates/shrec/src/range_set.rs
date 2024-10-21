@@ -173,7 +173,15 @@ mod test {
             prop::option::of(prop_idx()),
             any::<bool>(),
         )
-            .prop_map(|(start, end, value)| Partition { start, end, value })
+            .prop_map(|(start, end, value)| {
+                let (start, end) = if start.zip(end).is_some_and(|(s, e)| e < s) {
+                    (end, start)
+                } else {
+                    (start, end)
+                };
+
+                Partition { start, end, value }
+            })
             .prop_filter("Partitions must be valid", check_part)
     }
 
@@ -202,7 +210,7 @@ mod test {
         op(&mut set);
 
         for (i, el) in dense.into_iter().enumerate() {
-            assert_eq!(*set.sample(&i), dense_op(el), "i = {i:?}");
+            assert_eq!(*set.sample(&i), dense_op(el), "i = {i:?}, set = {set:?}");
         }
     }
 
@@ -221,11 +229,36 @@ mod test {
         let mut rhs = RangeSet::new(rs);
         (*lhs).extend(lv);
         (*rhs).extend(rv);
-        op(&mut lhs, &rhs);
+        let mut out = lhs.clone();
+        op(&mut out, &rhs);
 
         for i in 0..MAX {
-            assert_eq!(*lhs.sample(&i), dense_op(ld[i], rd[i]), "i = {i:?}");
+            assert_eq!(
+                *out.sample(&i),
+                dense_op(ld[i], rd[i]),
+                "i = {i:?}, lhs = {lhs:?}, rhs = {rhs:?}, out = {out:?}"
+            );
         }
+    }
+
+    #[test]
+    fn inter_sanity() {
+        test_binop(
+            false,
+            vec![Part::of(1.., true)],
+            false,
+            vec![Part::of(..1, true)],
+            RangeSet::intersect,
+            |l, r| l && r,
+        );
+        test_binop(
+            false,
+            vec![Part::of(..1, true)],
+            false,
+            vec![Part::of(1.., true)],
+            RangeSet::intersect,
+            |l, r| l && r,
+        );
     }
 
     proptest! {

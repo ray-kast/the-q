@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc d5402937e2c6ed00e19a5148d2459bf73ede51da0a416ad411d05eeae80c041e # shrinks to ls = true, lv = [], rs = false, rv = []
+cc 137080030635cd9cb561430dbed7fe3e44ba7dcb45958606813cf62f144b79ab # shrinks to ls = false, lv = [Partition(140.., true)], rs = false, rv = [Partition(..140, true)]

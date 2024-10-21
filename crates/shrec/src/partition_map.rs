@@ -231,7 +231,7 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
             .as_ref()
             .and_then(|s| {
                 self.ranges_from
-                    .range((Bound::Unbounded, Bound::Excluded(s)))
+                    .range((Bound::Unbounded, Bound::Included(s)))
                     .next_back()
             })
             .map_or(&self.unbounded_start, |(_, v)| v)
@@ -387,6 +387,13 @@ impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for Partition<K, V> {
                 .field(&self.value)
                 .finish()
         })
+    }
+}
+
+impl<K, V> Partition<K, V> {
+    pub fn of<B: PartitionBounds<K>>(range: B, value: V) -> Self {
+        let (start, end) = range.into_bounds();
+        Self { start, end, value }
     }
 }
 
@@ -578,8 +585,7 @@ mod tests {
     type Map = PartitionMap<u64, char>;
 
     fn part<K, V, R: PartitionBounds<K>>(b: R, value: V) -> Partition<K, V> {
-        let (start, end) = b.into_bounds();
-        Partition { start, end, value }
+        Partition::of(b, value)
     }
 
     fn assert_parts<'a, P: IntoIterator<Item = &'a Partition<u64, char>>>(map: &Map, parts: P) {
@@ -594,6 +600,37 @@ mod tests {
                 })
                 .collect::<Vec<_>>(),
         );
+    }
+
+    fn intersect_regression_op(lhs: char, rhs: char) -> char {
+        if lhs == 'b' && rhs == 'b' {
+            'b'
+        } else {
+            'a'
+        }
+    }
+
+    #[test]
+    fn range_set_intersect_regression_update() {
+        let mut lhs = Map::new('a');
+        lhs.extend([Part::of(1.., 'b')]);
+
+        lhs.update(..1, |p| intersect_regression_op(*p.value, 'b'));
+        lhs.update(1.., |p| intersect_regression_op(*p.value, 'a'));
+
+        assert_eq!(lhs, Map::new('a'));
+    }
+
+    #[test]
+    fn range_set_intersect_regression_fold() {
+        let mut lhs = Map::new('a');
+        lhs.extend([Part::of(1.., 'b')]);
+        let mut rhs = Map::new('a');
+        rhs.extend([Part::of(..1, 'b')]);
+
+        lhs.fold(&rhs, |p, v| intersect_regression_op(*p.value, *v));
+
+        assert_eq!(lhs, Map::new('a'));
     }
 
     fn assert_sanity<'a, I: IntoIterator, P: IntoIterator<Item = &'a Partition<u64, char>>>(
@@ -660,23 +697,23 @@ mod tests {
         }
 
         assert_sanity('a', [(2..5, 'b'), (0..1, 'c')], &[
-            part(..0, 'a'),
-            part(0..1, 'c'),
-            part(1..2, 'a'),
-            part(2..5, 'b'),
-            part(5.., 'a'),
+                part(..0, 'a'),
+                part(0..1, 'c'),
+                part(1..2, 'a'),
+                part(2..5, 'b'),
+                part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (0..2, 'c')], &[
-            part(..0, 'a'),
-            part(0..2, 'c'),
-            part(2..5, 'b'),
-            part(5.., 'a'),
+                part(..0, 'a'),
+                part(0..2, 'c'),
+                part(2..5, 'b'),
+                part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (0..3, 'c')], &[
-            part(..0, 'a'),
-            part(0..3, 'c'),
-            part(3..5, 'b'),
-            part(5.., 'a'),
+                part(..0, 'a'),
+                part(0..3, 'c'),
+                part(3..5, 'b'),
+                part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (0..5, 'c')], &[
             part(..0, 'a'),
@@ -689,10 +726,10 @@ mod tests {
             part(6.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (2..3, 'c')], &[
-            part(..2, 'a'),
-            part(2..3, 'c'),
-            part(3..5, 'b'),
-            part(5.., 'a'),
+                part(..2, 'a'),
+                part(2..3, 'c'),
+                part(3..5, 'b'),
+                part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (2..5, 'c')], &[
             part(..2, 'a'),
@@ -705,44 +742,44 @@ mod tests {
             part(6.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (3..4, 'c')], &[
-            part(..2, 'a'),
-            part(2..3, 'b'),
-            part(3..4, 'c'),
-            part(4..5, 'b'),
-            part(5.., 'a'),
+                part(..2, 'a'),
+                part(2..3, 'b'),
+                part(3..4, 'c'),
+                part(4..5, 'b'),
+                part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (3..5, 'c')], &[
-            part(..2, 'a'),
-            part(2..3, 'b'),
-            part(3..5, 'c'),
-            part(5.., 'a'),
+                part(..2, 'a'),
+                part(2..3, 'b'),
+                part(3..5, 'c'),
+                part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (3..6, 'c')], &[
-            part(..2, 'a'),
-            part(2..3, 'b'),
-            part(3..6, 'c'),
-            part(6.., 'a'),
+                part(..2, 'a'),
+                part(2..3, 'b'),
+                part(3..6, 'c'),
+                part(6.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (5..6, 'c')], &[
-            part(..2, 'a'),
-            part(2..5, 'b'),
-            part(5..6, 'c'),
-            part(6.., 'a'),
+                part(..2, 'a'),
+                part(2..5, 'b'),
+                part(5..6, 'c'),
+                part(6.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (6..7, 'c')], &[
-            part(..2, 'a'),
-            part(2..5, 'b'),
-            part(5..6, 'a'),
-            part(6..7, 'c'),
-            part(7.., 'a'),
+                part(..2, 'a'),
+                part(2..5, 'b'),
+                part(5..6, 'a'),
+                part(6..7, 'c'),
+                part(7.., 'a'),
         ]);
 
         assert_sanity('a', [(2..5, 'b'), (0..1, 'b')], &[
-            part(..0, 'a'),
-            part(0..1, 'b'),
-            part(1..2, 'a'),
-            part(2..5, 'b'),
-            part(5.., 'a'),
+                part(..0, 'a'),
+                part(0..1, 'b'),
+                part(1..2, 'a'),
+                part(2..5, 'b'),
+                part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (0..2, 'b')], &[
             part(..0, 'a'),
@@ -800,11 +837,11 @@ mod tests {
             part(6.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (6..7, 'b')], &[
-            part(..2, 'a'),
-            part(2..5, 'b'),
-            part(5..6, 'a'),
-            part(6..7, 'b'),
-            part(7.., 'a'),
+                part(..2, 'a'),
+                part(2..5, 'b'),
+                part(5..6, 'a'),
+                part(6..7, 'b'),
+                part(7.., 'a'),
         ]);
 
         assert_sanity('a', [(2..5, 'b'), (0..1, 'a')], &[
@@ -832,11 +869,11 @@ mod tests {
         assert_sanity('a', [(2..5, 'b'), (2..5, 'a')], &[part(.., 'a')]);
         assert_sanity('a', [(2..5, 'b'), (2..6, 'a')], &[part(.., 'a')]);
         assert_sanity('a', [(2..5, 'b'), (3..4, 'a')], &[
-            part(..2, 'a'),
-            part(2..3, 'b'),
-            part(3..4, 'a'),
-            part(4..5, 'b'),
-            part(5.., 'a'),
+                part(..2, 'a'),
+                part(2..3, 'b'),
+                part(3..4, 'a'),
+                part(4..5, 'b'),
+                part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (3..5, 'a')], &[
             part(..2, 'a'),
@@ -876,10 +913,10 @@ mod tests {
         // 4.. ---[===)-[+
 
         assert_sanity_2('a', (1..3, 'b'), (..0, 'c'), &[
-            part(..0, 'c'),
-            part(0..1, 'a'),
-            part(1..3, 'b'),
-            part(3.., 'a'),
+                part(..0, 'c'),
+                part(0..1, 'a'),
+                part(1..3, 'b'),
+                part(3.., 'a'),
         ]);
         assert_sanity_2('a', (1..3, 'b'), (..1, 'c'), &[
             part(..1, 'c'),
@@ -919,17 +956,17 @@ mod tests {
             part(3.., 'c'),
         ]);
         assert_sanity_2('a', (1..3, 'b'), (4.., 'c'), &[
-            part(..1, 'a'),
-            part(1..3, 'b'),
-            part(3..4, 'a'),
-            part(4.., 'c'),
+                part(..1, 'a'),
+                part(1..3, 'b'),
+                part(3..4, 'a'),
+                part(4.., 'c'),
         ]);
 
         assert_sanity_2('a', (1..3, 'b'), (..0, 'b'), &[
-            part(..0, 'b'),
-            part(0..1, 'a'),
-            part(1..3, 'b'),
-            part(3.., 'a'),
+                part(..0, 'b'),
+                part(0..1, 'a'),
+                part(1..3, 'b'),
+                part(3.., 'a'),
         ]);
         assert_sanity_2('a', (1..3, 'b'), (..1, 'b'), &[
             part(..3, 'b'),
@@ -965,10 +1002,10 @@ mod tests {
             part(1.., 'b'),
         ]);
         assert_sanity_2('a', (1..3, 'b'), (4.., 'b'), &[
-            part(..1, 'a'),
-            part(1..3, 'b'),
-            part(3..4, 'a'),
-            part(4.., 'b'),
+                part(..1, 'a'),
+                part(1..3, 'b'),
+                part(3..4, 'a'),
+                part(4.., 'b'),
         ]);
 
         assert_sanity_2('a', (1..3, 'b'), (..0, 'a'), &[
@@ -1103,7 +1140,15 @@ mod tests {
         c: impl Strategy<Value = char>,
     ) -> impl Strategy<Value = Part> {
         (prop::option::of(t.clone()), prop::option::of(t), c)
-            .prop_map(|(start, end, value)| Partition { start, end, value })
+            .prop_map(|(start, end, value)| {
+                let (start, end) = if start.zip(end).is_some_and(|(s, e)| e < s) {
+                    (end, start)
+                } else {
+                    (start, end)
+                };
+
+                Partition { start, end, value }
+            })
             .prop_filter("Partitions must be valid", check_part)
     }
 
