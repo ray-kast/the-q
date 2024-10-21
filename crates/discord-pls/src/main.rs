@@ -640,20 +640,18 @@ impl EventHandler for Handler {
                     .iter()
                     .map(|op| {
                         let defer = matches!(op, CrudOp::Defer(_));
-                        op.map(|i| {
-                            loop {
-                                if let Some(t) = types.get(i) {
-                                    break *t;
-                                }
-
-                                types.push(loop {
-                                    let ty = pick_random(&mut rem_types, || TYPES.iter().copied());
-
-                                    if !defer || ty.defer().is_some() {
-                                        break ty;
-                                    }
-                                });
+                        op.map(|i| loop {
+                            if let Some(t) = types.get(i) {
+                                break *t;
                             }
+
+                            types.push(loop {
+                                let ty = pick_random(&mut rem_types, || TYPES.iter().copied());
+
+                                if !defer || ty.defer().is_some() {
+                                    break ty;
+                                }
+                            });
                         })
                     })
                     .collect::<Vec<_>>()

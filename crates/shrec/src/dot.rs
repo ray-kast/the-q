@@ -78,7 +78,11 @@ impl AttrState {
     }
 
     fn finish(self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.any { f.write_str("]") } else { Ok(()) }
+        if self.any {
+            f.write_str("]")
+        } else {
+            Ok(())
+        }
     }
 }
 

@@ -41,21 +41,19 @@ fn write_string(f: impl FnOnce(&mut String) -> fmt::Result) -> String {
 
 fn visit_opts<'a>(opts: &'a [ResolvedOption<'a>]) -> impl Iterator<Item = &'a ResolvedOption<'a>> {
     let mut stk = vec![opts.iter()];
-    std::iter::from_fn(move || {
-        loop {
-            let it = stk.last_mut()?;
-            let Some(next) = it.next() else {
-                let _ = stk.pop().unwrap();
-                continue;
-            };
-            match next.value {
-                ResolvedValue::SubCommand(ref v) | ResolvedValue::SubCommandGroup(ref v) => {
-                    stk.push(v.iter());
-                },
-                _ => (),
-            }
-            break Some(next);
+    std::iter::from_fn(move || loop {
+        let it = stk.last_mut()?;
+        let Some(next) = it.next() else {
+            let _ = stk.pop().unwrap();
+            continue;
+        };
+        match next.value {
+            ResolvedValue::SubCommand(ref v) | ResolvedValue::SubCommandGroup(ref v) => {
+                stk.push(v.iter());
+            },
+            _ => (),
         }
+        break Some(next);
     })
 }
 

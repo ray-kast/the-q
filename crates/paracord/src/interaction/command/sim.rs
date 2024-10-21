@@ -27,11 +27,23 @@ impl Sim for String {
 }
 
 impl Sim for bool {
-    fn sim(&self, rhs: &Self) -> f64 { if *self == *rhs { 1.0 } else { 0.0 } }
+    fn sim(&self, rhs: &Self) -> f64 {
+        if *self == *rhs {
+            1.0
+        } else {
+            0.0
+        }
+    }
 }
 
 impl Sim for NonZeroU8 {
-    fn sim(&self, rhs: &Self) -> f64 { if *self == *rhs { 1.0 } else { 0.0 } }
+    fn sim(&self, rhs: &Self) -> f64 {
+        if *self == *rhs {
+            1.0
+        } else {
+            0.0
+        }
+    }
 }
 
 impl<T: Clone + Eq + Hash> Sim for Vec<T> {
@@ -153,5 +165,11 @@ impl Sim for Arg {
 // NOTE: I don't think digging deeper than this with an O(n^2) algorithm is
 //       really necessary.
 impl Sim for ArgType {
-    fn sim(&self, rhs: &Self) -> f64 { if *self == *rhs { 1.0 } else { 0.0 } }
+    fn sim(&self, rhs: &Self) -> f64 {
+        if *self == *rhs {
+            1.0
+        } else {
+            0.0
+        }
+    }
 }

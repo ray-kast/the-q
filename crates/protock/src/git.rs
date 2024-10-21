@@ -21,40 +21,35 @@ pub fn log(
     rw.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
     rw.push_head()?;
 
-    Ok(std::iter::from_fn(move || {
-        loop {
-            let res = rw.next()?.and_then(|obj| {
-                let commit = repo.find_commit(obj)?;
-                let tree = commit.tree()?;
+    Ok(std::iter::from_fn(move || loop {
+        let res = rw.next()?.and_then(|obj| {
+            let commit = repo.find_commit(obj)?;
+            let tree = commit.tree()?;
 
-                let any_diff = if commit.parent_count() == 0 {
-                    let diff = repo.diff_tree_to_tree(None, Some(&tree), Some(&mut diffopt))?;
+            let any_diff = if commit.parent_count() == 0 {
+                let diff = repo.diff_tree_to_tree(None, Some(&tree), Some(&mut diffopt))?;
 
-                    diff.deltas().len() > 0
-                } else {
-                    let mut any = false;
-                    for parent in commit.parents() {
-                        let par_tree = parent.tree()?;
-                        let diff = repo.diff_tree_to_tree(
-                            Some(&par_tree),
-                            Some(&tree),
-                            Some(&mut diffopt),
-                        )?;
+                diff.deltas().len() > 0
+            } else {
+                let mut any = false;
+                for parent in commit.parents() {
+                    let par_tree = parent.tree()?;
+                    let diff =
+                        repo.diff_tree_to_tree(Some(&par_tree), Some(&tree), Some(&mut diffopt))?;
 
-                        if diff.deltas().len() > 0 {
-                            any = true;
-                            break;
-                        }
+                    if diff.deltas().len() > 0 {
+                        any = true;
+                        break;
                     }
-                    any
-                };
+                }
+                any
+            };
 
-                Ok(any_diff.then_some(commit))
-            });
+            Ok(any_diff.then_some(commit))
+        });
 
-            if let Some(res) = res.transpose() {
-                break Some(res);
-            }
+        if let Some(res) = res.transpose() {
+            break Some(res);
         }
     }))
 }

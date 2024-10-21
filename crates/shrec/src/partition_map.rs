@@ -697,23 +697,23 @@ mod tests {
         }
 
         assert_sanity('a', [(2..5, 'b'), (0..1, 'c')], &[
-                part(..0, 'a'),
-                part(0..1, 'c'),
-                part(1..2, 'a'),
-                part(2..5, 'b'),
-                part(5.., 'a'),
+            part(..0, 'a'),
+            part(0..1, 'c'),
+            part(1..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (0..2, 'c')], &[
-                part(..0, 'a'),
-                part(0..2, 'c'),
-                part(2..5, 'b'),
-                part(5.., 'a'),
+            part(..0, 'a'),
+            part(0..2, 'c'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (0..3, 'c')], &[
-                part(..0, 'a'),
-                part(0..3, 'c'),
-                part(3..5, 'b'),
-                part(5.., 'a'),
+            part(..0, 'a'),
+            part(0..3, 'c'),
+            part(3..5, 'b'),
+            part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (0..5, 'c')], &[
             part(..0, 'a'),
@@ -726,10 +726,10 @@ mod tests {
             part(6.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (2..3, 'c')], &[
-                part(..2, 'a'),
-                part(2..3, 'c'),
-                part(3..5, 'b'),
-                part(5.., 'a'),
+            part(..2, 'a'),
+            part(2..3, 'c'),
+            part(3..5, 'b'),
+            part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (2..5, 'c')], &[
             part(..2, 'a'),
@@ -742,44 +742,44 @@ mod tests {
             part(6.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (3..4, 'c')], &[
-                part(..2, 'a'),
-                part(2..3, 'b'),
-                part(3..4, 'c'),
-                part(4..5, 'b'),
-                part(5.., 'a'),
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3..4, 'c'),
+            part(4..5, 'b'),
+            part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (3..5, 'c')], &[
-                part(..2, 'a'),
-                part(2..3, 'b'),
-                part(3..5, 'c'),
-                part(5.., 'a'),
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3..5, 'c'),
+            part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (3..6, 'c')], &[
-                part(..2, 'a'),
-                part(2..3, 'b'),
-                part(3..6, 'c'),
-                part(6.., 'a'),
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3..6, 'c'),
+            part(6.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (5..6, 'c')], &[
-                part(..2, 'a'),
-                part(2..5, 'b'),
-                part(5..6, 'c'),
-                part(6.., 'a'),
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5..6, 'c'),
+            part(6.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (6..7, 'c')], &[
-                part(..2, 'a'),
-                part(2..5, 'b'),
-                part(5..6, 'a'),
-                part(6..7, 'c'),
-                part(7.., 'a'),
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5..6, 'a'),
+            part(6..7, 'c'),
+            part(7.., 'a'),
         ]);
 
         assert_sanity('a', [(2..5, 'b'), (0..1, 'b')], &[
-                part(..0, 'a'),
-                part(0..1, 'b'),
-                part(1..2, 'a'),
-                part(2..5, 'b'),
-                part(5.., 'a'),
+            part(..0, 'a'),
+            part(0..1, 'b'),
+            part(1..2, 'a'),
+            part(2..5, 'b'),
+            part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (0..2, 'b')], &[
             part(..0, 'a'),
@@ -837,11 +837,11 @@ mod tests {
             part(6.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (6..7, 'b')], &[
-                part(..2, 'a'),
-                part(2..5, 'b'),
-                part(5..6, 'a'),
-                part(6..7, 'b'),
-                part(7.., 'a'),
+            part(..2, 'a'),
+            part(2..5, 'b'),
+            part(5..6, 'a'),
+            part(6..7, 'b'),
+            part(7.., 'a'),
         ]);
 
         assert_sanity('a', [(2..5, 'b'), (0..1, 'a')], &[
@@ -869,11 +869,11 @@ mod tests {
         assert_sanity('a', [(2..5, 'b'), (2..5, 'a')], &[part(.., 'a')]);
         assert_sanity('a', [(2..5, 'b'), (2..6, 'a')], &[part(.., 'a')]);
         assert_sanity('a', [(2..5, 'b'), (3..4, 'a')], &[
-                part(..2, 'a'),
-                part(2..3, 'b'),
-                part(3..4, 'a'),
-                part(4..5, 'b'),
-                part(5.., 'a'),
+            part(..2, 'a'),
+            part(2..3, 'b'),
+            part(3..4, 'a'),
+            part(4..5, 'b'),
+            part(5.., 'a'),
         ]);
         assert_sanity('a', [(2..5, 'b'), (3..5, 'a')], &[
             part(..2, 'a'),
@@ -913,10 +913,10 @@ mod tests {
         // 4.. ---[===)-[+
 
         assert_sanity_2('a', (1..3, 'b'), (..0, 'c'), &[
-                part(..0, 'c'),
-                part(0..1, 'a'),
-                part(1..3, 'b'),
-                part(3.., 'a'),
+            part(..0, 'c'),
+            part(0..1, 'a'),
+            part(1..3, 'b'),
+            part(3.., 'a'),
         ]);
         assert_sanity_2('a', (1..3, 'b'), (..1, 'c'), &[
             part(..1, 'c'),
@@ -956,17 +956,17 @@ mod tests {
             part(3.., 'c'),
         ]);
         assert_sanity_2('a', (1..3, 'b'), (4.., 'c'), &[
-                part(..1, 'a'),
-                part(1..3, 'b'),
-                part(3..4, 'a'),
-                part(4.., 'c'),
+            part(..1, 'a'),
+            part(1..3, 'b'),
+            part(3..4, 'a'),
+            part(4.., 'c'),
         ]);
 
         assert_sanity_2('a', (1..3, 'b'), (..0, 'b'), &[
-                part(..0, 'b'),
-                part(0..1, 'a'),
-                part(1..3, 'b'),
-                part(3.., 'a'),
+            part(..0, 'b'),
+            part(0..1, 'a'),
+            part(1..3, 'b'),
+            part(3.., 'a'),
         ]);
         assert_sanity_2('a', (1..3, 'b'), (..1, 'b'), &[
             part(..3, 'b'),
@@ -1002,10 +1002,10 @@ mod tests {
             part(1.., 'b'),
         ]);
         assert_sanity_2('a', (1..3, 'b'), (4.., 'b'), &[
-                part(..1, 'a'),
-                part(1..3, 'b'),
-                part(3..4, 'a'),
-                part(4.., 'b'),
+            part(..1, 'a'),
+            part(1..3, 'b'),
+            part(3..4, 'a'),
+            part(4.., 'b'),
         ]);
 
         assert_sanity_2('a', (1..3, 'b'), (..0, 'a'), &[

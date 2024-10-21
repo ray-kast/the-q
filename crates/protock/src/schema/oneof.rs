@@ -71,13 +71,11 @@ pub fn check<'a>(
         };
         let group = oneof.map_or(Group::Uniq(uf_id), Group::Oneof);
 
-        assert!(
-            fields
-                .entry(uf_id)
-                .or_default()
-                .insert(side, FieldInfo { name, group })
-                .is_none()
-        );
+        assert!(fields
+            .entry(uf_id)
+            .or_default()
+            .insert(side, FieldInfo { name, group })
+            .is_none());
 
         if let Some(prev) = group_reps.insert(side.then(group), uf_id) {
             assert!(!matches!(group, Group::Uniq(_)));

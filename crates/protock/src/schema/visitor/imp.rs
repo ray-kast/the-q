@@ -202,21 +202,20 @@ impl<'a> Visitor<'a> {
         let reserved_names: HashSet<_> = reserved_name.iter().cloned().collect();
         assert!(reserved_names.len() == reserved_name.len());
 
-        assert!(
-            self.0
-                .types
-                .insert(
-                    qual_name.into_owned(),
-                    Type::message(Record::new(
-                        numbers,
-                        reserved,
-                        reserved_names,
-                        is_for_map,
-                        FieldExtra::new(oneofs)
-                    ))
-                )
-                .is_none()
-        );
+        assert!(self
+            .0
+            .types
+            .insert(
+                qual_name.into_owned(),
+                Type::message(Record::new(
+                    numbers,
+                    reserved,
+                    reserved_names,
+                    is_for_map,
+                    FieldExtra::new(oneofs)
+                ))
+            )
+            .is_none());
 
         self.descend(scope, nested_type, enum_type);
     }
@@ -346,11 +345,9 @@ impl<'a> Visitor<'a> {
             if aliasing {
                 assert!(numbers.entry(number).or_default().insert(name.into()));
             } else {
-                assert!(
-                    numbers
-                        .insert(number, [name.into()].into_iter().collect())
-                        .is_none()
-                );
+                assert!(numbers
+                    .insert(number, [name.into()].into_iter().collect())
+                    .is_none());
             }
         }
 
@@ -368,23 +365,22 @@ impl<'a> Visitor<'a> {
         let reserved_names: HashSet<_> = reserved_name.iter().cloned().collect();
         assert!(reserved_names.len() == reserved_name.len());
 
-        assert!(
-            self.0
-                .types
-                .insert(
-                    qual_name.into_owned(),
-                    Type::enumeration(Record::new(
-                        numbers
-                            .into_iter()
-                            .map(|(k, v)| (k, Variant::new(v)))
-                            .collect(),
-                        reserved,
-                        reserved_names,
-                        false,
-                        (),
-                    ))
-                )
-                .is_none()
-        );
+        assert!(self
+            .0
+            .types
+            .insert(
+                qual_name.into_owned(),
+                Type::enumeration(Record::new(
+                    numbers
+                        .into_iter()
+                        .map(|(k, v)| (k, Variant::new(v)))
+                        .collect(),
+                    reserved,
+                    reserved_names,
+                    false,
+                    (),
+                ))
+            )
+            .is_none());
     }
 }
