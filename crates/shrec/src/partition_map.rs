@@ -575,7 +575,7 @@ impl<K: Clone, V> Iterator for IntoPartitions<K, V> {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use std::{cmp::Reverse, ops::Range};
 
     use proptest::prelude::*;
