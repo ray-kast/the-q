@@ -10,6 +10,10 @@
 )]
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(
+    unused,
+    reason = "TODO: Testing code, currently it's all hard-coded and comment-toggled"
+)]
 
 use std::io::{self, Read};
 

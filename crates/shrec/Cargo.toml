@@ -8,9 +8,9 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
-hashbrown = { version = "0.15.0" }
-indexmap = "2.0.0"
-thiserror = "1.0.44"
+hashbrown = { version = "0.15.2" }
+indexmap = "2.7.0"
+thiserror = "2.0.9"
 
 [dev-dependencies]
-proptest = "1.2.0"
+proptest = "1.6.0"

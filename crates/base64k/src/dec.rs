@@ -55,6 +55,10 @@ fn split_first_chunk_mut<T, const N: usize>(
 }
 
 impl<I: Iterator<Item = char>> io::Read for Decoder<I> {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "This is unfortunately just a very complicated function"
+    )]
     fn read(&mut self, mut buf: &mut [u8]) -> io::Result<usize> {
         let mut nread = 0;
 
@@ -131,7 +135,10 @@ impl<I: Iterator<Item = char>> io::Read for Decoder<I> {
                 let dw = *unsafe { dec.get_unchecked(i) };
                 // SAFETY: dest.len() trivially equals ShortArray::WIDTH
                 let bytes = unsafe { dest.get_unchecked_mut(i) };
-                #[allow(clippy::cast_possible_truncation)]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "dw must be truncated to a u16"
+                )]
                 {
                     *bytes = (dw as u16).to_le_bytes();
                 }
@@ -151,7 +158,10 @@ impl<I: Iterator<Item = char>> io::Read for Decoder<I> {
         let dws = chunk.decode().to_array();
         let mut chunks = buf.chunks_mut(2);
         for dw in dws[..chunk_len].iter().copied() {
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "dw must be truncated to a u16"
+            )]
             let [lo, hi] = (dw as u16).to_le_bytes();
             let has_hi = (dw & TRAIL_MASK) != TRAIL_MASK;
 
@@ -196,7 +206,6 @@ mod test {
     use super::Decoder;
     use crate::test::{encode1, encode2};
 
-    #[allow(clippy::read_zero_byte_vec)] // for pathological
     fn zip_eq<A: Read, B: IntoIterator<Item = u8>>(pathological: usize, mut a: A, b: B)
     where B::IntoIter: ExactSizeIterator {
         let mut buf = vec![];

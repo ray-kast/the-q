@@ -17,7 +17,7 @@ pub(crate) mod proto;
 pub(crate) mod util;
 
 pub(crate) mod prelude {
-    #![allow(unused_imports)]
+    #![expect(unused_imports, reason = "Some exports may not yet be used")]
 
     pub use std::{
         borrow::{

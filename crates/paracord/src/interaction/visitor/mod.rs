@@ -10,7 +10,7 @@ mod private {
 
         fn data(&self) -> &Self::Data;
 
-        fn guild_id(&self) -> &Option<id::GuildId>;
+        fn guild_id(&self) -> Option<id::GuildId>;
 
         fn member(&self) -> Option<&guild::Member>;
 
@@ -24,7 +24,7 @@ mod private {
         fn data(&self) -> &Self::Data { &self.data }
 
         #[inline]
-        fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
+        fn guild_id(&self) -> Option<id::GuildId> { self.guild_id }
 
         #[inline]
         fn member(&self) -> Option<&guild::Member> { self.member.as_deref() }
@@ -40,7 +40,7 @@ mod private {
         fn data(&self) -> &Self::Data { &self.data }
 
         #[inline]
-        fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
+        fn guild_id(&self) -> Option<id::GuildId> { self.guild_id }
 
         #[inline]
         fn member(&self) -> Option<&guild::Member> { self.member.as_ref() }
@@ -56,7 +56,7 @@ mod private {
         fn data(&self) -> &Self::Data { &self.data }
 
         #[inline]
-        fn guild_id(&self) -> &Option<id::GuildId> { &self.guild_id }
+        fn guild_id(&self) -> Option<id::GuildId> { self.guild_id }
 
         #[inline]
         fn member(&self) -> Option<&guild::Member> { self.member.as_ref() }

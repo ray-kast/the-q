@@ -11,12 +11,14 @@
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
 
+use std::io::Cursor;
+
 pub use image;
 use image::{
     buffer::ConvertBuffer,
     codecs::jpeg::{JpegDecoder, JpegEncoder},
-    ColorType, DynamicImage, ImageBuffer, ImageDecoder, ImageError, ImageResult, Pixel,
-    PixelWithColorType,
+    ColorType, DynamicImage, ExtendedColorType, ImageBuffer, ImageDecoder, ImageError, ImageResult,
+    Pixel, PixelWithColorType,
 };
 
 /// An error arising from JPEG-ing pixels
@@ -38,7 +40,7 @@ pub fn jpeg_pixels(
     pixels: Vec<u8>,
     width: u32,
     height: u32,
-    color_type: ColorType,
+    color_type: ExtendedColorType,
     iterations: usize,
     quality: u8,
 ) -> ImageResult<Vec<u8>> {
@@ -50,9 +52,14 @@ pub fn jpeg_pixels(
         let mut encoder = JpegEncoder::new_with_quality(&mut encoded_data, quality);
         encoder.encode(&decoded_data, width, height, color_type)?;
         decoded_data.clear();
-        let decoder = JpegDecoder::new(&*encoded_data)?;
-        #[allow(clippy::cast_possible_truncation)]
-        decoded_data.resize_with(decoder.total_bytes() as usize, Default::default);
+        let decoder = JpegDecoder::new(Cursor::new(&*encoded_data))?;
+        decoded_data.resize_with(
+            decoder
+                .total_bytes()
+                .try_into()
+                .unwrap_or_else(|_| unreachable!()),
+            Default::default,
+        );
         decoder.read_image(&mut decoded_data)?;
     }
 

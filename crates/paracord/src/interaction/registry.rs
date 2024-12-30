@@ -130,7 +130,7 @@ fn command_name(w: &mut impl Write, cache: &Cache, data: &CommandData) -> fmt::R
                     .next()
                     .unwrap_or_else(|| unreachable!());
                 write!(w, "/{} in ", msg.id)?;
-                write_channel(w, cache, msg.channel_id)
+                write_channel(w, msg.guild(cache).as_ref(), msg.channel_id)
             } else {
                 write!(w, "<target unknown>")
             }
@@ -152,15 +152,16 @@ fn write_issuer(
 ) -> fmt::Result {
     write_user(w, user)?;
     if let Some(gid) = guild {
-        if let Some(guild) = cache.guild(gid) {
+        let guild = cache.guild(gid);
+        if let Some(ref guild) = guild {
             write!(w, " in guild {} ", guild.name)
         } else {
             write!(w, " in unknown guild {gid} ")
         }?;
-        write_channel(w, cache, chan)
+        write_channel(w, guild.as_ref(), chan)
     } else {
         write!(w, " in DM ")?;
-        write_channel(w, cache, chan)
+        write_channel(w, None, chan)
     }
 }
 
@@ -171,20 +172,20 @@ fn write_user(w: &mut impl Write, u: &User) -> fmt::Result {
 }
 
 #[inline]
-fn write_channel(w: &mut impl Write, cache: &Cache, chan: ChannelId) -> fmt::Result {
-    if let Some(chan) = cache.channel(chan) {
+fn write_channel(
+    w: &mut impl Write,
+    guild: Option<
+        &serenity::cache::CacheRef<
+            '_,
+            GuildId,
+            serenity::model::guild::Guild,
+            std::convert::Infallible,
+        >,
+    >,
+    chan: ChannelId,
+) -> fmt::Result {
+    if let Some(chan) = guild.and_then(|g| g.channels.get(&chan)) {
         write!(w, "#{}", chan.name)
-
-        // TODO: what happened here?
-        // match chan {
-        //     Channel::Guild(c) => write!(w, "#{}", c.name),
-        //     Channel::Private(d) => {
-        //         write!(w, "to ")?;
-        //         write_user(w, &d.recipient)
-        //     },
-        //     Channel::Category(c) => write!(w, "[#{}]", c.name),
-        //     _ => write!(w, "#???"),
-        // }
     } else {
         write!(w, "<#{chan}>")
     }

@@ -97,9 +97,6 @@ pub trait CommandHandler<S>: fmt::Debug + Send + Sync {
     /// Provide registration data for this command within the context of a guild
     #[inline]
     fn register_guild(&self, id: GuildId) -> Option<CommandInfo> {
-        // Use the variables to give the trait args a nice name without getting
-        // dead code warnings
-        #[allow(let_underscore_drop)]
         let _ = (id,);
         None
     }
@@ -113,7 +110,6 @@ pub trait CommandHandler<S>: fmt::Debug + Send + Sync {
         ctx: &Context,
         visitor: &mut CompletionVisitor<'_>,
     ) -> CompletionResult {
-        #[allow(let_underscore_drop)]
         let _ = (ctx, visitor);
         Ok(vec![])
     }

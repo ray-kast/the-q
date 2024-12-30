@@ -86,7 +86,7 @@ impl AttrState {
     }
 }
 
-impl<'a> Display for Graph<'a> {
+impl Display for Graph<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.ty)?;
 

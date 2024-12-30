@@ -281,7 +281,8 @@ impl<I> Default for ButtonsBuilder<I> {
 }
 
 #[builder(trait_name = ButtonsBuilderExt)]
-/// Helper methods for mutating an [`ActionRow`] for messages
+/// Helper methods for mutating an
+/// [`ActionRow`](serenity::model::application::ActionRow) for messages
 impl<I: ComponentId> ButtonsBuilder<I> {
     /// Add a button to this row by value
     pub fn push(&mut self, btn: Button<I, id::Error>) { self.0.push(btn); }

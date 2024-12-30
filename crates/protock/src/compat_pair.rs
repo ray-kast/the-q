@@ -94,7 +94,7 @@ impl<T> CompatPair<T> {
     }
 }
 
-impl<'a, T: Copy> CompatPair<&'a T> {
+impl<T: Copy> CompatPair<&T> {
     #[inline]
     pub const fn copied(self) -> CompatPair<T> {
         let Self {
@@ -141,7 +141,7 @@ impl<T: Eq + std::fmt::Debug> CompatPair<T> {
     }
 }
 
-impl<'a, T: CheckCompat> CompatPair<&'a T> {
+impl<T: CheckCompat> CompatPair<&T> {
     #[inline]
     pub fn check(self, cx: CompatPair<T::Context<'_>>, log: &mut CompatLog) {
         CheckCompat::check_compat(self, cx, log);
@@ -256,7 +256,7 @@ impl<T> Side<T> {
     }
 }
 
-impl<'a, T: Copy> Side<&'a T> {
+impl<T: Copy> Side<&T> {
     #[inline]
     pub const fn copied(&self) -> Side<T> {
         match self {
@@ -384,7 +384,7 @@ impl<T> SideInclusive<T> {
 #[repr(transparent)]
 pub struct Display<'a, T>(&'a T);
 
-impl<'a, T: fmt::Display> fmt::Display for Display<'a, CompatPair<T>> {
+impl<T: fmt::Display> fmt::Display for Display<'_, CompatPair<T>> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let CompatPair { reader, writer } = self.0;
@@ -392,14 +392,14 @@ impl<'a, T: fmt::Display> fmt::Display for Display<'a, CompatPair<T>> {
     }
 }
 
-impl<'a, T: fmt::Debug> fmt::Debug for Display<'a, CompatPair<T>> {
+impl<T: fmt::Debug> fmt::Debug for Display<'_, CompatPair<T>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let CompatPair { reader, writer } = self.0;
         write!(f, "{reader:?} in reader, {writer:?} in writer")
     }
 }
 
-impl<'a, T: fmt::Display> fmt::Display for Display<'a, Side<T>> {
+impl<T: fmt::Display> fmt::Display for Display<'_, Side<T>> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (side, val) = self.0.as_ref().split();
@@ -407,14 +407,14 @@ impl<'a, T: fmt::Display> fmt::Display for Display<'a, Side<T>> {
     }
 }
 
-impl<'a, T: fmt::Debug> fmt::Debug for Display<'a, Side<T>> {
+impl<T: fmt::Debug> fmt::Debug for Display<'_, Side<T>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (side, val) = self.0.as_ref().split();
         write!(f, "{val:?} in {}", side.pretty())
     }
 }
 
-impl<'a, T: fmt::Display> fmt::Display for Display<'a, SideInclusive<T>> {
+impl<T: fmt::Display> fmt::Display for Display<'_, SideInclusive<T>> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
@@ -424,7 +424,7 @@ impl<'a, T: fmt::Display> fmt::Display for Display<'a, SideInclusive<T>> {
     }
 }
 
-impl<'a, T: fmt::Debug> fmt::Debug for Display<'a, SideInclusive<T>> {
+impl<T: fmt::Debug> fmt::Debug for Display<'_, SideInclusive<T>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             SideInclusive::One(s) => write!(f, "{:?}", s.display()),

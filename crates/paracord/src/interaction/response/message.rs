@@ -240,7 +240,7 @@ impl<I, E> Message<I, E> {
 
 #[builder(trait_name = MessageExt)]
 /// Helper methods for mutating [`Message`]
-impl<'a, I, E> Message<I, E> {
+impl<I, E> Message<I, E> {
     /// Add an attachment to this message
     pub fn attach(&mut self, attachments: impl IntoIterator<Item = CreateAttachment>) {
         self.attachments.extend(attachments);

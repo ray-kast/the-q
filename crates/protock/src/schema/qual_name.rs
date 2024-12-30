@@ -6,7 +6,7 @@ pub struct QualName<'a> {
     path: Vec<Cow<'a, str>>,
 }
 
-impl<'a> fmt::Debug for QualName<'a> {
+impl fmt::Debug for QualName<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(package) = &self.package {
             write!(f, "'{package}'")?;
@@ -66,13 +66,13 @@ pub struct MemberQualName<'a> {
     memb: Cow<'a, str>,
 }
 
-impl<'a> fmt::Debug for MemberQualName<'a> {
+impl fmt::Debug for MemberQualName<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}::{}", self.ty, self.memb)
     }
 }
 
-impl<'a> MemberQualName<'a> {
+impl MemberQualName<'_> {
     pub fn borrowed(&self) -> MemberQualName<'_> {
         let Self { ty, memb } = self;
 

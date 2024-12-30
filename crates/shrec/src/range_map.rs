@@ -21,6 +21,10 @@ impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for RangeMap<K, V> {
     }
 }
 
+impl<K, V> Default for RangeMap<K, V> {
+    fn default() -> Self { Self::new() }
+}
+
 impl<K, V> RangeMap<K, V> {
     pub const EMPTY: Self = Self::new();
 

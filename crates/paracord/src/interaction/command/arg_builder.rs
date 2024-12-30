@@ -222,15 +222,12 @@ impl ArgBuilder {
         required: bool,
         range: impl BuildRange<f64>,
     ) {
-        #![allow(clippy::manual_let_else)] // syn doesn't support let-else
         let (min, max) = range.build_range().into_inner();
-        let (min, max) = if let Ok(t) = min
+        let Ok((min, max)) = min
             .map(NotNan::new)
             .transpose()
             .and_then(|r| max.map(NotNan::new).transpose().map(|s| (r, s)))
-        {
-            t
-        } else {
+        else {
             self.0 = ArgBuilderState::Error("NaN given for real argument bound");
             return;
         };

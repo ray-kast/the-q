@@ -10,7 +10,12 @@
 )]
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
-#![allow(missing_docs, clippy::missing_errors_doc, clippy::missing_panics_doc)] // TODO
+#![allow(
+    missing_docs,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    reason = "TODO: document everything"
+)]
 
 pub mod closure_builder;
 pub mod dfa;

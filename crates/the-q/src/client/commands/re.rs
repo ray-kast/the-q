@@ -22,10 +22,10 @@ impl CommandHandler<Schema> for ReCommand {
     async fn respond<'a>(
         &self,
         _: &Context,
-        visitor: &mut CommandVisitor<'_>,
+        _visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
-        let target = visitor.target().message()?;
+        // let target = visitor.target().message()?;
 
         let msg = {
             let re = Regex::Cat(vec![

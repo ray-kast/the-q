@@ -134,13 +134,12 @@ impl<K: Ord, V> PartitionMap<K, V> {
 fn check_bounds<T: Ord, B: PartitionBounds<T>>(range: B) -> Option<(Option<T>, Option<T>)> {
     let (start, end) = range.into_bounds();
 
-    match (&start, &end) {
-        (Some(s), Some(e)) => match s.cmp(e) {
+    if let (Some(s), Some(e)) = (&start, &end) {
+        match s.cmp(e) {
             Ordering::Less => (),
             Ordering::Equal => return None,
             Ordering::Greater => panic!("Invalid range, start is greater than end"),
-        },
-        (_, None) | (None, _) => (),
+        }
     }
 
     Some((start, end))
@@ -318,10 +317,18 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
     }
 }
 
+#[expect(
+    clippy::ref_option,
+    reason = "This is a pattern-specific helper method"
+)]
 fn as_open<T>(opt: &Option<T>) -> ops::Bound<&T> {
     opt.as_ref().map_or(Bound::Unbounded, Bound::Excluded)
 }
 
+#[expect(
+    clippy::ref_option,
+    reason = "This is a pattern-specific helper method"
+)]
 fn as_closed<T>(opt: &Option<T>) -> Bound<&T> {
     opt.as_ref().map_or(Bound::Unbounded, Bound::Included)
 }
@@ -398,7 +405,6 @@ impl<K, V> Partition<K, V> {
 }
 
 impl<K: ToOwned, V: ToOwned> Partition<&K, &V> {
-    #[allow(clippy::wrong_self_convention)] // It's literally to_owned
     #[must_use]
     pub fn to_owned(&self) -> Partition<K::Owned, V::Owned> {
         let Self { start, end, value } = *self;
@@ -660,7 +666,10 @@ mod test {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Gestures vaguely at exhaustive handwritten base cases"
+    )]
     fn test_sanity() {
         // -----[=====)-----
         //  0   2 3   5 6

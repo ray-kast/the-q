@@ -31,7 +31,11 @@ impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
 
     fn solve_closure<S: BorrowMut<BTreeSet<&'a N>>>(&mut self, set: S) -> S {
         self.closure.solve(set, |n| {
-            #[allow(clippy::zero_sized_map_values)]
+            #[expect(
+                clippy::zero_sized_map_values,
+                reason = "Nfa with unit edge type necessarily creates a BTreeMap representing a \
+                          set"
+            )]
             self.nfa
                 .get(n)
                 .into_iter()

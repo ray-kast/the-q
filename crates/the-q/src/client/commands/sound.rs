@@ -323,7 +323,6 @@ impl CommandHandler<Schema> for SoundCommand {
                 let files = self.files().await?;
                 let files = files.files.read().await;
 
-                #[allow(clippy::cast_precision_loss)]
                 let mut heap: BinaryHeap<_> = {
                     let all = once_cell::unsync::OnceCell::new();
                     files
@@ -382,6 +381,10 @@ impl RpcHandler<Schema, ComponentKey> for SoundCommand {
         visitor: &mut ComponentVisitor<'_>,
         responder: ComponentResponder<'_, 'a>,
     ) -> ComponentResult<'a> {
+        #[expect(
+            clippy::match_wildcard_for_single_variants,
+            reason = "This will have more variants in the future"
+        )]
         match payload {
             ComponentPayload::Soundboard(s) => {
                 let component::Soundboard { file } = s;
@@ -409,7 +412,10 @@ impl RpcHandler<Schema, ComponentKey> for SoundCommand {
     }
 }
 
-struct SongbirdHandler(Arc<()>, Arc<Mutex<songbird::Call>>);
+struct SongbirdHandler(
+    #[expect(dead_code, reason = "This field is used as a drop canary")] Arc<()>,
+    Arc<Mutex<songbird::Call>>,
+);
 
 #[async_trait]
 impl songbird::EventHandler for SongbirdHandler {

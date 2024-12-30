@@ -1,3 +1,9 @@
+#![expect(
+    missing_docs,
+    clippy::missing_errors_doc,
+    reason = "TODO: document this"
+)]
+
 use std::collections::HashMap;
 
 use serenity::{
@@ -75,7 +81,7 @@ impl<'a, I> std::ops::Deref for CommandVisitor<'a, I> {
     fn deref(&self) -> &Self::Target { &self.base }
 }
 
-impl<'a, I> std::ops::DerefMut for CommandVisitor<'a, I> {
+impl<I> std::ops::DerefMut for CommandVisitor<'_, I> {
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.base }
 }
 
@@ -302,7 +308,7 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
 #[derive(Debug)]
 pub struct OptionVisitor<'a, T>(&'a str, Option<T>);
 
-impl<'a, T> OptionVisitor<'a, T> {
+impl<T> OptionVisitor<'_, T> {
     pub fn optional(self) -> Option<T> { self.1 }
 
     pub fn required(self) -> Result<T> { self.1.ok_or_else(|| Error::MissingOption(self.0.into())) }

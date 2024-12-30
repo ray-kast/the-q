@@ -54,8 +54,7 @@ fn init_subscriber<
         .unwrap_or_else(|e| init_error!("Error initializing logger: {e}"));
 }
 
-#[allow(clippy::inline_always)]
-#[inline(always)]
+#[inline]
 pub fn main() {
     let tmp_logger =
         tracing::subscriber::set_default(tracing_subscriber::registry().with(fmt_layer()));
@@ -173,8 +172,7 @@ enum StopType<S> {
     Closed(Result<(), serenity::Error>),
 }
 
-#[allow(clippy::inline_always)]
-#[inline(always)]
+#[inline]
 #[instrument(level = "error", skip(opts))]
 async fn run(opts: Opts) -> Result {
     let Opts {

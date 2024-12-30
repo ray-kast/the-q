@@ -22,7 +22,7 @@ impl From<Infallible> for Error {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id<'a>(Cow<'a, str>);
 
-impl<'a> fmt::Display for Id<'a> {
+impl fmt::Display for Id<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.0) }
 }
 

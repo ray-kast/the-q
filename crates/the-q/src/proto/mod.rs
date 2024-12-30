@@ -2,7 +2,8 @@
 #![allow(
     clippy::doc_markdown,
     clippy::module_inception,
-    clippy::trivially_copy_pass_by_ref
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Generated code"
 )]
 
 macro_rules! proto_mod {

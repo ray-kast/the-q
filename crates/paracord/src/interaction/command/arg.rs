@@ -60,7 +60,7 @@ impl Arg {
             ),
             ArgType::IntChoice(c) => Self::build_choices(
                 opt,
-                #[allow(clippy::cast_possible_truncation)] // serenity type error
+                #[expect(clippy::cast_possible_truncation, reason = "Serenity type error")]
                 c.into_iter().map(|Choice { name, val }| Choice {
                     name,
                     val: val as i32,

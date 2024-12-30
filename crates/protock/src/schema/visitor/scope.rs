@@ -16,15 +16,15 @@ pub struct GlobalScope<'a>(pub(super) Scope<'a>);
 
 #[inline]
 fn split_package<'a, S: AsRef<str> + 'a>(
-    package: &'a Option<S>,
+    package: Option<&'a S>,
 ) -> impl Iterator<Item = &'a str> + 'a {
-    package.iter().flat_map(move |s| s.as_ref().split('.'))
+    package.into_iter().flat_map(move |s| s.as_ref().split('.'))
 }
 
 impl<'a> GlobalScope<'a> {
     pub fn new(fildes_set: &'a FileDescriptorSet) -> Self {
         Self(fildes_set.file.iter().fold(Scope::default(), |mut p, f| {
-            split_package(&f.package)
+            split_package(f.package.as_ref())
                 .fold(&mut p, |n, p| n.children.entry(p).or_default())
                 .package(f);
             p
@@ -32,7 +32,7 @@ impl<'a> GlobalScope<'a> {
     }
 
     #[inline]
-    pub fn package_ref<S: AsRef<str>>(&self, package: &Option<S>) -> Option<ScopeRef> {
+    pub fn package_ref<S: AsRef<str>>(&self, package: Option<&S>) -> Option<ScopeRef> {
         let ret = split_package(package).try_fold(ScopeRef::new(self), ScopeRef::child)?;
 
         matches!(ret.scope.kind, Some(ScopeKind::Package(_))).then_some(ret)

@@ -8,12 +8,12 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
-anyhow = "1.0.72"
-clap = { version = "4.5.20", features = ["derive", "cargo"] }
-git2 = "0.18.1"
-prost = "0.12.3"
-prost-types = "0.12.3"
+anyhow = "1.0.95"
+clap = { version = "4.5.23", features = ["derive", "cargo"] }
+git2 = "0.19.0"
+prost = "0.13.4"
+prost-types = "0.13.4"
 shrec = { version = "0.1.0", path = "../shrec" }
-tempfile = "3.7.0"
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.18", features = ["tracing-log", "fmt"] }
+tempfile = "3.14.0"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["tracing-log", "fmt"] }

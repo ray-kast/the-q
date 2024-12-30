@@ -9,13 +9,19 @@ use super::{Arg, ArgType, CommandInfo, Data, Subcommand, Trie};
 #[must_use]
 pub fn similarity(l: &CommandInfo, r: &CommandInfo) -> f64 { l.sim(r) }
 
-#[allow(clippy::cast_precision_loss)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Normalizing the score requires casting usizes to f64s"
+)]
 fn ngdl<T: Clone + Eq + Hash>(l: &[T], r: &[T]) -> f64 {
     let score = generic_damerau_levenshtein(l, r);
     1.0 - (score as f64) / (l.len().max(r.len()) as f64)
 }
 
-#[allow(clippy::cast_precision_loss)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Dividing the sum by the sample count requires casting N to an f64"
+)]
 fn avg<const N: usize>(a: [f64; N]) -> f64 { a.into_iter().sum::<f64>() / N as f64 }
 
 trait Sim {
@@ -50,7 +56,10 @@ impl<T: Clone + Eq + Hash> Sim for Vec<T> {
     fn sim(&self, rhs: &Self) -> f64 { ngdl(self, rhs) }
 }
 
-#[allow(clippy::cast_precision_loss)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Computing the average score requires casting len() to an f64"
+)]
 impl<K: Ord, V: Sim> Sim for BTreeMap<K, V> {
     fn sim(&self, rhs: &Self) -> f64 {
         self.iter()

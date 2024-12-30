@@ -38,7 +38,7 @@ mod imp {
         pub fn get<'a, 'b, Q: Eq + std::hash::Hash>(
             &'a self,
             key: &'b Q,
-        ) -> Result<&Type, TypeError<'b, Q>>
+        ) -> Result<&'a Type, TypeError<'b, Q>>
         where
             QualName<'a>: std::borrow::Borrow<Q>,
         {

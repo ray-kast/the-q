@@ -8,7 +8,7 @@ mod sound;
 mod test;
 
 mod prelude {
-    #![allow(unused_imports)]
+    #![expect(unused_imports, reason = "Some exports may not yet be used")]
 
     pub use paracord::interaction::{
         command::{prelude::*, Args, CommandInfo},

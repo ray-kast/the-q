@@ -67,7 +67,7 @@ pub enum TypeCheckKind<'a> {
     },
 }
 
-impl<'a> fmt::Debug for TypeCheckKind<'a> {
+impl fmt::Debug for TypeCheckKind<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ByName(q) => write!(f, "{q:?}"),
@@ -76,7 +76,7 @@ impl<'a> fmt::Debug for TypeCheckKind<'a> {
     }
 }
 
-impl<'a> TypeCheckKind<'a> {
+impl TypeCheckKind<'_> {
     pub fn to_owned(&self) -> TypeCheckKind<'static> {
         match self {
             Self::ByName(q) => TypeCheckKind::ByName(q.to_owned()),

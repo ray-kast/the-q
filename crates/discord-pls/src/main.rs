@@ -175,6 +175,10 @@ impl CommandOpt {
 
 type CrudResults = BTreeMap<(FlowType, Box<[CrudOp<ResponseType>]>), bool>;
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "PingPong is zero-size and the rest are large"
+)]
 enum TestMode {
     Cartesian {
         untried: BTreeSet<(InteractionType, RawResponseType)>,
@@ -578,7 +582,7 @@ fn print_crud_results(results: &CrudResults) -> MessageBuilder {
 
 #[async_trait::async_trait]
 impl EventHandler for Handler {
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines, reason = "i mean yea")]
     async fn interaction_create(&self, ctx: Context, int: Interaction) {
         let mut state = self.state.write().await;
 
@@ -593,7 +597,7 @@ impl EventHandler for Handler {
                 ref mut results,
                 modals,
             } => match (flow, modals) {
-                (FlowType::TopLevel(int_ty), false) => {
+                (FlowType::TopLevel(int_ty), false) | (FlowType::ModalSubmit(int_ty), true) => {
                     try_pair(&int, &ctx.http, int_ty, untried, results).await;
                 },
                 (FlowType::ModalSubmit(int_ty), false) => {
@@ -615,9 +619,6 @@ impl EventHandler for Handler {
                     .await
                     .map_err(|e| tracing::error!(%e))
                     .ok();
-                },
-                (FlowType::ModalSubmit(int_ty), true) => {
-                    try_pair(&int, &ctx.http, int_ty, untried, results).await;
                 },
             },
             TestMode::CrudBrute {

@@ -131,7 +131,7 @@ pub(super) fn run(args: Args, arg_span: Span, mut body: syn::ItemImpl) -> TokenS
 
         impl<
             #impl_generic_params
-            #[allow(non_camel_case_types)]
+            #[expect(non_camel_case_types, reason = "Macro-generated variable")]
             __Builder_T: ::std::borrow::BorrowMut<#ty_name> + ::std::marker::Sized
         > #trait_name <#trait_generics> for __Builder_T #impl_generic_where {}
     }
@@ -196,13 +196,20 @@ fn make_builder_method(m: syn::ImplItem, diag: &mut TokenStream) -> syn::ImplIte
     let Some(syn::FnArg::Receiver(r)) = m.sig.inputs.first_mut() else {
         unreachable!()
     };
+    #[expect(
+        clippy::assigning_clones,
+        reason = "elem.clone() eliminates a borrow of r"
+    )]
     if let syn::Type::Reference(syn::TypeReference { ref elem, .. }) = *r.ty {
         r.ty = elem.clone();
     }
     r.reference = None;
 
     m.attrs.push(syn::parse_quote! {
-        #[allow(clippy::return_self_not_must_use)]
+        #[expect(
+            clippy::return_self_not_must_use,
+            reason = "Self may be a mutable reference type"
+        )]
     });
 
     m.sig.output = syn::parse_quote_spanned! { span => -> Self };
@@ -229,7 +236,11 @@ fn make_builder_method(m: syn::ImplItem, diag: &mut TokenStream) -> syn::ImplIte
                 }
                 .fold_block(m.block);
                 syn::parse_quote_spanned! { block.span() =>
-                    #[allow(clippy::unnecessary_operation)] { #block; };
+                    #[allow(
+                        clippy::unnecessary_operation,
+                        reason = "Inside macro-generated code"
+                    )]
+                    { #block; };
                 }
             },
             syn::Stmt::Expr(syn::Expr::Path(this), None),
@@ -245,7 +256,7 @@ struct Folder<'a> {
     repl: syn::ExprPath,
 }
 
-impl<'a> Fold for Folder<'a> {
+impl Fold for Folder<'_> {
     fn fold_item(&mut self, i: syn::Item) -> syn::Item { i }
 
     fn fold_expr_path(&mut self, e: syn::ExprPath) -> syn::ExprPath {

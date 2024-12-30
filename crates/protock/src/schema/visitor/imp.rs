@@ -27,7 +27,7 @@ impl<'a> From<&'a mut Schema> for Visitor<'a> {
     fn from(val: &'a mut Schema) -> Self { Self(val) }
 }
 
-impl<'a> Visitor<'a> {
+impl Visitor<'_> {
     pub fn fildes_set(&mut self, desc: &FileDescriptorSet) {
         let scope = GlobalScope::new(desc);
 
@@ -91,7 +91,10 @@ impl<'a> Visitor<'a> {
         assert_eq!(syntax.as_deref(), Some("proto3"));
 
         let (optimize, deprecated) = if let Some(opts) = options {
-            #[allow(deprecated)] // explicitly ignoring java_generate_equals_and_hash
+            #[expect(
+                deprecated,
+                reason = "Explicitly ignoring java_generate_equals_and_hash"
+            )]
             let FileOptions {
                 java_package: _,
                 java_outer_classname: _,
@@ -128,7 +131,7 @@ impl<'a> Visitor<'a> {
             (OptimizeMode::default(), false)
         };
 
-        let scope = scope.package_ref(package).unwrap();
+        let scope = scope.package_ref(package.as_ref()).unwrap();
 
         self.descend(&scope, message_type, enum_type);
     }

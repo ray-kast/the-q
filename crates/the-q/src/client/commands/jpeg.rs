@@ -1,4 +1,4 @@
-use std::{io::Cursor, path::PathBuf};
+use std::path::PathBuf;
 
 use jpeggr::image::{self, ImageFormat};
 use serenity::builder::CreateAttachment;
@@ -62,11 +62,8 @@ async fn jpeg(input: JpegInput<'_>, quality: Option<i64>) -> Result<Vec<u8>> {
             .context("Error applying JPEG effect to image")?;
 
         let mut bytes = Vec::new();
-        jpegged_image
-            .write_to(
-                &mut Cursor::new(&mut bytes),
-                image::ImageOutputFormat::Jpeg(quality),
-            )
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, quality)
+            .encode_image(&jpegged_image)
             .context("Error encoding image")?;
 
         Ok(bytes)
