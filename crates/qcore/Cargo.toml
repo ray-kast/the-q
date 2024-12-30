@@ -1,7 +1,7 @@
 [package]
 name = "qcore"
 description = "makes a gay little utility crate that pisses you off"
-authors = ["raykast <me@ryan-s.net>"]
+authors = ["raykast <me@june-s.net>"]
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
