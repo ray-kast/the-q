@@ -22,33 +22,21 @@ impl<N, A: Default> Default for DfaAtomizer<N, A> {
 impl<N: Eq + Hash, A: Copy + Ord + Succ> DfaAtomizer<N, A> {
     fn get(&mut self, node: N) -> A { *self.used.entry(node).or_insert_with(|| self.free.fresh()) }
 
-    pub fn atomize_nodes<I: Ord, E, T>(
-        mut self,
-        dfa: Dfa<I, N, E, T>,
-    ) -> (Dfa<I, A, E, T>, HashMap<N, A>) {
-        let Dfa {
-            states,
-            start,
-            accept,
-        } = dfa;
+    pub fn atomize_nodes<I: Ord, T>(mut self, dfa: Dfa<I, N, T>) -> (Dfa<I, A, T>, HashMap<N, A>) {
+        let Dfa { states, start } = dfa;
 
         (
             Dfa {
                 states: states
                     .into_iter()
-                    .map(|(k, Node(v))| {
+                    .map(|(n, Node(e, a))| {
                         (
-                            self.get(k),
-                            Node(
-                                v.into_iter()
-                                    .map(|(k, (n, e))| (k, (self.get(n), e)))
-                                    .collect(),
-                            ),
+                            self.get(n),
+                            Node(e.into_iter().map(|(k, n)| (k, self.get(n))).collect(), a),
                         )
                     })
                     .collect(),
                 start: self.get(start),
-                accept: accept.into_iter().map(|(a, t)| (self.get(a), t)).collect(),
             },
             self.used,
         )

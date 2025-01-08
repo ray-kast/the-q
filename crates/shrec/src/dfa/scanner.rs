@@ -6,7 +6,7 @@ pub struct TrapError;
 
 #[derive(Debug)]
 pub struct Scanner<'a, I, N, J, T> {
-    dfa: &'a Dfa<I, N, (), T>,
+    dfa: &'a Dfa<I, N, T>,
     input: J,
     state: N,
     last_accept: Option<(&'a T, J)>,
@@ -14,7 +14,7 @@ pub struct Scanner<'a, I, N, J, T> {
 
 impl<'a, I, N: Copy + Ord, J: Clone, T> Scanner<'a, I, N, J, T> {
     #[must_use]
-    pub fn new<K: IntoIterator<IntoIter = J>>(dfa: &'a Dfa<I, N, (), T>, input: K) -> Self {
+    pub fn new<K: IntoIterator<IntoIter = J>>(dfa: &'a Dfa<I, N, T>, input: K) -> Self {
         let mut me = Self {
             state: dfa.start,
             dfa,
@@ -27,7 +27,7 @@ impl<'a, I, N: Copy + Ord, J: Clone, T> Scanner<'a, I, N, J, T> {
 
     fn set_state(&mut self, to: N) {
         self.state = to;
-        if let Some(tok) = self.dfa.accept.get(&self.state) {
+        if let Some(ref tok) = self.dfa.states[&self.state].1 {
             self.last_accept = Some((tok, self.input.clone()));
         }
     }
@@ -44,7 +44,7 @@ impl<'a, I: Ord, N: Copy + Ord, J: Clone + Iterator<Item = I>, T> Iterator
                 break false;
             };
 
-            let Some(&(next, ())) = self
+            let Some(&next) = self
                 .dfa
                 .states
                 .get(&self.state)

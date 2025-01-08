@@ -4,7 +4,7 @@ use super::Regex;
 use crate::{free::Free, nfa::Nfa};
 
 pub struct NfaBuilder<I, T> {
-    nfa: Nfa<I, u64, (), T>,
+    nfa: Nfa<I, u64, T>,
     free: Free<u64>,
 }
 
@@ -38,7 +38,7 @@ impl<I: Ord, T: Ord> NfaBuilder<I, T> {
 
     #[inline]
     fn connect(&mut self, from: u64, to: u64, by: Option<I>) {
-        assert!(self.nfa.connect(&from, to, by, ()).is_none());
+        assert!(self.nfa.connect(&from, to, by));
     }
 
     fn build_in<L: IntoIterator<Item = I>>(&mut self, regex: Regex<L>, head: u64, tail: u64) {
@@ -100,5 +100,5 @@ impl<I: Ord, T: Ord> NfaBuilder<I, T> {
     }
 
     #[inline]
-    pub fn finish(self) -> Nfa<I, u64, (), T> { self.nfa }
+    pub fn finish(self) -> Nfa<I, u64, T> { self.nfa }
 }

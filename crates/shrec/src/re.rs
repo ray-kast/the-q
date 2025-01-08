@@ -23,7 +23,7 @@ where L::Item: Ord
 {
     #[inline]
     #[must_use]
-    pub fn compile(self) -> Nfa<L::Item, u64, (), ()> { NfaBuilder::build([(self, ())]).finish() }
+    pub fn compile(self) -> Nfa<L::Item, u64, ()> { NfaBuilder::build([(self, ())]).finish() }
 }
 
 pub type Token<L, T> = (Regex<L>, T);
@@ -60,5 +60,5 @@ where L::Item: Ord
 {
     #[inline]
     #[must_use]
-    pub fn compile(self) -> Nfa<L::Item, u64, (), T> { NfaBuilder::build(self.0).finish() }
+    pub fn compile(self) -> Nfa<L::Item, u64, T> { NfaBuilder::build(self.0).finish() }
 }

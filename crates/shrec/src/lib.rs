@@ -20,6 +20,7 @@
 pub mod closure_builder;
 pub mod dfa;
 pub mod dot;
+pub mod egraph;
 pub mod free;
 pub mod lex_cmp;
 pub mod memoize;

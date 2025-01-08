@@ -197,6 +197,9 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
     #[inline]
     pub fn set<B: PartitionBounds<K>>(&mut self, range: B, value: V) {
         self.set_internal(range, value, &mut vec![]);
+
+        #[cfg(test)]
+        self.assert_invariants();
     }
 
     #[inline]
@@ -271,6 +274,9 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
         f: F,
     ) {
         self.update_internal(range, f, &mut vec![], &mut vec![]);
+
+        #[cfg(test)]
+        self.assert_invariants();
     }
 
     pub fn update_all<I: IntoIterator, F: FnMut(Partition<&K, &V>) -> V>(
@@ -286,6 +292,9 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
         for range in it {
             self.update_internal(range, &mut f, &mut over, &mut set_over);
         }
+
+        #[cfg(test)]
+        self.assert_invariants();
     }
 
     pub fn fold<F: FnMut(Partition<&K, &V>, &V) -> V>(
@@ -304,6 +313,9 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
                 &mut set_over,
             );
         }
+
+        #[cfg(test)]
+        self.assert_invariants();
     }
 
     #[must_use]

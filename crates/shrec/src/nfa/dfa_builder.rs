@@ -17,12 +17,12 @@ impl<I, N> Default for State<I, N> {
 }
 
 pub struct DfaBuilder<'a, I, N, T> {
-    nfa: &'a Nfa<I, N, (), T>,
+    nfa: &'a Nfa<I, N, T>,
     closure: ClosureBuilder<&'a N>,
 }
 
 impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
-    pub fn new(nfa: &'a Nfa<I, N, (), T>) -> Self {
+    pub fn new(nfa: &'a Nfa<I, N, T>) -> Self {
         Self {
             nfa,
             closure: ClosureBuilder::default(),
@@ -31,21 +31,16 @@ impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
 
     fn solve_closure<S: BorrowMut<BTreeSet<&'a N>>>(&mut self, set: S) -> S {
         self.closure.solve(set, |n| {
-            #[expect(
-                clippy::zero_sized_map_values,
-                reason = "Nfa with unit edge type necessarily creates a BTreeMap representing a \
-                          set"
-            )]
             self.nfa
                 .get(n)
                 .into_iter()
                 .filter_map(|n| n.get(&None))
-                .flat_map(BTreeMap::keys)
+                .flatten()
         })
     }
 
     #[inline]
-    pub fn build(&mut self) -> Dfa<&'a I, Rc<BTreeSet<&'a N>>, (), Rc<BTreeSet<&'a T>>> {
+    pub fn build(&mut self) -> Dfa<&'a I, Rc<BTreeSet<&'a N>>, Rc<BTreeSet<&'a T>>> {
         let mut memo_node = Memoize::default();
         let mut memo_tok = Memoize::default();
         self.closure.init([self.nfa.start()]);
@@ -75,7 +70,7 @@ impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
                 {
                     let states = node.0.entry(inp).or_default();
 
-                    self.closure.init(nodes.keys());
+                    self.closure.init(nodes);
                     self.solve_closure(states);
                 }
             }
@@ -92,9 +87,9 @@ impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
 
             let toks: BTreeSet<_> = self
                 .nfa
-                .accept()
+                .nodes
                 .iter()
-                .filter_map(|(t, a)| state_set.contains(a).then_some(t))
+                .filter_map(|(n, Node(_, a))| state_set.contains(n).then_some(a.as_ref()).flatten())
                 .collect();
             if !toks.is_empty() {
                 accept.insert(Rc::clone(&state_set), memo_tok.memoize(toks));
@@ -103,16 +98,17 @@ impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
 
         // TODO: check for unnecessary memory allocations
         Dfa::new(
-            states.into_iter().map(|(k, State(v))| {
+            states.into_iter().map(|(n, State(e))| {
+                let accept = accept.remove(&n);
                 (
-                    k,
-                    v.into_iter()
-                        .map(|(k, v)| (k, (memo_node.memoize(v), ())))
+                    n,
+                    e.into_iter()
+                        .map(|(k, v)| (k, memo_node.memoize(v)))
                         .collect(),
+                    accept,
                 )
             }),
             start,
-            accept,
         )
     }
 }
