@@ -62,6 +62,8 @@ impl<T> CompatPair<T> {
         }
     }
 
+    // TODO: try_trait_v2 wen eta son
+
     pub fn try_map<U, E>(self, f: impl Fn(T) -> Result<U, E>) -> Result<CompatPair<U>, Side<E>> {
         let Self { reader, writer } = self;
         Ok(CompatPair {
@@ -130,7 +132,9 @@ impl<T: Eq + std::fmt::Debug> CompatPair<T> {
         assert_eq!(reader, writer);
         reader
     }
+}
 
+impl<T: Eq> CompatPair<T> {
     pub fn try_unwrap_eq(self) -> Result<T, Self> {
         let Self { reader, writer } = self;
         if reader == writer {

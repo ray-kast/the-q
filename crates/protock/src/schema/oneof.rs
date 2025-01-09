@@ -48,41 +48,41 @@ pub fn check<'a>(
     oneofs: CompatPair<&Vec<Oneof>>,
     log: &mut CompatLog,
 ) {
-    let mut uf_ids: BTreeMap<i32, ClassId> = BTreeMap::new();
-    let mut fields: BTreeMap<ClassId, BTreeMap<Side, FieldInfo>> = BTreeMap::new();
-    let mut group_reps: BTreeMap<Side<Group>, ClassId> = BTreeMap::new();
     let mut uf: UnionFind = UnionFind::new();
+    let mut field_classes: BTreeMap<i32, ClassId> = BTreeMap::new();
+    let mut class_fields: BTreeMap<ClassId, BTreeMap<Side, FieldInfo>> = BTreeMap::new();
+    let mut group_classes: BTreeMap<Side<Group>, ClassId> = BTreeMap::new();
 
     for side in field_info.iter() {
         use std::collections::btree_map::Entry;
 
         let (side, (id, name, oneof)) = side.split();
-        let uf_id = match uf_ids.entry(id) {
+        let klass = match field_classes.entry(id) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
-                let uf_id = uf.add();
-                v.insert(uf_id);
-                uf_id
+                let klass = uf.add();
+                v.insert(klass);
+                klass
             },
         };
-        let group = oneof.map_or(Group::Uniq(uf_id), Group::Oneof);
+        let group = oneof.map_or(Group::Uniq(klass), Group::Oneof);
 
-        assert!(fields
-            .entry(uf_id)
+        assert!(class_fields
+            .entry(klass)
             .or_default()
             .insert(side, FieldInfo { name, group })
             .is_none());
 
-        if let Some(prev) = group_reps.insert(side.then(group), uf_id) {
+        if let Some(prev) = group_classes.insert(side.then(group), klass) {
             assert!(!matches!(group, Group::Uniq(_)));
-            uf.union(prev, uf_id).unwrap();
+            uf.union(prev, klass).unwrap();
         }
     }
 
     let mut clashes: BTreeMap<usize, BTreeSet<Side<Group>>> = BTreeMap::new();
 
-    for (&id, fields) in &fields {
-        let root = uf.find(id).unwrap();
+    for (&klass, fields) in &class_fields {
+        let root = uf.find(klass).unwrap();
 
         for (side, field) in fields {
             clashes
@@ -105,11 +105,12 @@ pub fn check<'a>(
         w > 1 || (PEDANTIC && r > 1)
     });
 
-    let uf_id_len = uf_ids.len();
-    let field_ids: BTreeMap<ClassId, i32> = uf_ids.into_iter().map(|(k, v)| (v, k)).collect();
+    let uf_id_len = field_classes.len();
+    let field_ids: BTreeMap<ClassId, i32> =
+        field_classes.into_iter().map(|(k, v)| (v, k)).collect();
     assert_eq!(uf_id_len, field_ids.len());
 
-    let fields: BTreeMap<ClassId, (i32, SideInclusive<FieldInfo>)> = fields
+    let fields: BTreeMap<ClassId, (i32, SideInclusive<FieldInfo>)> = class_fields
         .into_iter()
         .map(|(i, mut f)| {
             assert!((1..=2).contains(&f.len()));
