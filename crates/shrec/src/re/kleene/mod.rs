@@ -3,9 +3,8 @@ use nfa_builder::NfaBuilder;
 use crate::nfa::Nfa;
 
 mod nfa_builder;
-pub mod syntax;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Regex<L> {
     Alt(Vec<Regex<L>>),
     Cat(Vec<Regex<L>>),
@@ -18,9 +17,7 @@ impl<L> Regex<L> {
     pub const TOP: Regex<L> = Regex::Cat(Vec::new());
 }
 
-impl<L: IntoIterator> Regex<L>
-where L::Item: Ord
-{
+impl<L: IntoIterator<Item: Ord>> Regex<L> {
     #[inline]
     #[must_use]
     pub fn compile(self) -> Nfa<L::Item, u64, ()> { NfaBuilder::build([(self, ())]).finish() }
@@ -55,9 +52,7 @@ impl<L, T> FromIterator<Token<L, T>> for RegexBag<L, T> {
     }
 }
 
-impl<L: IntoIterator, T: Ord> RegexBag<L, T>
-where L::Item: Ord
-{
+impl<L: IntoIterator<Item: Ord>, T: Ord> RegexBag<L, T> {
     #[inline]
     #[must_use]
     pub fn compile(self) -> Nfa<L::Item, u64, T> { NfaBuilder::build(self.0).finish() }

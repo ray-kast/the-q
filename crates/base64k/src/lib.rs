@@ -48,12 +48,13 @@ mod test {
         char::from_u32(safe).unwrap()
     }
 
-    fn zip_eq<A: IntoIterator, B: IntoIterator<Item = u8>>(a: A, b: B)
-    where
-        A::Item: Into<u8>,
-        A::IntoIter: ExactSizeIterator,
-        B::IntoIter: ExactSizeIterator,
-    {
+    fn zip_eq<
+        A: IntoIterator<Item: Into<u8>, IntoIter: ExactSizeIterator>,
+        B: IntoIterator<Item = u8, IntoIter: ExactSizeIterator>,
+    >(
+        a: A,
+        b: B,
+    ) {
         let a = a.into_iter();
         let b = b.into_iter();
         let a_len = a.len();

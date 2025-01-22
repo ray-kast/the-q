@@ -73,14 +73,11 @@ pub fn jpeg_pixels(
 ///
 /// # Panics
 /// This function panics if the JPEG transcoder produces an invalid buffer
-pub fn jpeg_buffer<P>(
+pub fn jpeg_buffer<P: PixelWithColorType + Pixel<Subpixel = u8>>(
     image: ImageBuffer<P, Vec<u8>>,
     iterations: usize,
     quality: u8,
-) -> ImageResult<ImageBuffer<P, Vec<u8>>>
-where
-    P: PixelWithColorType + Pixel<Subpixel = u8>,
-{
+) -> ImageResult<ImageBuffer<P, Vec<u8>>> {
     let (width, height, color_type) = (image.width(), image.height(), P::COLOR_TYPE);
     let data = jpeg_pixels(
         image.into_raw(),

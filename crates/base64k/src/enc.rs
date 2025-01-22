@@ -170,8 +170,11 @@ mod test {
     use super::Encoder;
     use crate::test::{encode1, encode2};
 
-    fn zip_eq<A: AsRef<[u8]>, B: IntoIterator<Item = char>>(pathological: usize, a: A, b: B)
-    where B::IntoIter: ExactSizeIterator {
+    fn zip_eq<A: AsRef<[u8]>, B: IntoIterator<Item = char, IntoIter: ExactSizeIterator>>(
+        pathological: usize,
+        a: A,
+        b: B,
+    ) {
         let mut enc = Encoder::<Vec<char>>::default();
         if pathological > 0 {
             let mut slice = a.as_ref();

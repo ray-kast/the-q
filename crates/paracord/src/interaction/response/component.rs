@@ -242,30 +242,22 @@ impl<R: Prepare> Prepare for Components<R> {
     }
 }
 
-impl<R> BuildWith<Components<R>> for CreateInteractionResponseMessage
-where CreateActionRow: From<R>
-{
+impl<R: Into<CreateActionRow>> BuildWith<Components<R>> for CreateInteractionResponseMessage {
     #[inline]
     fn build_with(self, value: Components<R>) -> Self { build_components!(value, self) }
 }
 
-impl<R> BuildWith<Components<R>> for EditInteractionResponse
-where CreateActionRow: From<R>
-{
+impl<R: Into<CreateActionRow>> BuildWith<Components<R>> for EditInteractionResponse {
     #[inline]
     fn build_with(self, value: Components<R>) -> Self { build_components!(value, self) }
 }
 
-impl<R> BuildWith<Components<R>> for CreateInteractionResponseFollowup
-where CreateActionRow: From<R>
-{
+impl<R: Into<CreateActionRow>> BuildWith<Components<R>> for CreateInteractionResponseFollowup {
     #[inline]
     fn build_with(self, value: Components<R>) -> Self { build_components!(value, self) }
 }
 
-impl<R> BuildWith<Components<R>> for CreateModal
-where CreateActionRow: From<R>
-{
+impl<R: Into<CreateActionRow>> BuildWith<Components<R>> for CreateModal {
     #[inline]
     fn build_with(self, value: Components<R>) -> Self { build_components!(value, self) }
 }

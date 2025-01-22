@@ -19,11 +19,14 @@ use std::io::{self, Read};
 
 use shrec::{
     dfa::Scanner,
-    re::{syntax::token_dfa, Regex, RegexBag},
+    re::{
+        kleene::{Regex, RegexBag},
+        syntax::token_dfa,
+    },
 };
 
 fn main() {
-    let re = RegexBag::from(vec![
+    let re = RegexBag::from_iter([
         (Regex::Lit("for".chars()), "for"),
         (Regex::Lit("each".chars()), "each"),
         (Regex::Lit("ea".chars()), "ea"),
@@ -53,7 +56,7 @@ fn main() {
     // ]);
     // let dfa = token_dfa();
     let non_dfa = re.compile();
-    let dfa = non_dfa.compile().copied();
+    let dfa = non_dfa.compile();
     let (dfa, states) = dfa.atomize_nodes::<u64>();
 
     let mut s = String::new();

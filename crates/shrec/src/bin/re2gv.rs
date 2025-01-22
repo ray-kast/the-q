@@ -15,10 +15,10 @@
     reason = "TODO: Testing code, currently it's all hard-coded and comment-toggled"
 )]
 
-use shrec::re::{Regex, RegexBag};
+use shrec::re::kleene::{Regex, RegexBag};
 
 fn main() {
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     enum Proto {
         #[expect(clippy::enum_variant_names)]
         Proto,
@@ -30,8 +30,11 @@ fn main() {
     //     Regex::Alt(vec![
     //         Regex::Cat(vec![
     //             Regex::Lit("k".chars()),
-    //             Regex::Alt(vec![Regex::Lit("i".chars()), Regex::Lit("a".chars())]),
-    //             Regex::Alt(vec![Regex::Lit("m".chars()), Regex::Lit("t".chars())]),
+    //             Regex::Alt(vec![
+    //                 Regex::Lit("im".chars()),
+    //                 Regex::Lit("em".chars()),
+    //                 Regex::Lit("at".chars()),
+    //             ]),
     //         ]),
     //         Regex::Lit("ban".chars()),
     //     ]),
@@ -47,7 +50,7 @@ fn main() {
     //     ]),
     // ]);
     // let re = shrec::re::syntax::token_re();
-    let re: RegexBag<_, _> = vec![
+    let re = RegexBag::from_iter([
         (
             Regex::Cat(vec![
                 Regex::Lit("pro".chars()),
@@ -64,7 +67,9 @@ fn main() {
         ),
         (
             Regex::Cat(vec![
-                Regex::Lit("pot".chars()),
+                Regex::Lit("p".chars()),
+                Regex::Alt(vec![Regex::Lit("".chars()), Regex::Lit("r".chars())]),
+                Regex::Lit("ot".chars()),
                 Regex::Alt(vec![Regex::Cat(vec![
                     Regex::Lit("at".chars()),
                     Regex::Alt(vec![
@@ -87,16 +92,15 @@ fn main() {
             ]),
             Proto::Proot,
         ),
-    ]
-    .into();
+    ]);
 
     let non_dfa = re.compile();
-    let dfa = non_dfa.compile().copied();
+    let dfa = non_dfa.compile();
     let (dfa, states) = dfa.atomize_nodes::<u64>();
-    let (dfa, eg) = dfa.optimize();
+    let (dfa_opt, eg) = dfa.optimize();
     eprintln!("{states:?}");
 
-    match "nfa" {
+    match "dfa" {
         "nfa" => println!(
             "{}",
             non_dfa.dot(
@@ -106,6 +110,14 @@ fn main() {
             )
         ),
         "dfa" => println!(
+            "{}",
+            dfa_opt.dot(
+                |i| format!("{i:?}").into(),
+                |n| format!("{n:?}").into(),
+                |t| Some(format!("{t:?}").into()),
+            )
+        ),
+        "dfa_unopt" => println!(
             "{}",
             dfa.dot(
                 |i| format!("{i:?}").into(),

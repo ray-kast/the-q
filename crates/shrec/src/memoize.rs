@@ -9,9 +9,7 @@ impl<T> Default for Memoize<T> {
     fn default() -> Self { Self(HashMap::new()) }
 }
 
-impl<T: Clone + Eq + Hash + Deref + Borrow<T::Target>> Memoize<T>
-where T::Target: Eq + Hash + Into<T>
-{
+impl<T: Clone + Eq + Hash + Deref<Target: Eq + Hash + Into<T>> + Borrow<T::Target>> Memoize<T> {
     pub fn memoize(&mut self, val: T::Target) -> T {
         self.0
             .raw_entry_mut()

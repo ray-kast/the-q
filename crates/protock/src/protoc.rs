@@ -4,8 +4,9 @@ use anyhow::{Context, Result};
 use prost::Message;
 use prost_types::FileDescriptorSet;
 
-pub fn get_descriptor_set<I: IntoIterator>(files: I) -> Result<FileDescriptorSet>
-where I::Item: AsRef<Path> {
+pub fn get_descriptor_set<I: IntoIterator<Item: AsRef<Path>>>(
+    files: I,
+) -> Result<FileDescriptorSet> {
     let mut tmp = tempfile::NamedTempFile::new().context("Error creating descriptor tempfile")?;
 
     let mut cmd = std::process::Command::new("protoc");

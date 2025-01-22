@@ -71,8 +71,8 @@ impl<I: Ord, N: Ord + Hash, T> Dfa<I, N, T> {
     }
 }
 
-impl<I: Ord + Hash, N: Ord + Hash, T: Ord + Hash> Dfa<I, N, T> {
-    pub fn optimize(&self) -> (Dfa<&I, usize, &T>, optimize::Graph<I, N, T>) { optimize::run(self) }
+impl<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash> Dfa<I, N, T> {
+    pub fn optimize(&self) -> (Dfa<I, usize, T>, optimize::Graph<I, N, T>) { optimize::run(self) }
 }
 
 impl<I, N: Ord, T> Dfa<I, N, T> {

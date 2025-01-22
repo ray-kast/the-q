@@ -78,9 +78,9 @@ impl<I: Ord, N: Ord, T: Ord> Nfa<I, N, T> {
     }
 }
 
-impl<I: Ord, N: Ord + Hash, T: Ord + Hash> Nfa<I, N, T> {
+impl<I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> Nfa<I, N, T> {
     #[inline]
-    pub fn compile(&self) -> Dfa<&I, Rc<BTreeSet<&N>>, Rc<BTreeSet<&T>>> {
+    pub fn compile(&self) -> Dfa<I, Rc<BTreeSet<N>>, Rc<BTreeSet<T>>> {
         DfaBuilder::new(self).build()
     }
 }

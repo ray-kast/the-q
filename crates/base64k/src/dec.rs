@@ -206,8 +206,11 @@ mod test {
     use super::Decoder;
     use crate::test::{encode1, encode2};
 
-    fn zip_eq<A: Read, B: IntoIterator<Item = u8>>(pathological: usize, mut a: A, b: B)
-    where B::IntoIter: ExactSizeIterator {
+    fn zip_eq<A: Read, B: IntoIterator<Item = u8, IntoIter: ExactSizeIterator>>(
+        pathological: usize,
+        mut a: A,
+        b: B,
+    ) {
         let mut buf = vec![];
         if pathological > 0 {
             let mut chunk;

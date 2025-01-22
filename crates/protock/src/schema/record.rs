@@ -61,16 +61,13 @@ pub struct Record<T: RecordExtra> {
 }
 
 impl<T: for<'a> RecordValue<'a>> Record<T> {
-    pub fn new<R: IntoIterator<Item = String>>(
+    pub fn new<R: IntoIterator<Item = String, IntoIter: ExactSizeIterator>>(
         numbers: HashMap<i32, T>,
         reserved: RangeSet<i64>,
         reserved_names: R,
         internal: bool,
         extra: T::Extra,
-    ) -> Self
-    where
-        R::IntoIter: ExactSizeIterator,
-    {
+    ) -> Self {
         let reserved_names = reserved_names.into_iter();
         let reserved_name_len = reserved_names.len();
         let names: HashMap<_, _> = numbers

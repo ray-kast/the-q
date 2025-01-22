@@ -1,4 +1,4 @@
-use shrec::re::Regex;
+use shrec::re::kleene::Regex;
 
 use super::prelude::*;
 

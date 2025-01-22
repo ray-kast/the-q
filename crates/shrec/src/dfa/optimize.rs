@@ -21,22 +21,22 @@ pub enum Op<I, N, T> {
     Impostor(N),
 }
 
-pub type Graph<'a, I, N, T> = EGraph<Op<&'a I, &'a N, &'a T>, &'a N>;
+pub type Graph<I, N, T> = EGraph<Op<I, N, T>, N>;
 
-pub(super) fn run<I: Ord + Hash, N: Ord + Hash, T: Ord + Hash>(
+pub(super) fn run<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash>(
     dfa: &Dfa<I, N, T>,
-) -> (Dfa<&I, usize, &T>, Graph<I, N, T>) {
+) -> (Dfa<I, usize, T>, Graph<I, N, T>) {
     enum Command<N> {
         Explore(N),
         Add(N),
     }
 
-    let mut eg = EGraph::<Op<&I, &N, &T>, &N>::new();
+    let mut eg = EGraph::<Op<I, N, T>, N>::new();
     let mut stk = Vec::new();
     let mut classes = HashMap::new();
     let mut impostors = HashMap::new();
 
-    stk.push(Command::Explore(&dfa.start));
+    stk.push(Command::Explore(dfa.start));
 
     while let Some(node) = stk.pop() {
         match node {
@@ -49,24 +49,24 @@ pub(super) fn run<I: Ord + Hash, N: Ord + Hash, T: Ord + Hash>(
                 }
 
                 stk.push(Command::Add(n));
-                for n in dfa.states[n].0.values().rev() {
-                    if classes.get(n).is_none() {
+                for &n in dfa.states[&n].0.values().rev() {
+                    if classes.get(&n).is_none() {
                         stk.push(Command::Explore(n));
                     }
                 }
             },
             Command::Add(n) => {
-                let Node(ref edges, ref accept) = dfa.states[n];
+                let Node(ref edges, ref accept) = dfa.states[&n];
                 let enode = ENode::new(
                     Op::Node {
-                        accept: accept.as_ref(),
-                        edges: edges.keys().collect(),
+                        accept: accept.clone(),
+                        edges: edges.keys().copied().collect(),
                     }
                     .into(),
                     edges
                         .values()
-                        .map(|n| {
-                            classes[n].unwrap_or_else(|| {
+                        .map(|&n| {
+                            classes[&n].unwrap_or_else(|| {
                                 *impostors.entry(n).or_insert_with(|| {
                                     eg.add(ENode::new(Op::Impostor(n).into(), [].into()))
                                         .unwrap()
@@ -77,14 +77,14 @@ pub(super) fn run<I: Ord + Hash, N: Ord + Hash, T: Ord + Hash>(
                 );
 
                 let klass = eg.add(enode.clone()).unwrap();
-                assert!(mem::replace(classes.get_mut(n).unwrap(), Some(klass)).is_none());
+                assert!(mem::replace(classes.get_mut(&n).unwrap(), Some(klass)).is_none());
             },
         }
     }
 
     let mut wr = eg.write();
     for (node, klass) in impostors {
-        wr.merge(classes[node].unwrap(), klass).unwrap();
+        wr.merge(classes[&node].unwrap(), klass).unwrap();
     }
     drop(wr);
 
@@ -111,7 +111,7 @@ pub(super) fn run<I: Ord + Hash, N: Ord + Hash, T: Ord + Hash>(
                     .enumerate()
                     .map(|(i, &e)| (e, args[i].id()))
                     .collect(),
-                *accept,
+                accept.clone(),
             )
         });
 

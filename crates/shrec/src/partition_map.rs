@@ -279,13 +279,14 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
         self.assert_invariants();
     }
 
-    pub fn update_all<I: IntoIterator, F: FnMut(Partition<&K, &V>) -> V>(
+    pub fn update_all<
+        I: IntoIterator<Item: PartitionBounds<K>>,
+        F: FnMut(Partition<&K, &V>) -> V,
+    >(
         &mut self,
         it: I,
         mut f: F,
-    ) where
-        I::Item: PartitionBounds<K>,
-    {
+    ) {
         let mut over = vec![];
         let mut set_over = vec![];
 

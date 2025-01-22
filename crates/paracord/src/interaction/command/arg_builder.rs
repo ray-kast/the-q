@@ -123,15 +123,13 @@ impl ArgBuilder {
     /// Add a new string choice parameter to this (sub)command
     ///
     /// See [`arg`](Self::arg) for more details.
-    pub fn string_choice<C: IntoIterator>(
+    pub fn string_choice<C: IntoIterator<Item: Into<Choice<String>>>>(
         &mut self,
         name: impl Into<String>,
         desc: impl Into<String>,
         required: bool,
         choices: C,
-    ) where
-        C::Item: Into<Choice<String>>,
-    {
+    ) {
         let choices = choices.into_iter().map(Into::into).collect();
         self.arg_parts(name, desc, required, ArgType::StringChoice(choices));
     }
@@ -157,15 +155,13 @@ impl ArgBuilder {
     /// Add a new integer choice parameter to this (sub)command
     ///
     /// See [`arg`](Self::arg) for more details.
-    pub fn int_choice<C: IntoIterator>(
+    pub fn int_choice<C: IntoIterator<Item: Into<Choice<i64>>>>(
         &mut self,
         name: impl Into<String>,
         desc: impl Into<String>,
         required: bool,
         choices: C,
-    ) where
-        C::Item: Into<Choice<i64>>,
-    {
+    ) {
         let choices = choices.into_iter().map(Into::into).collect();
         self.arg_parts(name, desc, required, ArgType::IntChoice(choices));
     }
@@ -242,15 +238,13 @@ impl ArgBuilder {
     /// Add a new real (decimal) numeric choice parameter to this (sub)command
     ///
     /// See [`arg`](Self::arg) for more details.
-    pub fn real_choice<C: IntoIterator>(
+    pub fn real_choice<C: IntoIterator<Item: Into<Choice<f64>>>>(
         &mut self,
         name: impl Into<String>,
         desc: impl Into<String>,
         required: bool,
         choices: C,
-    ) where
-        C::Item: Into<Choice<f64>>,
-    {
+    ) {
         let choices = choices
             .into_iter()
             .map(|f| {

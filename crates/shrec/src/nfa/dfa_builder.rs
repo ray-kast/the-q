@@ -2,6 +2,7 @@ use std::{
     borrow::BorrowMut,
     collections::{BTreeMap, BTreeSet, VecDeque},
     hash::Hash,
+    mem,
     rc::Rc,
 };
 
@@ -10,18 +11,18 @@ use crate::{closure_builder::ClosureBuilder, dfa::Dfa, memoize::Memoize, nfa::No
 
 // Note to future self: Don't attempt to convert the value to an Rc, it needs to
 //                      be mutably borrowed.
-struct State<I, N>(BTreeMap<I, BTreeSet<N>>);
+struct State<I, N, T>(BTreeMap<I, BTreeSet<N>>, Option<Rc<BTreeSet<T>>>);
 
-impl<I, N> Default for State<I, N> {
-    fn default() -> Self { Self(BTreeMap::new()) }
+impl<I, N, T> Default for State<I, N, T> {
+    fn default() -> Self { Self(BTreeMap::new(), None) }
 }
 
 pub struct DfaBuilder<'a, I, N, T> {
     nfa: &'a Nfa<I, N, T>,
-    closure: ClosureBuilder<&'a N>,
+    closure: ClosureBuilder<N>,
 }
 
-impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
+impl<'a, I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> DfaBuilder<'a, I, N, T> {
     pub fn new(nfa: &'a Nfa<I, N, T>) -> Self {
         Self {
             nfa,
@@ -29,50 +30,59 @@ impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
         }
     }
 
-    fn solve_closure<S: BorrowMut<BTreeSet<&'a N>>>(&mut self, set: S) -> S {
+    fn solve_closure<S: BorrowMut<BTreeSet<N>>>(&mut self, set: S) -> S {
         self.closure.solve(set, |n| {
             self.nfa
-                .get(n)
+                .get(&n)
                 .into_iter()
                 .filter_map(|n| n.get(&None))
                 .flatten()
+                .copied()
         })
     }
 
     #[inline]
-    pub fn build(&mut self) -> Dfa<&'a I, Rc<BTreeSet<&'a N>>, Rc<BTreeSet<&'a T>>> {
+    pub fn build(&mut self) -> Dfa<I, Rc<BTreeSet<N>>, Rc<BTreeSet<T>>> {
         let mut memo_node = Memoize::default();
         let mut memo_tok = Memoize::default();
-        self.closure.init([self.nfa.start()]);
+        self.closure.init([*self.nfa.start()]);
         let start = memo_node.memoize(self.solve_closure(BTreeSet::new()));
 
-        let mut states: BTreeMap<Rc<BTreeSet<&'a N>>, State<&'a I, &'a N>> = BTreeMap::default();
-        let mut accept: BTreeMap<Rc<BTreeSet<&'a N>>, Rc<BTreeSet<&'a T>>> = BTreeMap::default();
+        let mut states: BTreeMap<Rc<BTreeSet<N>>, State<I, N, T>> = BTreeMap::default();
         let mut q: VecDeque<_> = [Rc::clone(&start)].into_iter().collect();
 
         while let Some(state_set) = q.pop_front() {
             use std::collections::btree_map::Entry;
 
             // TODO: insert_entry pls
-            let Entry::Vacant(node) = states.entry(Rc::clone(&state_set)) else {
+            let Entry::Vacant(v) = states.entry(Rc::clone(&state_set)) else {
                 continue;
             };
-            let node = node.insert(State::default());
+            let node = v.insert(State::default());
 
-            // TODO: e-class analysis
             for &state in &*state_set {
                 for (inp, nodes) in self
                     .nfa
-                    .get(state)
+                    .get(&state)
                     .into_iter()
                     .flat_map(Node::edges)
-                    .filter_map(|(i, n)| i.as_ref().map(|i| (i, n)))
+                    .filter_map(|(i, n)| i.map(|i| (i, n)))
                 {
                     let states = node.0.entry(inp).or_default();
 
-                    self.closure.init(nodes);
+                    self.closure.init(nodes.iter().copied());
                     self.solve_closure(states);
                 }
+            }
+
+            let toks: BTreeSet<_> = self
+                .nfa
+                .nodes
+                .iter()
+                .filter_map(|(n, Node(_, a))| state_set.contains(n).then_some(a.clone()).flatten())
+                .collect();
+            if !toks.is_empty() {
+                assert!(mem::replace(&mut node.1, Some(memo_tok.memoize(toks))).is_none());
             }
 
             // Drop the mutable borrow created by calling BTreeMap::entry
@@ -84,28 +94,17 @@ impl<'a, I: Ord, N: Ord + Hash, T: Ord + Hash> DfaBuilder<'a, I, N, T> {
                     q.push_back(memo_node.memoize_owned(set));
                 }
             }
-
-            let toks: BTreeSet<_> = self
-                .nfa
-                .nodes
-                .iter()
-                .filter_map(|(n, Node(_, a))| state_set.contains(n).then_some(a.as_ref()).flatten())
-                .collect();
-            if !toks.is_empty() {
-                accept.insert(Rc::clone(&state_set), memo_tok.memoize(toks));
-            }
         }
 
         // TODO: check for unnecessary memory allocations
         Dfa::new(
-            states.into_iter().map(|(n, State(e))| {
-                let accept = accept.remove(&n);
+            states.into_iter().map(|(n, State(e, a))| {
                 (
                     n,
                     e.into_iter()
                         .map(|(k, v)| (k, memo_node.memoize(v)))
                         .collect(),
-                    accept,
+                    a,
                 )
             }),
             start,
