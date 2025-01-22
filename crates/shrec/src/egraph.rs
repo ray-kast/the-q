@@ -36,12 +36,17 @@ impl<F, C> ENode<F, C> {
     #[must_use]
     pub fn args(&self) -> &[ClassId<C>] { &self.1 }
 
-    pub fn canonicalize(&mut self, eg: &EGraph<F, C>) -> Result<(), NoNode> {
+    fn canonicalize_impl(&mut self, uf: &UnionFind<C>) -> Result<(), NoNode> {
         for arg in Rc::make_mut(&mut self.1) {
-            *arg = eg.uf.find(*arg)?;
+            *arg = uf.find(*arg)?;
         }
 
         Ok(())
+    }
+
+    pub fn canonicalize(&mut self, eg: &EGraph<F, C>) -> Result<(), NoNode> {
+        eg.poison_check();
+        self.canonicalize_impl(&eg.uf)
     }
 }
 
@@ -97,23 +102,15 @@ impl<F, C> ENode<F, C> {
 struct EClassData<F, C> {
     // TODO: gather an intuition of why the ClassId is necessary here
     parents: HashMap<ENode<F, C>, ClassId<C>>,
-}
-
-impl<F: Eq + Hash, C> EClassData<F, C> {
-    fn merge(&mut self, rhs: EClassData<F, C>) {
-        let EClassData { parents } = rhs;
-
-        for (node, klass) in parents {
-            assert_eq!(klass, *self.parents.entry(node).or_insert(klass));
-        }
-    }
+    nodes: HashSet<ENode<F, C>>,
 }
 
 impl<F: fmt::Debug, C> fmt::Debug for EClassData<F, C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { parents } = self;
+        let Self { parents, nodes } = self;
         f.debug_struct("EClassData")
             .field("parents", parents)
+            .field("nodes", nodes)
             .finish()
     }
 }
@@ -122,15 +119,37 @@ impl<F, C> Clone for EClassData<F, C> {
     fn clone(&self) -> Self {
         Self {
             parents: self.parents.clone(),
+            nodes: self.nodes.clone(),
         }
     }
 }
 
-impl<F, C> Default for EClassData<F, C> {
-    fn default() -> Self {
+impl<F: Eq + Hash, C> EClassData<F, C> {
+    fn new(node: ENode<F, C>) -> Self {
         Self {
             parents: HashMap::new(),
+            nodes: [node].into_iter().collect(),
         }
+    }
+
+    fn merge(&mut self, rhs: EClassData<F, C>) {
+        let EClassData { parents, nodes } = rhs;
+
+        for (node, klass) in parents {
+            assert_eq!(klass, *self.parents.entry(node).or_insert(klass));
+        }
+
+        self.nodes.extend(nodes);
+    }
+
+    // TODO: is this the most efficient way to repair the class map?
+    fn canonicalize_impl(&mut self, uf: &UnionFind<C>, buf: &mut Vec<ENode<F, C>>) {
+        debug_assert!(buf.is_empty());
+        buf.extend(self.nodes.drain().map(|mut n| {
+            safe_nodes(n.canonicalize_impl(uf));
+            n
+        }));
+        self.nodes.extend(buf.drain(..));
     }
 }
 
@@ -201,19 +220,43 @@ impl<F, C> EGraph<F, C> {
 impl<F: Eq + Hash, C> EGraph<F, C> {
     #[must_use]
     pub fn class_nodes(&self) -> HashMap<ClassId<C>, HashSet<ENode<F, C>>> {
-        self.node_classes
+        self.poison_check();
+
+        // TODO: should the value be cloned or borrowed?
+        let ret: HashMap<_, _> = self
+            .class_data
             .iter()
-            .fold(HashMap::new(), |mut m: HashMap<_, HashSet<_>>, (n, &c)| {
-                assert!(m
-                    .entry(self.uf.find(c).unwrap())
-                    .or_default()
-                    .insert(n.clone()));
-                m
-            })
+            .map(|(&k, v)| (k, v.nodes.clone()))
+            .collect();
+
+        #[cfg(debug_assertions)]
+        {
+            let constructed = self.node_classes.iter().fold(
+                HashMap::new(),
+                |mut m: HashMap<_, HashSet<_>>, (n, &c)| {
+                    assert!(m
+                        .entry(self.uf.find(c).unwrap())
+                        .or_default()
+                        .insert(n.clone()));
+                    m
+                },
+            );
+            assert!(constructed == ret);
+        }
+
+        ret
     }
 
-    pub fn get(&self, node: &mut ENode<F, C>) -> Result<Option<ClassId<C>>, NoNode> {
-        node.canonicalize(self)
+    pub fn get_nodes(&self, klass: ClassId<C>) -> Result<Option<&HashSet<ENode<F, C>>>, NoNode> {
+        self.poison_check();
+        self.uf
+            .find(klass)
+            .map(|c| self.class_data.get(&c).map(|d| &d.nodes))
+    }
+
+    pub fn get_class(&self, node: &mut ENode<F, C>) -> Result<Option<ClassId<C>>, NoNode> {
+        self.poison_check();
+        node.canonicalize_impl(&self.uf)
             .map(|()| self.node_classes.get(node).copied())
     }
 
@@ -228,14 +271,14 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
     }
 
     pub fn add(&mut self, mut node: ENode<F, C>) -> Result<ClassId<C>, NoNode> {
-        node.canonicalize(self)?;
+        node.canonicalize_impl(&self.uf)?;
         Ok(if let Some(&klass) = self.node_classes.get(&node) {
             klass
         } else {
             let klass = self.uf.add();
             assert!(self
                 .class_data
-                .insert(klass, EClassData::default())
+                .insert(klass, EClassData::new(node.clone()))
                 .is_none());
 
             for &arg in &*node.1 {
@@ -264,8 +307,6 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
         self.poison_check();
 
         let mut graph = dot::Graph::new(dot::GraphType::Directed, None);
-        let class_nodes = self.class_nodes();
-
         let mut class_reps = HashMap::new();
         let mut node_ids = HashMap::new();
 
@@ -280,8 +321,8 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
             class_node.shape("point".into());
             class_node.label("".into());
 
-            if let Some(nodes) = class_nodes.get(&root) {
-                for node in nodes {
+            if let Some(data) = self.class_data.get(&root) {
+                for node in &data.nodes {
                     let mut label = format!("{}(", fmt_op(&node.0));
                     for (i, arg) in node.1.iter().enumerate() {
                         if i > 0 {
@@ -303,8 +344,8 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
         }
 
         for root in self.uf.roots() {
-            if let Some(nodes) = class_nodes.get(&root) {
-                for node in nodes {
+            if let Some(data) = self.class_data.get(&root) {
+                for node in &data.nodes {
                     for (i, edge) in node.1.iter().enumerate() {
                         let edge = graph.edge(
                             node_ids[node].clone(),
@@ -386,11 +427,11 @@ impl<F: Eq + Hash, C> EGraphMut<'_, F, C> {
 
     fn repair(
         &mut self,
-        klass: ClassId<C>,
-        others: HashSet<ClassId<C>>,
+        repair_class: ClassId<C>,
+        equiv_classes: HashSet<ClassId<C>>,
         rewrites: &mut HashMap<ENode<F, C>, ENode<F, C>>,
     ) {
-        let merged = others
+        let merged = equiv_classes
             .into_iter()
             .map(|c| self.eg.class_data.remove(&c).unwrap())
             .reduce(|mut l, r| {
@@ -398,12 +439,13 @@ impl<F: Eq + Hash, C> EGraphMut<'_, F, C> {
                 l
             });
 
-        let mut data = safe_nodes_opt(self.eg.class_data.get_mut(&klass)).clone();
+        let mut data = safe_nodes_opt(self.eg.class_data.remove(&repair_class));
         if let Some(merged) = merged {
             data.merge(merged);
         }
 
         let mut new_parents = HashMap::new();
+        let mut canon_buf = vec![];
         for (mut node, klass) in data.parents {
             use hashbrown::hash_map::Entry;
 
@@ -414,7 +456,7 @@ impl<F: Eq + Hash, C> EGraphMut<'_, F, C> {
                     .unwrap()
             });
             let old_node = node.clone();
-            safe_nodes(node.canonicalize(self.eg));
+            safe_nodes(node.canonicalize_impl(&self.eg.uf));
             let root = safe_nodes(self.eg.uf.find(klass));
 
             // TODO: does node need to be re-canonicalized in new_parents
@@ -433,9 +475,17 @@ impl<F: Eq + Hash, C> EGraphMut<'_, F, C> {
 
             debug_assert_eq!(root, safe_nodes(self.eg.uf.find(root)));
 
-            safe_nodes(node.canonicalize(self.eg));
+            safe_nodes(node.canonicalize_impl(&self.eg.uf));
             rewrites.insert(old_node, node.clone());
+            if root != repair_class {
+                safe_nodes_opt(self.eg.class_data.get_mut(&root))
+                    .canonicalize_impl(&self.eg.uf, &mut canon_buf);
+            }
             self.eg.node_classes.insert(node.clone(), root);
         }
+
+        data.parents = new_parents;
+        data.canonicalize_impl(&self.eg.uf, &mut canon_buf);
+        self.eg.class_data.insert(repair_class, data);
     }
 }
