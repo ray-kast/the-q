@@ -1,4 +1,8 @@
+use std::mem;
+
 use super::kleene;
+
+mod dfa_builder;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Regex<L> {
@@ -12,7 +16,8 @@ pub enum Regex<L> {
 
 impl<L> Regex<L> {
     pub const BOTTOM: Regex<L> = Regex::Dis(Vec::new());
-    pub const TOP: Regex<L> = Regex::Cat(Vec::new());
+    pub const EMPTY: Regex<L> = Regex::Cat(Vec::new());
+    pub const TOP: Regex<L> = Regex::Con(Vec::new());
 }
 
 impl<L> From<kleene::Regex<L>> for Regex<L> {
@@ -52,4 +57,28 @@ impl<L> TryFrom<Regex<L>> for kleene::Regex<L> {
     }
 }
 
-impl<L: IntoIterator<Item: Ord>> Regex<L> {}
+impl<L: IntoIterator<Item: Ord>> Regex<L> {
+    // TODO: honestly, it might just make more sense to work with this directly in an e-graph
+    fn deriv_atomic(self, prefix: &L::Item) -> Regex<L> {
+        match self {
+            Self::Con(v) => Self::Con(v.into_iter().map(|r| r.deriv_atomic(prefix)).collect()),
+            Self::Dis(v) => Self::Dis(v.into_iter().map(|r| r.deriv_atomic(prefix)).collect()),
+            Self::Not(r) => Self::Not(Box::new((*r).deriv_atomic(prefix))),
+            Self::Cat(mut v) => {
+                match v.get_mut(0) {
+                    Some(r) => {
+                        let re = mem::replace(r, Self::BOTTOM);
+                        *r = re.deriv_atomic(prefix);
+                        // Self::Cat(v)
+                        todo!("D_a(P)Q + d(P)D_a(Q)")
+                    },
+                    None => Self::BOTTOM,
+                }
+            },
+            Self::Star(r) => todo!(),
+            Self::Lit(l) => todo!(),
+        }
+    }
+
+    fn compile_atomic() { todo!() }
+}

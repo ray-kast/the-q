@@ -49,7 +49,7 @@ impl CommandHandler<Schema> for ReCommand {
                 ]),
             ]);
             debug!("{re:#?}");
-            let nfa = re.compile();
+            let nfa = re.compile_atomic();
             debug!("{nfa:#?}");
             let compiled_dfa = nfa.compile();
             debug!("{compiled_dfa:#?}");

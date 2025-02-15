@@ -13,14 +13,18 @@ pub enum Regex<L> {
 }
 
 impl<L> Regex<L> {
+    // TODO: do tests with this, and probably some reachability analyses on the
+    //       automata
     pub const BOTTOM: Regex<L> = Regex::Alt(Vec::new());
-    pub const TOP: Regex<L> = Regex::Cat(Vec::new());
+    pub const EMPTY: Regex<L> = Regex::Cat(Vec::new());
 }
 
 impl<L: IntoIterator<Item: Ord>> Regex<L> {
     #[inline]
     #[must_use]
-    pub fn compile(self) -> Nfa<L::Item, u64, ()> { NfaBuilder::build([(self, ())]).finish() }
+    pub fn compile_atomic(self) -> Nfa<L::Item, u64, ()> {
+        NfaBuilder::build([(self, ())]).finish()
+    }
 }
 
 pub type Token<L, T> = (Regex<L>, T);
@@ -55,5 +59,5 @@ impl<L, T> FromIterator<Token<L, T>> for RegexBag<L, T> {
 impl<L: IntoIterator<Item: Ord>, T: Ord> RegexBag<L, T> {
     #[inline]
     #[must_use]
-    pub fn compile(self) -> Nfa<L::Item, u64, T> { NfaBuilder::build(self.0).finish() }
+    pub fn compile_atomic(self) -> Nfa<L::Item, u64, T> { NfaBuilder::build(self.0).finish() }
 }

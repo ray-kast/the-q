@@ -21,7 +21,7 @@ pub fn token_re() -> RegexBag<[char; 1], Token> {
 
 #[must_use]
 pub fn token_dfa() -> Dfa<char, u64, Token> {
-    let non_dfa = token_re().compile();
+    let non_dfa = token_re().compile_atomic();
     let (dfa, _states) = non_dfa.compile().atomize_nodes::<u64>();
     dfa.try_map_token(|t| {
         let mut it = t.iter();

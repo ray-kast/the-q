@@ -69,7 +69,7 @@ impl<T> PartitionBounds<T> for (Option<T>, Option<T>) {
     fn into_bounds(self) -> (Option<T>, Option<T>) { self }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PartitionMap<K, V> {
     unbounded_start: V,
     ranges_from: BTreeMap<K, V>,

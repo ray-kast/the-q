@@ -12,7 +12,7 @@ build = "build.rs"
 [dependencies]
 anyhow = "1.0.95"
 async-trait = "0.1.83" # TODO: remove async-trait?
-clap = { version = "4.5.23", features = ["env", "cargo", "derive", "wrap_help"] }
+clap.workspace = true
 dotenvy = "0.15.7"
 futures-util = "0.3.31"
 hostname = "0.4.0"
@@ -24,7 +24,7 @@ paracord = { version = "0.1.0", path = "../paracord" }
 prost = "0.13.4"
 qcore = { version = "0.1.0", path = "../qcore" }
 reqwest = { version = "0.12.10", features = ["deflate", "gzip", "brotli", "rustls-tls"], default-features = false }
-serenity = { workspace = true }
+serenity.workspace = true
 shrec = { version = "0.1.0", path = "../shrec" }
 songbird = { version = "0.4.6", features = ["serenity"] }
 strsim = "0.11.1"

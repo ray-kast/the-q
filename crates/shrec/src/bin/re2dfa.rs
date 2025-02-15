@@ -55,7 +55,7 @@ fn main() {
     //     // ]),
     // ]);
     // let dfa = token_dfa();
-    let non_dfa = re.compile();
+    let non_dfa = re.compile_atomic();
     let dfa = non_dfa.compile();
     let (dfa, states) = dfa.atomize_nodes::<u64>();
 

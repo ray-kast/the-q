@@ -15,7 +15,22 @@
     reason = "TODO: Testing code, currently it's all hard-coded and comment-toggled"
 )]
 
+use clap::Parser;
 use shrec::re::kleene::{Regex, RegexBag};
+
+#[derive(Parser)]
+#[clap(about, version)]
+struct Opts {
+    output: Output,
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum Output {
+    Nfa,
+    Dfa,
+    DfaUnopt,
+    Eg,
+}
 
 fn main() {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -25,6 +40,8 @@ fn main() {
         Potato,
         Proot,
     }
+
+    let Opts { output } = Opts::parse();
 
     // let re = Regex::Cat(vec![
     //     Regex::Alt(vec![
@@ -68,19 +85,26 @@ fn main() {
         (
             Regex::Cat(vec![
                 Regex::Lit("p".chars()),
-                Regex::Alt(vec![Regex::Lit("".chars()), Regex::Lit("r".chars())]),
-                Regex::Lit("ot".chars()),
-                Regex::Alt(vec![Regex::Cat(vec![
-                    Regex::Lit("at".chars()),
-                    Regex::Alt(vec![
-                        Regex::Lit("".chars()),
-                        Regex::Cat(vec![
-                            Regex::Lit("o".chars()),
-                            Regex::Star(Regex::Lit("to".chars()).into()),
-                            Regex::Alt(vec![Regex::Lit("".chars()), Regex::Lit("t".chars())]),
+                Regex::Alt(vec![
+                    Regex::Lit("".chars()),
+                    Regex::Cat(vec![
+                        Regex::Lit("r".chars()),
+                        Regex::Star(Regex::Lit("o".chars()).into()),
+                    ]),
+                ]),
+                Regex::Lit("otat".chars()),
+                Regex::Alt(vec![
+                    Regex::Lit("".chars()),
+                    Regex::Cat(vec![
+                        Regex::Lit("o".chars()),
+                        Regex::Star(Regex::Lit("to".chars()).into()),
+                        Regex::Alt(vec![
+                            Regex::Lit("".chars()),
+                            Regex::Lit("t".chars()),
+                            Regex::Lit("gen".chars()),
                         ]),
                     ]),
-                ])]),
+                ]),
             ]),
             Proto::Potato,
         ),
@@ -94,14 +118,13 @@ fn main() {
         ),
     ]);
 
-    let non_dfa = re.compile();
+    let non_dfa = re.compile_atomic();
     let dfa = non_dfa.compile();
-    let (dfa, states) = dfa.atomize_nodes::<u64>();
+    let (dfa, _) = dfa.atomize_nodes::<u64>();
     let (dfa_opt, eg) = dfa.optimize();
-    eprintln!("{states:?}");
 
-    match "dfa" {
-        "nfa" => println!(
+    match output {
+        Output::Nfa => println!(
             "{}",
             non_dfa.dot(
                 |i| format!("{i:?}").into(),
@@ -109,7 +132,7 @@ fn main() {
                 |t| Some(format!("{t:?}").into()),
             )
         ),
-        "dfa" => println!(
+        Output::Dfa => println!(
             "{}",
             dfa_opt.dot(
                 |i| format!("{i:?}").into(),
@@ -117,7 +140,7 @@ fn main() {
                 |t| Some(format!("{t:?}").into()),
             )
         ),
-        "dfa_unopt" => println!(
+        Output::DfaUnopt => println!(
             "{}",
             dfa.dot(
                 |i| format!("{i:?}").into(),
@@ -125,7 +148,7 @@ fn main() {
                 |t| Some(format!("{t:?}").into()),
             )
         ),
-        "eg" => println!(
+        Output::Eg => println!(
             "{}",
             eg.dot(
                 |n| format!("{n:?}").into(),
@@ -136,6 +159,5 @@ fn main() {
                 }
             ),
         ),
-        _ => unreachable!(),
     }
 }

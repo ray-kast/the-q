@@ -9,7 +9,7 @@ repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
 anyhow = "1.0.95"
-clap = { version = "4.5.23", features = ["derive", "cargo"] }
+clap.workspace = true
 git2 = "0.19.0"
 prost = "0.13.4"
 prost-types = "0.13.4"

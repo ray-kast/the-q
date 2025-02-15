@@ -2,7 +2,7 @@ use std::{borrow::Borrow, fmt, ops};
 
 use crate::partition_map::{Partition, PartitionBounds, PartitionMap, Partitions};
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct RangeSet<T>(PartitionMap<T, bool>);
 

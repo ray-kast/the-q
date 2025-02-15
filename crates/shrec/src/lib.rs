@@ -29,4 +29,5 @@ pub mod partition_map;
 pub mod range_map;
 pub mod range_set;
 pub mod re;
+pub mod term;
 pub mod union_find;

@@ -18,6 +18,7 @@ use crate::{
 // TODO: tests to add:
 //       - congruence invariant
 //       - hashcons invariant
+//       - assert class_data.nodes is correct
 //       - assert node_classes isn't leaking
 //       - assert only roots have EClassData
 //       - assert all parents are stored correctly
@@ -100,8 +101,8 @@ impl<F, C> ENode<F, C> {
 }
 
 struct EClassData<F, C> {
-    // TODO: gather an intuition of why the ClassId is necessary here
     parents: HashMap<ENode<F, C>, ClassId<C>>,
+    // TODO: was it actually necessary to add this
     nodes: HashSet<ENode<F, C>>,
 }
 
