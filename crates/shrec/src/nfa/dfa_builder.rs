@@ -3,15 +3,15 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     hash::Hash,
     mem,
-    rc::Rc,
+    sync::Arc,
 };
 
 use super::Nfa;
 use crate::{closure_builder::ClosureBuilder, dfa::Dfa, memoize::Memoize, nfa::Node};
 
-// Note to future self: Don't attempt to convert the value to an Rc, it needs to
+// Note to future self: Don't attempt to convert the value to an Arc, it needs to
 //                      be mutably borrowed.
-struct State<I, N, T>(BTreeMap<I, BTreeSet<N>>, Option<Rc<BTreeSet<T>>>);
+struct State<I, N, T>(BTreeMap<I, BTreeSet<N>>, Option<Arc<BTreeSet<T>>>);
 
 impl<I, N, T> Default for State<I, N, T> {
     fn default() -> Self { Self(BTreeMap::new(), None) }
@@ -42,20 +42,20 @@ impl<'a, I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> DfaBuilder<
     }
 
     #[inline]
-    pub fn build(&mut self) -> Dfa<I, Rc<BTreeSet<N>>, Rc<BTreeSet<T>>> {
+    pub fn build(&mut self) -> Dfa<I, Arc<BTreeSet<N>>, Arc<BTreeSet<T>>> {
         let mut memo_node = Memoize::default();
         let mut memo_tok = Memoize::default();
         self.closure.init([*self.nfa.start()]);
         let start = memo_node.memoize(self.solve_closure(BTreeSet::new()));
 
-        let mut states: BTreeMap<Rc<BTreeSet<N>>, State<I, N, T>> = BTreeMap::default();
-        let mut q: VecDeque<_> = [Rc::clone(&start)].into_iter().collect();
+        let mut states: BTreeMap<Arc<BTreeSet<N>>, State<I, N, T>> = BTreeMap::default();
+        let mut q: VecDeque<_> = [Arc::clone(&start)].into_iter().collect();
 
         while let Some(state_set) = q.pop_front() {
             use std::collections::btree_map::Entry;
 
             // TODO: insert_entry pls
-            let Entry::Vacant(v) = states.entry(Rc::clone(&state_set)) else {
+            let Entry::Vacant(v) = states.entry(Arc::clone(&state_set)) else {
                 continue;
             };
             let node = v.insert(State::default());

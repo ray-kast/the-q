@@ -215,11 +215,9 @@ fn sample_create_response(
                         serenity::builder::CreateButton::new({
                             let mut id = "\0".to_owned();
 
-                            std::iter::from_fn(|| {
-                                Some(rand::thread_rng().gen_range('\0'..char::MAX))
-                            })
-                            .take(99)
-                            .for_each(|c| id.push(c));
+                            std::iter::from_fn(|| Some(rand::rng().random_range('\0'..char::MAX)))
+                                .take(99)
+                                .for_each(|c| id.push(c));
 
                             tracing::trace!(id);
 
@@ -550,7 +548,7 @@ fn pick_random<T, R: IntoIterator<Item = T>>(from: &mut Vec<T>, refill: impl FnO
     if from.is_empty() {
         from.extend(refill());
     }
-    let i = rand::thread_rng().gen_range(0..from.len());
+    let i = rand::rng().random_range(0..from.len());
     from.remove(i)
 }
 

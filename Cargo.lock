@@ -4136,6 +4136,7 @@ dependencies = [
  "songbird",
  "strsim 0.11.1",
  "symphonia",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-loki",

@@ -2,7 +2,7 @@ use std::{
     borrow::{Borrow, Cow},
     collections::{btree_map, BTreeMap, BTreeSet},
     hash::Hash,
-    rc::Rc,
+    sync::Arc,
 };
 
 use self::dfa_builder::DfaBuilder;
@@ -80,7 +80,7 @@ impl<I: Ord, N: Ord, T: Ord> Nfa<I, N, T> {
 
 impl<I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> Nfa<I, N, T> {
     #[inline]
-    pub fn compile(&self) -> Dfa<I, Rc<BTreeSet<N>>, Rc<BTreeSet<T>>> {
+    pub fn compile(&self) -> Dfa<I, Arc<BTreeSet<N>>, Arc<BTreeSet<T>>> {
         DfaBuilder::new(self).build()
     }
 }

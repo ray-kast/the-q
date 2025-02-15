@@ -1,9 +1,9 @@
 # Image containing dev dependencies
-FROM rust:1.66.0-slim-bullseye AS tools
+FROM rust:slim-bullseye AS tools
 WORKDIR /build
 
 # Remove the default, let the repo override choose its own
-RUN rustup toolchain remove 1.66.0
+RUN rustup toolchain uninstall $(rustup toolchain list)
 
 RUN apt-get update -y && \
   apt-get install -y \
@@ -72,6 +72,7 @@ WORKDIR /opt/the-q
 RUN apt-get update -y && \
   apt-get install -y --no-install-recommends \
     ffmpeg \
+    graphviz \
   && \
   rm -rf /var/lib/apt/lists/*
 

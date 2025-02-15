@@ -1,4 +1,8 @@
+use std::process::Stdio;
+
+use serenity::builder::CreateAttachment;
 use shrec::re::kleene::Regex;
+use tokio::{fs::File, io::AsyncWriteExt, process};
 
 use super::prelude::*;
 
@@ -48,15 +52,55 @@ impl CommandHandler<Schema> for ReCommand {
                     ]),
                 ]),
             ]);
-            debug!("{re:#?}");
+            trace!("{re:?}");
             let nfa = re.compile_atomic();
-            debug!("{nfa:#?}");
             let compiled_dfa = nfa.compile();
-            debug!("{compiled_dfa:#?}");
-            let atomized_dfa = compiled_dfa.atomize_nodes::<u32>();
-            debug!("{atomized_dfa:#?}");
+            let (atomized_dfa, _) = compiled_dfa.atomize_nodes::<u32>();
+            let (dfa, _) = atomized_dfa.optimize();
 
-            Message::rich(|m| m.push_codeblock_safe(format!("{atomized_dfa:?}"), None))
+            let dir = tokio::task::spawn_blocking(tempfile::tempdir)
+                .await
+                .context("Panicked creating temporary graph dir")?
+                .context("Error creating temporary graph dir")?;
+            let path = dir.path().join("graph.png");
+            let mut cmd = process::Command::new("dot");
+            cmd.current_dir(dir.path())
+                .args(["-Grankdir=LR", "-Tpng", "-o"])
+                .arg(&path)
+                .stdin(Stdio::piped());
+            trace!("Running GraphViz: {cmd:?}");
+            let mut child = cmd.spawn().context("Error starting GraphViz")?;
+
+            let graph = format!(
+                "{}",
+                dfa.dot(
+                    |i| format!("{i:?}").into(),
+                    |o| format!("{o:?}").into(),
+                    |t| Some(format!("{t:?}").into())
+                )
+            );
+
+            child
+                .stdin
+                .as_mut()
+                .context("Error getting GraphViz stream")?
+                .write_all(graph.as_bytes())
+                .await
+                .context("Error streaming dot to GraphViz")?;
+
+            let out = child
+                .wait_with_output()
+                .await
+                .context("Error invoking GraphViz")?;
+
+            trace!("GraphViz exited with code {:?}", out.status);
+
+            Message::plain("Compiled regular expression:").attach([CreateAttachment::file(
+                &File::open(path).await.context("Error opening graph")?,
+                "graph.png",
+            )
+            .await
+            .context("Error attaching graph file")?])
         };
 
         let responder = responder

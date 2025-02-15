@@ -15,7 +15,8 @@ st="$(git blame Cargo.lock \
 
 git="$(git rev-parse --git-dir)"
 tmp="$(realpath "$git/tmp")"
-git clone "$git" "$tmp"
+# TODO: I was getting weird hardlinking errors
+git clone --no-hardlinks "$git" "$tmp"
 
 function cleanup() {
   rm -rf "$tmp"
