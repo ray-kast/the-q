@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies.clap]
-version = "4.5.23"
+version = "4.5.29"
 features = ["env", "cargo", "derive", "wrap_help"]
 
 [workspace.dependencies.serenity]

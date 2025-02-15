@@ -10,8 +10,8 @@ repository = "https://github.com/ray-kast/the-q/"
 [dependencies]
 clap.workspace = true
 hashbrown = "0.15.2"
-indexmap = "2.7.0"
-thiserror = "2.0.9"
+indexmap = "2.7.1"
+thiserror = "2.0.11"
 
 [dev-dependencies]
 proptest = "1.6.0"

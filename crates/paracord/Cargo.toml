@@ -9,18 +9,18 @@ repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
 anyhow = "1.0.95"
-async-trait = "0.1.83"
+async-trait = "0.1.86"
 base64k = { version = "=0.1.0", path = "../base64k" }
 chrono = "0.4.39"
 ordered-float = "4.6.0"
-prost = "0.13.4"
+prost = "0.13.5"
 qcore = { version = "0.1.0", path = "../qcore" }
-serde = { version = "1.0.216", features = ["derive"] }
-serde_json = "1.0.134"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.138"
 serenity.workspace = true
 strsim = "0.11.1"
-thiserror = "2.0.9"
-tokio = { version = "1.42.0", default-features = false, features = ["sync"] }
+thiserror = "2.0.11"
+tokio = { version = "1.43.0", default-features = false, features = ["sync"] }
 tracing = "0.1.41"
 url = "2.5.4"
 zstd = { version = "0.13.2", features = ["experimental"] }

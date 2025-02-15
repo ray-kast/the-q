@@ -11,27 +11,27 @@ build = "build.rs"
 
 [dependencies]
 anyhow = "1.0.95"
-async-trait = "0.1.83" # TODO: remove async-trait?
+async-trait = "0.1.86" # TODO: remove async-trait?
 clap.workspace = true
 dotenvy = "0.15.7"
 futures-util = "0.3.31"
 hostname = "0.4.0"
 jpeggr = { version = "=0.1.0", path = "../jpeggr" }
-notify = "7.0.0"
-once_cell = { version = "1.20.2", features = ["parking_lot"] }
+notify = "8.0.0"
+once_cell = { version = "1.20.3", features = ["parking_lot"] }
 ordered-float = "4.6.0"
 paracord = { version = "0.1.0", path = "../paracord" }
-prost = "0.13.4"
+prost = "0.13.5"
 qcore = { version = "0.1.0", path = "../qcore" }
-reqwest = { version = "0.12.10", features = ["deflate", "gzip", "brotli", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12.12", features = ["deflate", "gzip", "brotli", "rustls-tls"], default-features = false }
 serenity.workspace = true
 shrec = { version = "0.1.0", path = "../shrec" }
 songbird = { version = "0.4.6", features = ["serenity"] }
 strsim = "0.11.1"
 symphonia = { version = "0.5.4", features = ["all"] }
-tokio = { version = "1.42.0", features = ["parking_lot", "full", "tracing"] }
+tokio = { version = "1.43.0", features = ["parking_lot", "full", "tracing"] }
 tracing = "0.1.41"
-tracing-loki = { version = "0.2.5", default-features = false, features = ["rustls", "compat-0-2-1"] }
+tracing-loki = { version = "0.2.6", default-features = false, features = ["rustls", "compat-0-2-1"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "tracing-log"] }
 url = "2.5.4"
 walkdir = "2.5.0"

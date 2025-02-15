@@ -10,10 +10,10 @@ repository = "https://github.com/ray-kast/the-q/"
 [dependencies]
 anyhow = "1.0.95"
 clap.workspace = true
-git2 = "0.19.0"
-prost = "0.13.4"
-prost-types = "0.13.4"
+git2 = "0.20.0"
+prost = "0.13.5"
+prost-types = "0.13.5"
 shrec = { version = "0.1.0", path = "../shrec" }
-tempfile = "3.14.0"
+tempfile = "3.16.0"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["tracing-log", "fmt"] }

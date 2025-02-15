@@ -8,13 +8,13 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
-async-trait = "0.1.83"
+async-trait = "0.1.86"
 clap.workspace = true
 dotenvy = "0.15.7"
-rand = "0.8.5"
-serde = { version = "1.0.216", features = ["derive"] }
-serde_json = "1.0.134"
+rand = "0.9.0"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.138"
 serenity.workspace = true
-tokio = { version = "1.42.0", features = ["parking_lot", "full", "tracing"] }
+tokio = { version = "1.43.0", features = ["parking_lot", "full", "tracing"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "tracing-log"] }
