@@ -7,7 +7,7 @@ shift 1
 
 st="$(git blame Cargo.lock \
   | sort -h \
-  | sed -rne 's/^([0-9a-f]+).*/\1/p' \
+  | sed -rne 's/^\^?([0-9a-f]+).*/\1/p' \
   | uniq -c \
   | sort -h \
   | tail -n1 \
