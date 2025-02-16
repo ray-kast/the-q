@@ -92,24 +92,20 @@ mod private {
 
         async fn delete_response(&self, http: &Http) -> Result<(), serenity::Error>;
 
-        async fn create_followup_message(
+        async fn create_followup(
             &self,
             http: &Http,
             fup: CreateInteractionResponseFollowup,
         ) -> Result<Message, serenity::Error>;
 
-        async fn edit_followup_message(
+        async fn edit_followup(
             &self,
             http: &Http,
             id: MessageId,
             fup: CreateInteractionResponseFollowup,
         ) -> Result<Message, serenity::Error>;
 
-        async fn delete_followup_message(
-            &self,
-            http: &Http,
-            id: MessageId,
-        ) -> Result<(), serenity::Error>;
+        async fn delete_followup(&self, http: &Http, id: MessageId) -> Result<(), serenity::Error>;
     }
 
     macro_rules! interaction {
@@ -140,31 +136,31 @@ mod private {
                 }
 
                 #[inline]
-                async fn create_followup_message(
+                async fn create_followup(
                     &self,
                     http: &Http,
                     fup: CreateInteractionResponseFollowup,
                 ) -> Result<Message, serenity::Error> {
-                    $ty::create_followup_message(self, http, fup).await
+                    $ty::create_followup(self, http, fup).await
                 }
 
                 #[inline]
-                async fn edit_followup_message(
+                async fn edit_followup(
                     &self,
                     http: &Http,
                     id: MessageId,
                     fup: CreateInteractionResponseFollowup,
                 ) -> Result<Message, serenity::Error> {
-                    $ty::edit_followup_message(self, http, id, fup).await
+                    $ty::edit_followup(self, http, id, fup).await
                 }
 
                 #[inline]
-                async fn delete_followup_message(
+                async fn delete_followup(
                     &self,
                     http: &Http,
                     id: MessageId,
                 ) -> Result<(), serenity::Error> {
-                    $ty::delete_followup_message(self, http, id).await
+                    $ty::delete_followup(self, http, id).await
                 }
             }
         };
@@ -283,7 +279,7 @@ pub trait ResponderExt<S: Schema>: private::Responder {
             schema: _,
         } = self.core();
         Ok(int
-            .create_followup_message(http, msg.prepare()?.build_default())
+            .create_followup(http, msg.prepare()?.build_default())
             .await
             .map(Followup)?)
     }
@@ -305,7 +301,7 @@ pub trait ResponderExt<S: Schema>: private::Responder {
             schema: _,
         } = self.core();
         *fup = Followup(
-            int.edit_followup_message(http, fup.0.id, msg.build_default())
+            int.edit_followup(http, fup.0.id, msg.build_default())
                 .await?,
         );
 
@@ -321,7 +317,7 @@ pub trait ResponderExt<S: Schema>: private::Responder {
             int,
             schema: _,
         } = self.core();
-        int.delete_followup_message(http, fup.0.id).await
+        int.delete_followup(http, fup.0.id).await
     }
 }
 
