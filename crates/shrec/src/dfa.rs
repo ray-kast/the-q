@@ -4,7 +4,10 @@ use hashbrown::HashMap;
 pub use scanner::Scanner;
 
 use self::atomize::DfaAtomizer;
-use crate::{dot, free::Succ};
+use crate::{
+    dot,
+    free::{Free, Succ},
+};
 
 mod atomize;
 pub mod optimize;
@@ -82,28 +85,23 @@ impl<I, N: Ord, T> Dfa<I, N, T> {
         fmt_state: impl Fn(&N) -> Cow<'a, str>,
         fmt_tok: impl Fn(&T) -> Option<Cow<'a, str>>,
     ) -> dot::Graph<'a> {
-        let mut graph = dot::Graph::new(dot::GraphType::Directed, None);
+        let mut free_id = Free::from(0);
+        let mut node_ids = BTreeMap::new();
 
-        for (state, Node(edges, accept)) in &self.states {
-            let node_id = fmt_state(state);
-            let node = graph.node(node_id.clone());
-
-            if let Some(tok) = accept {
-                if let Some(tok) = fmt_tok(tok) {
-                    node.label(format!("{node_id}:{tok}").into());
-                }
-
-                node.border_count(2);
-            }
-
-            for (input, next_state) in edges {
-                let edge = graph.edge(node_id.clone(), fmt_state(next_state));
-
-                let input = fmt_input(input);
-                edge.label(input.clone());
-            }
-        }
-
-        graph
+        dot::Graph::state_machine(
+            self.states
+                .iter()
+                .map(|(s, Node(e, a))| (s, e.iter().map(|(i, n)| (i, [n])), a.as_ref())),
+            |n| {
+                node_ids
+                    .entry(*n)
+                    .or_insert_with(|| free_id.fresh())
+                    .to_string()
+                    .into()
+            },
+            fmt_input,
+            fmt_state,
+            fmt_tok,
+        )
     }
 }

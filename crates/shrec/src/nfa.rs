@@ -6,7 +6,7 @@ use std::{
 };
 
 use self::dfa_builder::DfaBuilder;
-use crate::{dfa::Dfa, dot};
+use crate::{dfa::Dfa, dot, free::Free};
 
 mod dfa_builder;
 
@@ -92,31 +92,21 @@ impl<I, N: Ord, T: Ord> Nfa<I, N, T> {
         fmt_state: impl Fn(&N) -> Cow<'a, str>,
         fmt_tok: impl Fn(&T) -> Option<Cow<'a, str>>,
     ) -> dot::Graph<'a> {
-        let mut graph = dot::Graph::new(dot::GraphType::Directed, None);
+        let mut free_id = Free::from(0);
+        let mut node_ids = BTreeMap::new();
 
-        for (state, Node(edges, accept)) in &self.nodes {
-            let node_id = fmt_state(state);
-            let node = graph.node(node_id.clone());
-
-            if let Some(tok) = accept {
-                if let Some(tok) = fmt_tok(tok) {
-                    node.label(format!("{node_id}:{tok}").into());
-                }
-
-                node.border_count(2);
-            }
-
-            for (input, outputs) in edges {
-                let input = input.as_ref().map_or_else(|| "ϵ".into(), &fmt_input);
-
-                for next_state in outputs {
-                    let edge = graph.edge(node_id.clone(), fmt_state(next_state));
-
-                    edge.label(input.clone());
-                }
-            }
-        }
-
-        graph
+        dot::Graph::state_machine(
+            self.nodes.iter().map(|(s, Node(e, a))| (s, e, a.as_ref())),
+            |n| {
+                node_ids
+                    .entry(*n)
+                    .or_insert_with(|| free_id.fresh())
+                    .to_string()
+                    .into()
+            },
+            |i| i.as_ref().map_or_else(|| "ϵ".into(), &fmt_input),
+            fmt_state,
+            fmt_tok,
+        )
     }
 }

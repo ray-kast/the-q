@@ -106,6 +106,55 @@ impl<'a> Graph<'a> {
         edges.push(Edge::default());
         edges.last_mut().unwrap_or_else(|| unreachable!())
     }
+
+    pub(crate) fn state_machine<
+        I,
+        S,
+        T,
+        IN: IntoIterator<Item = (S, IE, Option<T>)>,
+        IE: IntoIterator<Item = (I, IO)>,
+        IO: IntoIterator<Item = S>,
+        G: FnMut(&S) -> Cow<'a, str>,
+        FI: Fn(I) -> Cow<'a, str>,
+        FS: Fn(S) -> Cow<'a, str>,
+        FT: Fn(T) -> Option<Cow<'a, str>>,
+    >(
+        nodes: IN,
+        mut get_id: G,
+        fmt_input: FI,
+        fmt_state: FS,
+        fmt_tok: FT,
+    ) -> Self {
+        let mut graph = Self::new(GraphType::Directed, None);
+
+        for (state, edges, accept) in nodes {
+            let id = get_id(&state);
+            let node = graph.node(id.clone());
+
+            let mut label = fmt_state(state);
+            if let Some(tok) = accept {
+                if let Some(tok) = fmt_tok(tok) {
+                    label = format!("{label}:{tok}").into();
+                }
+
+                node.border_count(2);
+            }
+
+            node.label(label);
+
+            for (input, outputs) in edges {
+                let input = fmt_input(input);
+
+                for next_state in outputs {
+                    let edge = graph.edge(id.clone(), get_id(&next_state));
+
+                    edge.label(input.clone());
+                }
+            }
+        }
+
+        graph
+    }
 }
 
 #[derive(Default)]

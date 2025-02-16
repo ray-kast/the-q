@@ -52,7 +52,9 @@ impl CommandHandler<Schema> for ReCommand {
                     ]),
                 ]),
             ]);
+
             trace!("{re:?}");
+
             let nfa = re.compile_atomic();
             let compiled_dfa = nfa.compile();
             let (atomized_dfa, _) = compiled_dfa.atomize_nodes::<u32>();
@@ -63,20 +65,25 @@ impl CommandHandler<Schema> for ReCommand {
                 .context("Panicked creating temporary graph dir")?
                 .context("Error creating temporary graph dir")?;
             let path = dir.path().join("graph.png");
+
             let mut cmd = process::Command::new("dot");
             cmd.current_dir(dir.path())
                 .args(["-Grankdir=LR", "-Tpng", "-o"])
                 .arg(&path)
                 .stdin(Stdio::piped());
-            trace!("Running GraphViz: {cmd:?}");
-            let mut child = cmd.spawn().context("Error starting GraphViz")?;
 
+            trace!("Running GraphViz: {cmd:?}");
+
+            let mut child = cmd.spawn().context("Error starting GraphViz")?;
             let graph = format!(
                 "{}",
                 dfa.dot(
                     |i| format!("{i:?}").into(),
-                    |o| format!("{o:?}").into(),
-                    |t| Some(format!("{t:?}").into())
+                    |_: &usize| "".into(),
+                    |t| {
+                        let () = t.iter().copied().collect();
+                        None
+                    }
                 )
             );
 
