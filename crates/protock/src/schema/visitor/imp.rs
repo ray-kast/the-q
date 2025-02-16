@@ -90,7 +90,8 @@ impl Visitor<'_> {
         assert!(source_code_info.is_none());
         assert_eq!(syntax.as_deref(), Some("proto3"));
 
-        let (optimize, deprecated) = if let Some(opts) = options {
+        // TODO: maybe useful at some point
+        let (_optimize, _deprecated) = if let Some(opts) = options {
             #[expect(
                 deprecated,
                 reason = "Explicitly ignoring java_generate_equals_and_hash"

@@ -57,6 +57,7 @@ impl<L> TryFrom<Regex<L>> for kleene::Regex<L> {
     }
 }
 
+#[expect(unused, clippy::only_used_in_recursion, reason = "WIP")]
 impl<L: IntoIterator<Item: Ord>> Regex<L> {
     // TODO: honestly, it might just make more sense to work with this directly in an e-graph
     fn deriv_atomic(self, prefix: &L::Item) -> Regex<L> {

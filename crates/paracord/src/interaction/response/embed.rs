@@ -138,49 +138,37 @@ impl Embed {
 #[derive(Debug)]
 struct EmbedFooter {}
 impl BuildWith<EmbedFooter> for CreateEmbed {
-    fn build_with(self, value: EmbedFooter) -> Self {
+    fn build_with(self, _: EmbedFooter) -> Self {
         self // TODO
     }
 }
 #[derive(Debug)]
 struct EmbedImage {}
 impl BuildWith<EmbedImage> for CreateEmbed {
-    fn build_with(self, value: EmbedImage) -> Self {
-        self // TODO
-    }
+    fn build_with(self, _: EmbedImage) -> Self { todo!() }
 }
 #[derive(Debug)]
 struct EmbedThumbnail {}
 impl BuildWith<EmbedThumbnail> for CreateEmbed {
-    fn build_with(self, value: EmbedThumbnail) -> Self {
-        self // TODO
-    }
+    fn build_with(self, _: EmbedThumbnail) -> Self { todo!() }
 }
 #[derive(Debug)]
 struct EmbedVideo {}
 impl BuildWith<EmbedVideo> for CreateEmbed {
-    fn build_with(self, value: EmbedVideo) -> Self {
-        self // TODO
-    }
+    fn build_with(self, _: EmbedVideo) -> Self { todo!() }
 }
 #[derive(Debug)]
 struct EmbedProvider {}
 impl BuildWith<EmbedProvider> for CreateEmbed {
-    fn build_with(self, value: EmbedProvider) -> Self {
-        self // TODO
-    }
+    fn build_with(self, _: EmbedProvider) -> Self { todo!() }
 }
 #[derive(Debug)]
 struct EmbedAuthor {}
 impl BuildWith<EmbedAuthor> for CreateEmbed {
-    fn build_with(self, value: EmbedAuthor) -> Self {
-        self // TODO
-    }
+    fn build_with(self, _: EmbedAuthor) -> Self { todo!() }
 }
 #[derive(Debug)]
 struct EmbedField {}
 impl BuildWith<EmbedField> for CreateEmbed {
-    fn build_with(self, value: EmbedField) -> Self {
-        self // TODO
-    }
+    fn build_with(self, _: EmbedField) -> Self { todo!() }
 }
