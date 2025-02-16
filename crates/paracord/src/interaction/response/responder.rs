@@ -170,6 +170,41 @@ mod private {
     interaction!(ComponentInteraction);
     interaction!(ModalInteraction);
 
+    #[cfg(test)]
+    mod assert_methods {
+        //! Make sure that the methods used by interaction! exist without the
+        //! Interaction trait to avoid another breaking change silently causing
+        //! a stack overflow.
+
+        macro_rules! assert_interaction {
+            ($ty:ident) => {
+                #[expect(non_snake_case)]
+                mod $ty {
+                    use super::super::$ty;
+
+                    #[expect(
+                        unused,
+                        clippy::diverging_sub_expression,
+                        clippy::let_underscore_future
+                    )]
+                    fn assert() {
+                        let h: serenity::http::Http = todo!();
+                        let _ = $ty::create_response(todo!(), h, todo!());
+                        let _ = $ty::edit_response(todo!(), h, todo!());
+                        let _ = $ty::delete_response(todo!(), h);
+                        let _ = $ty::create_followup(todo!(), h, todo!());
+                        let _ = $ty::edit_followup(todo!(), h, 0_u64, todo!());
+                        let _ = $ty::delete_followup(todo!(), h, 0_u64);
+                    }
+                }
+            };
+        }
+
+        assert_interaction!(CommandInteraction);
+        assert_interaction!(ComponentInteraction);
+        assert_interaction!(ModalInteraction);
+    }
+
     #[derive(Debug)]
     pub struct ResponderCore<'a, S, I> {
         pub(super) http: &'a Http,
