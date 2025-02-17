@@ -74,7 +74,12 @@ impl<I: Ord, N: Ord + Hash, T> Dfa<I, N, T> {
     }
 }
 
-impl<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash> Dfa<I, N, T> {
+impl<
+        I: std::fmt::Debug + Copy + Ord + Hash,
+        N: std::fmt::Debug + Copy + Ord + Hash,
+        T: std::fmt::Debug + Clone + Ord + Hash,
+    > Dfa<I, N, T>
+{
     pub fn optimize(&self) -> optimize::Output<I, N, T> { optimize::run(self) }
 }
 

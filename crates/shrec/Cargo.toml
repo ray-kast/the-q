@@ -9,9 +9,13 @@ repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
 clap.workspace = true
-hashbrown = "0.15.2"
+hashbrown.workspace = true
 indexmap = "2.7.1"
+proptest = { workspace = true, optional = true }
 thiserror = "2.0.11"
 
 [dev-dependencies]
-proptest = "1.6.0"
+proptest.workspace = true
+
+[features]
+proptest = ["dep:proptest"]

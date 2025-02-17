@@ -72,48 +72,69 @@ fn main() {
     //     ]),
     // ]);
     // let re = shrec::re::syntax::token_re();
-    let re = RegexBag::from_iter([
-        (
-            Cat(vec![
-                Lit("pro".chars()),
-                Star(
-                    Cat(vec![
-                        Alt(vec![Lit("".chars()), Lit("ta".chars())]),
-                        Lit("to".chars()),
-                    ])
-                    .into(),
-                ),
-                Lit("gen".chars()),
-            ]),
-            Proto::Proto,
-        ),
-        (
-            Cat(vec![
-                Lit("p".chars()),
-                Alt(vec![
-                    Lit("".chars()),
-                    Cat(vec![Lit("r".chars()), Star(Lit("o".chars()).into())]),
+    // let re = RegexBag::from_iter([
+    //     (
+    //         Cat(vec![
+    //             Lit("pro".chars()),
+    //             Star(
+    //                 Cat(vec![
+    //                     Alt(vec![Lit("".chars()), Lit("ta".chars())]),
+    //                     Lit("to".chars()),
+    //                 ])
+    //                 .into(),
+    //             ),
+    //             Lit("gen".chars()),
+    //         ]),
+    //         Proto::Proto,
+    //     ),
+    //     (
+    //         Cat(vec![
+    //             Lit("p".chars()),
+    //             Alt(vec![
+    //                 Lit("".chars()),
+    //                 Cat(vec![Lit("r".chars()), Star(Lit("o".chars()).into())]),
+    //             ]),
+    //             Lit("otat".chars()),
+    //             Alt(vec![
+    //                 Lit("".chars()),
+    //                 Cat(vec![
+    //                     Lit("o".chars()),
+    //                     Star(Lit("to".chars()).into()),
+    //                     Alt(vec![Lit("".chars()), Lit("t".chars()), Lit("gen".chars())]),
+    //                 ]),
+    //             ]),
+    //         ]),
+    //         Proto::Potato,
+    //     ),
+    //     (
+    //         Cat(vec![
+    //             Lit("proo".chars()),
+    //             Star(Lit("o".chars()).into()),
+    //             Lit("t".chars()),
+    //         ]),
+    //         Proto::Proot,
+    //     ),
+    // ]);
+    let re = Cat(vec![
+        Lit(vec!['b']),
+        Cat(vec![
+            Alt(vec![
+                Cat(vec![Cat(vec![
+                    Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]),
+                    Star(Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]).into()),
+                ])]),
+                Cat(vec![
+                    Lit(vec![]),
+                    Cat(vec![Lit(vec!['n']), Star(Lit(vec!['n']).into())]),
+                    Star(Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]).into()),
                 ]),
-                Lit("otat".chars()),
-                Alt(vec![
-                    Lit("".chars()),
-                    Cat(vec![
-                        Lit("o".chars()),
-                        Star(Lit("to".chars()).into()),
-                        Alt(vec![Lit("".chars()), Lit("t".chars()), Lit("gen".chars())]),
-                    ]),
-                ]),
             ]),
-            Proto::Potato,
-        ),
-        (
             Cat(vec![
-                Lit("proo".chars()),
-                Star(Lit("o".chars()).into()),
-                Lit("t".chars()),
+                Lit(vec![]),
+                Alt(vec![Cat(vec![]), Lit(vec!['u'])]),
+                Lit(vec!['y']),
             ]),
-            Proto::Proot,
-        ),
+        ]),
     ]);
 
     let non_dfa = re.compile_atomic();

@@ -10,11 +10,12 @@ repository = "https://github.com/ray-kast/the-q/"
 [dependencies]
 anyhow = "1.0.95"
 async-trait = "0.1.86"
-base64k = { version = "=0.1.0", path = "../base64k" }
+base64k.workspace = true
 chrono = "0.4.39"
+futures-util.workspace = true
 ordered-float = "4.6.0"
 prost = "0.13.5"
-qcore = { version = "0.1.0", path = "../qcore" }
+qcore.workspace = true
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.138"
 serenity.workspace = true

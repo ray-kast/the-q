@@ -1,10 +1,12 @@
 use std::{
     collections::{BinaryHeap, HashMap, HashSet},
     fmt::{self, Write},
+    panic::AssertUnwindSafe,
     sync::Arc,
 };
 
 use anyhow::Context as _;
+use futures_util::FutureExt;
 use ordered_float::OrderedFloat;
 use serenity::{
     builder::{CreateAutocompleteResponse, CreateInteractionResponse},
@@ -598,10 +600,32 @@ impl<S: Schema> Registry<S> {
 
         let mut vis = visitor::CommandVisitor::new(&aci);
         let mut responder = BorrowedResponder::Init(responder);
-        let res = handler
-            .respond(ctx, &mut vis, BorrowingResponder::new(&mut responder))
-            .await;
-        let res = res.and_then(|_| vis.finish().map_err(Into::into));
+        let res = AssertUnwindSafe(handler.respond(
+            ctx,
+            &mut vis,
+            BorrowingResponder::new(&mut responder),
+        ))
+        .catch_unwind()
+        .await;
+        let res = res
+            .map_err(|e| {
+                handler::HandlerError::Other(anyhow::anyhow!(
+                    "Command handler panicked: {}",
+                    'downcast: {
+                        if let Some(s) = e.downcast_ref::<&'static str>() {
+                            break 'downcast *s;
+                        }
+
+                        if let Some(s) = e.downcast_ref::<String>() {
+                            break 'downcast s.as_str();
+                        }
+
+                        "<no message available>"
+                    }
+                ))
+            })
+            .and_then(|r| r)
+            .and_then(|_| vis.finish().map_err(Into::into));
 
         if let Some(msg) = res
             .err()

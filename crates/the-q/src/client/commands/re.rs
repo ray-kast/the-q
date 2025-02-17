@@ -16,24 +16,18 @@ mod parse {
     type ParseResult<'a> = Result<Vec<Regex<'a>>, Vec<Error>>;
 
     #[derive(Debug)]
-    struct Slice(std::ops::RangeInclusive<usize>);
+    struct Slice(std::ops::Range<usize>);
 
     impl Slice {
         fn get<'a>(&self, s: &'a str) -> &'a str { &s[self.0.clone()] }
 
-        fn push_end(self, end: usize) -> Self {
-            let (start, _) = self.0.into_inner();
-            Self(start..=end)
-        }
+        fn push_end(self, end: usize) -> Self { Self(self.0.start..end) }
 
-        fn zip(self, rhs: Option<Self>) -> Self {
-            match rhs {
-                None => self,
-                Some(r) => {
-                    let (ls, le) = self.0.into_inner();
-                    let (rs, re) = r.0.into_inner();
-                    Self(ls.min(rs)..=le.max(re))
-                },
+        fn zip(self, rhs: &Self) -> Self {
+            if rhs.0.start == rhs.0.end {
+                self
+            } else {
+                Self(self.0.start.min(rhs.0.start)..self.0.end.max(rhs.0.end))
             }
         }
     }
@@ -63,6 +57,7 @@ mod parse {
 
     #[derive(Debug)]
     enum Production<'a> {
+        Blank,
         Segment(Chars<'a>),
         Re(Regex<'a>),
     }
@@ -70,6 +65,7 @@ mod parse {
     impl<'a> Production<'a> {
         fn re(self) -> Regex<'a> {
             match self {
+                Self::Blank => Regex::EMPTY,
                 Self::Segment(s) => Regex::Lit(s),
                 Self::Re(r) => r,
             }
@@ -85,34 +81,18 @@ mod parse {
     }
 
     impl HasEmpty for Production<'_> {
-        const EMPTY: Self = Production::Re(Regex::EMPTY);
+        const EMPTY: Self = Production::Blank;
     }
 
     impl HasEmpty for ReStack<'_> {
         const EMPTY: Self = Self(vec![]);
     }
 
-    impl HasEmpty for ReState<'_> {
-        const EMPTY: Self = Self(None, ReStack::EMPTY);
-    }
-
     #[derive(Debug)]
-    struct WithPos<T>(Option<(T, Slice)>);
-
-    impl<T> From<(T, Slice)> for WithPos<T> {
-        fn from(value: (T, Slice)) -> Self { Self(Some(value)) }
-    }
+    struct WithPos<T>(T, Slice);
 
     impl<T> WithPos<T> {
-        fn map<U>(self, f: impl FnOnce(T) -> U) -> WithPos<U> {
-            WithPos(self.0.map(|(t, s)| (f(t), s)))
-        }
-    }
-
-    impl<T: HasEmpty> WithPos<T> {
-        fn unzip(self) -> (T, Option<Slice>) {
-            self.0.map_or((T::EMPTY, None), |(t, s)| (t, Some(s)))
-        }
+        fn map<U>(self, f: impl FnOnce(T) -> U) -> WithPos<U> { WithPos(f(self.0), self.1) }
     }
 
     #[derive(Debug)]
@@ -135,20 +115,15 @@ mod parse {
             self
         }
 
-        #[instrument(level = "trace", ret)]
-        fn try_shift_op(&mut self, s: &'a str, end: Option<usize>, op: ReOp) -> Result {
+        fn try_shift_op(&mut self, s: &'a str, end: usize, op: ReOp) -> Result {
             let prod = self.reduce(s, end, op)?;
             match op {
                 ReOp::Pipe => self.0.push(ReStackSym::Alt(prod.map(Production::re))),
                 ReOp::Unop(u) => {
-                    let Some((prod, slice)) = prod.0 else {
-                        bail!(
-                            "Missing operand while parsing {u:?} at {:?}",
-                            end.map_or("", |e| &s[..=e])
-                        );
-                    };
-
-                    let (prefix, re) = match prod {
+                    let (prefix, re) = match prod.0 {
+                        Production::Blank => {
+                            bail!("Missing operand while parsing {u:?} at {:?}", &s[..end])
+                        },
                         Production::Segment(l) => {
                             if let Some((idx, _)) = l.as_str().char_indices().last() {
                                 let (pre, suf) = l.as_str().split_at(idx);
@@ -166,17 +141,14 @@ mod parse {
                         Unop::Opt => Regex::Alt(vec![Regex::EMPTY, re]),
                     };
 
-                    self.0.push(ReStackSym::Cat(
-                        (
-                            if let Some(prefix) = prefix {
-                                Regex::Cat(vec![prefix, inner])
-                            } else {
-                                inner
-                            },
-                            slice,
-                        )
-                            .into(),
-                    ));
+                    self.0.push(ReStackSym::Cat(WithPos(
+                        if let Some(prefix) = prefix {
+                            Regex::Cat(vec![prefix, inner])
+                        } else {
+                            inner
+                        },
+                        prod.1,
+                    )));
                 },
                 ReOp::LPar => self.0.extend([
                     ReStackSym::Cat(prod.map(Production::re)),
@@ -186,10 +158,7 @@ mod parse {
                     if matches!(self.0.last(), Some(ReStackSym::LParen)) {
                         self.0.pop();
                     } else {
-                        bail!(
-                            "Found extraneous right parenthesis at {:?}",
-                            prod.0.map_or("", |(_, t)| t.get(s))
-                        );
+                        bail!("Found extraneous right parenthesis at {:?}", prod.1.get(s));
                     }
 
                     self.0.push(ReStackSym::Cat(prod.map(Production::re)));
@@ -200,13 +169,7 @@ mod parse {
             Ok(())
         }
 
-        fn shift_op(
-            mut self,
-            s: &'a str,
-            end: Option<usize>,
-            op: ReOp,
-            res: &mut ParseResult,
-        ) -> Self {
+        fn shift_op(mut self, s: &'a str, end: usize, op: ReOp, res: &mut ParseResult) -> Self {
             match self.try_shift_op(s, end, op) {
                 Ok(()) => (),
                 Err(e) => push_err(res, e),
@@ -218,67 +181,61 @@ mod parse {
         fn pop_until(
             &mut self,
             s: &'a str,
-            end: Option<usize>,
+            end: usize,
             stop: impl Fn(&ReStackSym<'a>) -> bool,
         ) -> Result<WithPos<Production<'a>>> {
-            let mut curr = None;
+            let mut curr = None::<WithPos<Production>>;
 
             loop {
                 let Some(sym) = self.0.pop() else {
-                    break Ok(WithPos(curr));
+                    break Ok(curr.unwrap_or(WithPos(Production::EMPTY, Slice(end..end))));
                 };
                 if matches!(sym, ReStackSym::LParen) || curr.is_some() && stop(&sym) {
                     self.0.push(sym);
-                    break Ok(WithPos(curr));
+                    break Ok(curr.unwrap_or(WithPos(Production::EMPTY, Slice(end..end))));
                 }
 
-                curr = match (sym, curr) {
+                curr = Some(match (sym, curr) {
                     (ReStackSym::SegmentStart(t), None) => {
-                        let Some(end) = end else {
-                            unreachable!("Invalid Segment in parser stack: no segment end given");
-                        };
-
-                        Some((Production::Segment(s[t..=end].chars()), Slice(t..=end)))
+                        WithPos(Production::Segment(s[t..end].chars()), Slice(t..end))
                     },
-                    (ReStackSym::SegmentStart(_), Some(_)) => {
+                    (ReStackSym::SegmentStart(_), _) => {
                         unreachable!("Unexpanded SegmentStart in the middle of parser stack!")
                     },
                     (ReStackSym::LParen, _) => unreachable!(),
-                    (ReStackSym::Cat(r), Some((p, s))) => {
-                        let (r, t) = r.unzip();
-                        Some((
+                    (ReStackSym::Cat(r), Some(WithPos(p, s))) => {
+                        let WithPos(r, t) = r;
+                        WithPos(
                             Production::Re(if let Regex::Cat(mut v) = r {
                                 v.push(p.re());
                                 Regex::Cat(v)
                             } else {
                                 Regex::Cat(vec![r, p.re()])
                             }),
-                            s.zip(t),
-                        ))
+                            s.zip(&t),
+                        )
                     },
-                    (ReStackSym::Alt(r), Some((p, s))) => {
-                        let (r, t) = r.unzip();
-                        Some((
+                    (ReStackSym::Cat(r), None) => r.map(Production::Re),
+                    (ReStackSym::Alt(r), Some(WithPos(p, s))) => {
+                        let WithPos(r, t) = r;
+                        WithPos(
                             Production::Re(if let Regex::Alt(mut v) = r {
                                 v.push(p.re());
                                 Regex::Alt(v)
                             } else {
                                 Regex::Alt(vec![r, p.re()])
                             }),
-                            s.zip(t),
-                        ))
+                            s.zip(&t),
+                        )
                     },
-                    (ReStackSym::Cat(r) | ReStackSym::Alt(r), None) => r.map(Production::Re).0,
-                };
+                    (ReStackSym::Alt(r), None) => {
+                        r.map(|r| Production::Re(Regex::Alt(vec![r, Regex::EMPTY])))
+                    },
+                });
             }
         }
 
-        fn reduce(
-            &mut self,
-            s: &'a str,
-            end: Option<usize>,
-            op: ReOp,
-        ) -> Result<WithPos<Production<'a>>> {
+        fn reduce(&mut self, s: &'a str, end: usize, op: ReOp) -> Result<WithPos<Production<'a>>> {
             match op {
                 ReOp::Pipe | ReOp::RPar | ReOp::Eof => self.pop_until(s, end, |_| false),
                 ReOp::Unop(_) => self.pop_until(s, end, |_| true),
@@ -286,16 +243,14 @@ mod parse {
             }
         }
 
-        fn finish(mut self, s: &'a str, slice: Option<&Slice>) -> Result<Regex<'a>> {
-            let (prod, _) = self
-                .reduce(s, slice.map(|s| *s.0.end()), ReOp::Eof)?
-                .unzip();
+        fn finish(mut self, s: &'a str, slice: &Slice) -> Result<Regex<'a>> {
+            let WithPos(prod, _) = self.reduce(s, slice.0.end, ReOp::Eof)?;
             let Self(stack) = self;
 
             if !stack.is_empty() {
                 unreachable!(
                     "Trailing symbols in parser stack for {:?}: {stack:?}",
-                    slice.map_or("", |t| t.get(s))
+                    slice.get(s)
                 );
             }
 
@@ -304,24 +259,19 @@ mod parse {
     }
 
     #[derive(Debug)]
-    struct ReState<'a>(Option<Slice>, ReStack<'a>);
+    struct ReState<'a>(Slice, ReStack<'a>);
 
     impl<'a> ReState<'a> {
+        const fn new(i: usize) -> Self { Self(Slice(i..i), ReStack::EMPTY) }
+
         fn shift_idx(self, i: usize) -> Self {
             let Self(slice, stack) = self;
-            Self(
-                Some(slice.map_or(Slice(i..=i), |s| s.push_end(i))),
-                stack.shift_idx(i),
-            )
+            Self(slice.push_end(i), stack.shift_idx(i))
         }
 
         fn shift_op(self, s: &'a str, i: usize, op: ReOp, res: &mut ParseResult) -> Self {
             let Self(slice, stack) = self;
-            let seg_end = slice.as_ref().map(|s| *s.0.end());
-            Self(
-                Some(slice.map_or(Slice(i..=i), |s| s.push_end(i))),
-                stack.shift_op(s, seg_end, op, res),
-            )
+            Self(slice.push_end(i), stack.shift_op(s, i, op, res))
         }
 
         fn shift(self, s: &'a str, i: usize, c: char, res: &mut ParseResult) -> Self {
@@ -336,9 +286,10 @@ mod parse {
             }
         }
 
-        fn finish(self, s: &'a str) -> Result<Regex<'a>, Error> {
-            let Self(slice, stack) = self;
-            stack.finish(s, slice.as_ref())
+        fn finish(self, s: &'a str, i: usize) -> Result<Regex<'a>, Error> {
+            let Self(mut slice, stack) = self;
+            slice = slice.push_end(i);
+            stack.finish(s, &slice)
         }
     }
 
@@ -364,13 +315,13 @@ mod parse {
 
     pub fn scan_one(s: &str) -> ParseResult {
         let mut res = Ok(vec![]);
-        let mut state = ReState::EMPTY;
+        let mut state = ReState::new(0);
 
         for (i, c) in s.char_indices() {
             state = state.shift(s, i, c, &mut res);
         }
 
-        match (state.finish(s), &mut res) {
+        match (state.finish(s, s.len()), &mut res) {
             (Ok(r), Ok(v)) => v.push(r),
             (Ok(_), Err(_)) => (),
             (Err(e), r) => push_err(r, e),
@@ -394,12 +345,12 @@ mod parse {
                 (State::Start(Delim::Tick), '/') => State::Start(Delim::TickSlash),
                 (State::Start(Delim::TickSlash), '/') => State::TickFinishBlank,
                 (State::Start(delim), c) => {
-                    State::Re(delim, ReState::EMPTY.shift(s, i, c, &mut res))
+                    State::Re(delim, ReState::new(i).shift(s, i, c, &mut res))
                 },
                 (State::Re(Delim::TickSlash, s), '/') => State::TickFinish(s),
                 (State::Re(Delim::Slash, state), '/')
                 | (State::Re(Delim::Tick, state) | State::TickFinish(state), '`') => {
-                    match (state.finish(s), &mut res) {
+                    match (state.finish(s, i), &mut res) {
                         (Ok(r), Ok(v)) => v.push(r),
                         (Ok(_), Err(_)) => (),
                         (Err(e), r) => push_err(r, e),
@@ -407,9 +358,7 @@ mod parse {
                     State::Message
                 },
                 (State::Re(d, t), c) => State::Re(d, t.shift(s, i, c, &mut res)),
-                (State::TickFinish(_) | State::TickFinishBlank, _) => {
-                    State::TickTrail(Slice(i..=i))
-                },
+                (State::TickFinish(_) | State::TickFinishBlank, _) => State::TickTrail(Slice(i..i)),
                 (State::TickTrail(t), '`') => {
                     push_err(&mut res, tick_trail_err(t.get(s)));
                     State::Message
@@ -423,16 +372,93 @@ mod parse {
             State::Message | State::Start(_) | State::TickFinishBlank => (),
             State::Re(_, t) | State::TickFinish(t) => push_err(
                 &mut res,
-                anyhow!(
-                    "Unclosed regular expression at {:?}",
-                    t.0.map_or("", |t| t.get(s))
-                ),
+                anyhow!("Unclosed regular expression at {:?}", t.0.get(s)),
             ),
             State::TickTrail(t) => push_err(&mut res, tick_trail_err(t.get(s))),
             State::Poison => unreachable!("Lexer finished in poisoned state!"),
         }
 
         res
+    }
+
+    #[cfg(test)]
+    mod test {
+        use hashbrown::HashMap;
+        use proptest::prelude::*;
+        use shrec::{
+            free::Free,
+            re::kleene::{self, Regex},
+        };
+
+        fn stringify_re(re: &Regex<std::str::Chars<'_>>, s: &mut String) {
+            match re {
+                Regex::Alt(v) => {
+                    for (i, r) in v.iter().enumerate() {
+                        if i != 0 {
+                            s.push('|');
+                        }
+
+                        s.push('(');
+                        stringify_re(r, s);
+                        s.push(')');
+                    }
+                },
+                Regex::Cat(v) => {
+                    for r in v {
+                        s.push('(');
+                        stringify_re(r, s);
+                        s.push(')');
+                    }
+                },
+                Regex::Star(r) => {
+                    s.push('(');
+                    stringify_re(r, s);
+                    s.push_str(")*");
+                },
+                Regex::Lit(l) => match l.as_str() {
+                    "" => s.push_str("()"),
+                    l => s.push_str(l),
+                },
+            }
+        }
+
+        proptest! {
+            #[test]
+            fn test_one(r in kleene::re(
+                8,
+                64,
+                8,
+                0..16,
+                prop::char::ranges([
+                    '\x21'..='\x27',     // ASCII (up to `(`)
+                    '\x2c'..='\x3e',     // ASCII (after *, up to ?)
+                    '\x40'..='\x7b',     // ASCII (after ?, up to |)
+                    '\x7d'..='\x7e',     // ASCII (after |)
+                    '\u{a1}'..='\u{ac}', // Latin-1 (up to SHY)
+                    '\u{ae}'..='\u{ff}', // Latin-1 (after SHY)
+                ].as_slice().into()),
+            ).prop_filter("Regex::BOTTOM cannot be parsed", |r| *r != Regex::BOTTOM)) {
+                // TODO: this Sucks
+                let mut strings = HashMap::<u64, String>::new();
+                let mut free = Free::from(0);
+                let r = r.map(|v| {
+                    let id = free.fresh();
+                    strings.insert(id, v.into_iter().collect());
+                    id
+                });
+                let r = r.map(|i| strings[&i].chars());
+
+                let mut s = String::new();
+                stringify_re(&r, &mut s);
+                let mut vec = super::scan_one(&s).unwrap_or_else(|e| panic!("Error parsing {s:?}: {e:?}"));
+                let _parsed = vec.pop().unwrap();
+                assert!(vec.is_empty());
+                // TODO: this needs an e-graph
+                // let l = parsed.map(|l| l.as_str());
+                // let r = r.map(|l| l.as_str());
+                // assert_eq!(l, r);
+            }
+        }
     }
 }
 

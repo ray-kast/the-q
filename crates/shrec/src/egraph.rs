@@ -37,15 +37,18 @@ impl<F, C> ENode<F, C> {
     #[must_use]
     pub fn args(&self) -> &[ClassId<C>] { &self.1 }
 
-    fn canonicalize_impl(&mut self, uf: &UnionFind<C>) -> Result<(), NoNode> {
+    fn canonicalize_impl(&mut self, uf: &UnionFind<C>) -> Result<bool, NoNode> {
+        let mut any = false;
         for arg in Rc::make_mut(&mut self.1) {
-            *arg = uf.find(*arg)?;
+            let root = uf.find(*arg)?;
+            any = any || root != *arg;
+            *arg = root;
         }
 
-        Ok(())
+        Ok(any)
     }
 
-    pub fn canonicalize(&mut self, eg: &EGraph<F, C>) -> Result<(), NoNode> {
+    pub fn canonicalize(&mut self, eg: &EGraph<F, C>) -> Result<bool, NoNode> {
         eg.poison_check();
         self.canonicalize_impl(&eg.uf)
     }
@@ -133,14 +136,25 @@ impl<F: Eq + Hash, C> EClassData<F, C> {
         }
     }
 
-    fn merge(&mut self, rhs: EClassData<F, C>) {
+    fn merge(&mut self, rhs: EClassData<F, C>, uf: &UnionFind<C>) {
         let EClassData { parents, nodes } = rhs;
 
         for (node, klass) in parents {
-            assert_eq!(klass, *self.parents.entry(node).or_insert(klass));
+            assert_eq!(
+                uf.find(klass).unwrap(),
+                uf.find(*self.parents.entry(node).or_insert(klass)).unwrap()
+            );
         }
 
-        self.nodes.extend(nodes);
+        self.nodes = self
+            .nodes
+            .drain()
+            .chain(nodes)
+            .map(|mut n| {
+                n.canonicalize_impl(uf).unwrap();
+                n
+            })
+            .collect();
     }
 
     // TODO: is this the most efficient way to repair the class map?
@@ -218,7 +232,7 @@ impl<F, C> EGraph<F, C> {
     }
 }
 
-impl<F: Eq + Hash, C> EGraph<F, C> {
+impl<F: std::fmt::Debug + Eq + Hash, C> EGraph<F, C> {
     #[must_use]
     pub fn class_nodes(&self) -> HashMap<ClassId<C>, HashSet<ENode<F, C>>> {
         self.poison_check();
@@ -235,14 +249,13 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
             let constructed = self.node_classes.iter().fold(
                 HashMap::new(),
                 |mut m: HashMap<_, HashSet<_>>, (n, &c)| {
-                    assert!(m
-                        .entry(self.uf.find(c).unwrap())
-                        .or_default()
-                        .insert(n.clone()));
+                    let mut n = n.clone();
+                    assert!(!n.canonicalize(self).unwrap());
+                    assert!(m.entry(self.uf.find(c).unwrap()).or_default().insert(n));
                     m
                 },
             );
-            assert!(constructed == ret);
+            assert_eq!(constructed, ret, "class_nodes is not canonical!");
         }
 
         ret
@@ -258,7 +271,7 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
     pub fn get_class(&self, node: &mut ENode<F, C>) -> Result<Option<ClassId<C>>, NoNode> {
         self.poison_check();
         node.canonicalize_impl(&self.uf)
-            .map(|()| self.node_classes.get(node).copied())
+            .map(|_: bool| self.node_classes.get(node).copied())
     }
 
     pub fn write(&mut self) -> EGraphMut<'_, F, C> {
@@ -367,7 +380,7 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
 
 type DirtySet<C> = HashMap<ClassId<C>, HashSet<ClassId<C>>>;
 
-pub struct EGraphMut<'a, F: Eq + Hash, C> {
+pub struct EGraphMut<'a, F: std::fmt::Debug + Eq + Hash, C> {
     eg: &'a mut EGraph<F, C>,
     dirty: DirtySet<C>,
 }
@@ -382,7 +395,7 @@ impl<F: fmt::Debug + Eq + Hash, C> fmt::Debug for EGraphMut<'_, F, C> {
     }
 }
 
-impl<F: Eq + Hash, C> Drop for EGraphMut<'_, F, C> {
+impl<F: std::fmt::Debug + Eq + Hash, C> Drop for EGraphMut<'_, F, C> {
     fn drop(&mut self) {
         self.rebuild();
         self.eg.poison = false;
@@ -395,11 +408,11 @@ fn safe_nodes<T>(res: Result<T, NoNode>) -> T { res.unwrap_or_else(|_| unreachab
 #[inline]
 fn safe_nodes_opt<T>(opt: Option<T>) -> T { opt.unwrap_or_else(|| unreachable!()) }
 
-impl<F: Eq + Hash, C> EGraphMut<'_, F, C> {
+impl<F: std::fmt::Debug + Eq + Hash, C> EGraphMut<'_, F, C> {
     pub fn add(&mut self, node: ENode<F, C>) -> Result<ClassId<C>, NoNode> { self.eg.add(node) }
 }
 
-impl<F: Eq + Hash, C> EGraphMut<'_, F, C> {
+impl<F: std::fmt::Debug + Eq + Hash, C> EGraphMut<'_, F, C> {
     pub fn merge(&mut self, a: ClassId<C>, b: ClassId<C>) -> Result<Union<C>, NoNode> {
         let union = self.eg.uf.union(a, b)?;
 
@@ -436,13 +449,13 @@ impl<F: Eq + Hash, C> EGraphMut<'_, F, C> {
             .into_iter()
             .map(|c| self.eg.class_data.remove(&c).unwrap())
             .reduce(|mut l, r| {
-                l.merge(r);
+                l.merge(r, &self.eg.uf);
                 l
             });
 
         let mut data = safe_nodes_opt(self.eg.class_data.remove(&repair_class));
         if let Some(merged) = merged {
-            data.merge(merged);
+            data.merge(merged, &self.eg.uf);
         }
 
         let mut new_parents = HashMap::new();
@@ -450,11 +463,17 @@ impl<F: Eq + Hash, C> EGraphMut<'_, F, C> {
         for (mut node, klass) in data.parents {
             use hashbrown::hash_map::Entry;
 
+            node.canonicalize_impl(&self.eg.uf).unwrap();
             self.eg.node_classes.remove(&node).unwrap_or_else(|| {
                 self.eg
                     .node_classes
                     .remove(rewrites.get(&node).unwrap())
-                    .unwrap()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "No rewrites for {node:?} but not present in {:?}",
+                            self.eg.node_classes
+                        )
+                    })
             });
             let old_node = node.clone();
             safe_nodes(node.canonicalize_impl(&self.eg.uf));

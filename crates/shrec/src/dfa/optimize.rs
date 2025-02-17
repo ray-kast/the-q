@@ -26,7 +26,11 @@ pub type Graph<I, N, T> = EGraph<Op<I, N, T>, N>;
 pub type ClassMap<N> = HashMap<N, ClassId<N>>;
 pub type Output<I, N, T> = (Dfa<I, usize, T>, Graph<I, N, T>, ClassMap<N>);
 
-pub(super) fn run<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash>(
+pub(super) fn run<
+    I: std::fmt::Debug + Copy + Ord + Hash,
+    N: std::fmt::Debug + Copy + Ord + Hash,
+    T: std::fmt::Debug + Clone + Ord + Hash,
+>(
     dfa: &Dfa<I, N, T>,
 ) -> Output<I, N, T> {
     enum Command<N> {
@@ -125,4 +129,34 @@ pub(super) fn run<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + H
         eg,
         classes,
     )
+}
+
+#[cfg(test)]
+mod test {
+    use proptest::prelude::*;
+
+    use crate::re::kleene;
+
+    proptest! {
+        #[test]
+        fn test(r in kleene::re(
+            8,
+            64,
+            8,
+            0..16,
+            prop::char::ranges([
+                '\x21'..='\x7e',     // ASCII
+                '\u{a1}'..='\u{ac}', // Latin-1 (up to SHY)
+                '\u{ae}'..='\u{ff}', // Latin-1 (after SHY)
+            ].as_slice().into()),
+        )) {
+            let nfa = r.compile_atomic();
+            let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
+
+            // Running this a bunch to make it fail more reliably
+            for _ in 0..64 {
+                dfa.optimize();
+            }
+        }
+    }
 }

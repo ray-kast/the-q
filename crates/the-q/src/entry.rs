@@ -139,25 +139,22 @@ pub fn main() {
 
     let def = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |inf| {
-        use std::any::Any;
-
-        fn downcast(payload: &dyn Any) -> &str {
-            if let Some(s) = payload.downcast_ref::<&'static str>() {
-                return s;
-            }
-
-            if let Some(s) = payload.downcast_ref::<String>() {
-                return s.as_str();
-            }
-
-            "Box<dyn Any>"
-        }
-
         def(inf);
 
         let thread = std::thread::current();
         let location = inf.location().map_or_else(String::new, ToString::to_string);
-        let payload = downcast(inf.payload());
+        let payload = inf.payload();
+        let payload = 'downcast: {
+            if let Some(s) = payload.downcast_ref::<&'static str>() {
+                break 'downcast *s;
+            }
+
+            if let Some(s) = payload.downcast_ref::<String>() {
+                break 'downcast s.as_str();
+            }
+
+            "Box<dyn Any>"
+        };
 
         error!(name = thread.name(), payload, %location, "Thread panicked!");
     }));

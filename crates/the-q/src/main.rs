@@ -24,7 +24,7 @@ pub(crate) mod prelude {
             Borrow, BorrowMut, Cow,
             Cow::{Borrowed, Owned},
         },
-        collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+        collections::{BTreeMap, BTreeSet},
         convert::Infallible,
         fmt,
         future::Future,
@@ -38,6 +38,7 @@ pub(crate) mod prelude {
     pub use anyhow::{anyhow, bail, ensure, Context as _, Error};
     pub use async_trait::async_trait;
     pub use futures_util::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+    pub use hashbrown::{HashMap, HashSet};
     pub use tracing::{
         debug, debug_span, error, error_span, info, info_span, instrument, trace, trace_span, warn,
         warn_span, Instrument,

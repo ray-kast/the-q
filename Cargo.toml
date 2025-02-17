@@ -2,6 +2,18 @@
 members = ["crates/*"]
 resolver = "2"
 
+[workspace.dependencies]
+futures-util = "0.3.31"
+hashbrown = "0.15.2"
+proptest = "1.6.0"
+
+base64k = { version = "=0.1.0", path = "crates/base64k" }
+jpeggr = { version = "=0.1.0", path = "crates/jpeggr" }
+paracord = { version = "=0.1.0", path = "crates/paracord" }
+qcore = { version = "=0.1.0", path = "crates/qcore" }
+qmacros = { version = "=0.1.0", path = "crates/qmacros" }
+shrec = { version = "=0.1.0", path = "crates/shrec" }
+
 [workspace.dependencies.clap]
 version = "4.5.29"
 features = ["env", "cargo", "derive", "wrap_help"]

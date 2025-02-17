@@ -217,13 +217,13 @@ impl<C> UnionFind<C> {
             b_rank = self.0.get_unchecked(b).rank;
         }
 
-        match a.cmp(&b) {
-            Ordering::Equal => unreachable!(),
-            Ordering::Greater if a_rank <= b_rank => {
+        match (cmp, a_rank.cmp(&b_rank)) {
+            (Ordering::Equal, _) => unreachable!(),
+            (_, Ordering::Less) | (Ordering::Greater, Ordering::Equal) => {
                 std::mem::swap(&mut a, &mut b);
                 std::mem::swap(&mut a_rank, &mut b_rank);
             },
-            Ordering::Less | Ordering::Greater => (),
+            _ => (),
         }
 
         debug_assert!((a_rank, b) > (b_rank, a));
