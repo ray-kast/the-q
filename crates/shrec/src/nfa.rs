@@ -97,13 +97,8 @@ impl<I, N: Ord, T: Ord> Nfa<I, N, T> {
 
         dot::Graph::state_machine(
             self.nodes.iter().map(|(s, Node(e, a))| (s, e, a.as_ref())),
-            |n| {
-                node_ids
-                    .entry(*n)
-                    .or_insert_with(|| free_id.fresh())
-                    .to_string()
-                    .into()
-            },
+            &&self.start,
+            |n| *node_ids.entry(*n).or_insert_with(|| free_id.fresh()),
             |i| i.as_ref().map_or_else(|| "ϵ".into(), &fmt_input),
             fmt_state,
             fmt_tok,

@@ -10,6 +10,7 @@ use super::Dfa;
 use crate::{
     dfa::Node,
     egraph::{EGraph, ENode},
+    union_find::ClassId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -22,10 +23,12 @@ pub enum Op<I, N, T> {
 }
 
 pub type Graph<I, N, T> = EGraph<Op<I, N, T>, N>;
+pub type ClassMap<N> = HashMap<N, ClassId<N>>;
+pub type Output<I, N, T> = (Dfa<I, usize, T>, Graph<I, N, T>, ClassMap<N>);
 
 pub(super) fn run<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash>(
     dfa: &Dfa<I, N, T>,
-) -> (Dfa<I, usize, T>, Graph<I, N, T>) {
+) -> Output<I, N, T> {
     enum Command<N> {
         Explore(N),
         Add(N),
@@ -82,9 +85,11 @@ pub(super) fn run<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + H
         }
     }
 
+    let classes: HashMap<_, _> = classes.into_iter().map(|(k, v)| (k, v.unwrap())).collect();
+
     let mut wr = eg.write();
     for (node, klass) in impostors {
-        wr.merge(classes[&node].unwrap(), klass).unwrap();
+        wr.merge(classes[&node], klass).unwrap();
     }
     drop(wr);
 
@@ -115,5 +120,9 @@ pub(super) fn run<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + H
             )
         });
 
-    (Dfa::new(states, classes[&dfa.start].unwrap().id()), eg)
+    (
+        Dfa::new(states, eg.find(classes[&dfa.start]).unwrap().id()),
+        eg,
+        classes,
+    )
 }

@@ -75,7 +75,7 @@ impl<I: Ord, N: Ord + Hash, T> Dfa<I, N, T> {
 }
 
 impl<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash> Dfa<I, N, T> {
-    pub fn optimize(&self) -> (Dfa<I, usize, T>, optimize::Graph<I, N, T>) { optimize::run(self) }
+    pub fn optimize(&self) -> optimize::Output<I, N, T> { optimize::run(self) }
 }
 
 impl<I, N: Ord, T> Dfa<I, N, T> {
@@ -92,13 +92,8 @@ impl<I, N: Ord, T> Dfa<I, N, T> {
             self.states
                 .iter()
                 .map(|(s, Node(e, a))| (s, e.iter().map(|(i, n)| (i, [n])), a.as_ref())),
-            |n| {
-                node_ids
-                    .entry(*n)
-                    .or_insert_with(|| free_id.fresh())
-                    .to_string()
-                    .into()
-            },
+            &&self.start,
+            |n| *node_ids.entry(*n).or_insert_with(|| free_id.fresh()),
             fmt_input,
             fmt_state,
             fmt_tok,

@@ -114,12 +114,13 @@ impl<'a> Graph<'a> {
         IN: IntoIterator<Item = (S, IE, Option<T>)>,
         IE: IntoIterator<Item = (I, IO)>,
         IO: IntoIterator<Item = S>,
-        G: FnMut(&S) -> Cow<'a, str>,
+        G: FnMut(&S) -> u32,
         FI: Fn(I) -> Cow<'a, str>,
         FS: Fn(S) -> Cow<'a, str>,
         FT: Fn(T) -> Option<Cow<'a, str>>,
     >(
         nodes: IN,
+        start: &S,
         mut get_id: G,
         fmt_input: FI,
         fmt_state: FS,
@@ -128,7 +129,7 @@ impl<'a> Graph<'a> {
         let mut graph = Self::new(GraphType::Directed, None);
 
         for (state, edges, accept) in nodes {
-            let id = get_id(&state);
+            let id = Cow::from(get_id(&state).to_string());
             let node = graph.node(id.clone());
 
             let mut label = fmt_state(state);
@@ -146,12 +147,19 @@ impl<'a> Graph<'a> {
                 let input = fmt_input(input);
 
                 for next_state in outputs {
-                    let edge = graph.edge(id.clone(), get_id(&next_state));
+                    let edge = graph.edge(id.clone(), get_id(&next_state).to_string().into());
 
                     edge.label(input.clone());
                 }
             }
         }
+
+        let start_id = Cow::from("_start");
+        let start_node = graph.node(start_id.clone());
+        start_node.style("invis".into());
+        start_node.shape("point".into());
+        start_node.label("".into());
+        graph.edge(start_id, get_id(start).to_string().into());
 
         graph
     }

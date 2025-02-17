@@ -16,7 +16,12 @@
 )]
 
 use clap::Parser;
-use shrec::re::kleene::{Regex, RegexBag};
+use hashbrown::{HashMap, HashSet};
+use shrec::re::kleene::{
+    Regex,
+    Regex::{Alt, Cat, Lit, Star},
+    RegexBag,
+};
 
 #[derive(Parser)]
 #[clap(about, version)]
@@ -43,76 +48,69 @@ fn main() {
 
     let Opts { output } = Opts::parse();
 
-    // let re = Regex::Cat(vec![
-    //     Regex::Alt(vec![
-    //         Regex::Cat(vec![
-    //             Regex::Lit("k".chars()),
-    //             Regex::Alt(vec![
-    //                 Regex::Lit("im".chars()),
-    //                 Regex::Lit("em".chars()),
-    //                 Regex::Lit("at".chars()),
+    // let re = Cat(vec![
+    //     Alt(vec![
+    //         Cat(vec![
+    //             Lit("k".chars()),
+    //             Alt(vec![
+    //                 Lit("im".chars()),
+    //                 Lit("em".chars()),
+    //                 Lit("at".chars()),
     //             ]),
     //         ]),
-    //         Regex::Lit("ban".chars()),
+    //         Lit("ban".chars()),
     //     ]),
-    //     Regex::Alt(vec![
-    //         Regex::Cat(vec![
-    //             Regex::Lit("o".chars()),
-    //             Regex::Star(Regex::Lit("no".chars()).into()),
+    //     Alt(vec![
+    //         Cat(vec![
+    //             Lit("o".chars()),
+    //             Star(Lit("no".chars()).into()),
     //         ]),
-    //         Regex::Cat(vec![
-    //             Regex::Lit("a".chars()),
-    //             Regex::Star(Regex::Lit("na".chars()).into()),
+    //         Cat(vec![
+    //             Lit("a".chars()),
+    //             Star(Lit("na".chars()).into()),
     //         ]),
     //     ]),
     // ]);
     // let re = shrec::re::syntax::token_re();
     let re = RegexBag::from_iter([
         (
-            Regex::Cat(vec![
-                Regex::Lit("pro".chars()),
-                Regex::Star(
-                    Regex::Cat(vec![
-                        Regex::Alt(vec![Regex::Lit("".chars()), Regex::Lit("ta".chars())]),
-                        Regex::Lit("to".chars()),
+            Cat(vec![
+                Lit("pro".chars()),
+                Star(
+                    Cat(vec![
+                        Alt(vec![Lit("".chars()), Lit("ta".chars())]),
+                        Lit("to".chars()),
                     ])
                     .into(),
                 ),
-                Regex::Lit("gen".chars()),
+                Lit("gen".chars()),
             ]),
             Proto::Proto,
         ),
         (
-            Regex::Cat(vec![
-                Regex::Lit("p".chars()),
-                Regex::Alt(vec![
-                    Regex::Lit("".chars()),
-                    Regex::Cat(vec![
-                        Regex::Lit("r".chars()),
-                        Regex::Star(Regex::Lit("o".chars()).into()),
-                    ]),
+            Cat(vec![
+                Lit("p".chars()),
+                Alt(vec![
+                    Lit("".chars()),
+                    Cat(vec![Lit("r".chars()), Star(Lit("o".chars()).into())]),
                 ]),
-                Regex::Lit("otat".chars()),
-                Regex::Alt(vec![
-                    Regex::Lit("".chars()),
-                    Regex::Cat(vec![
-                        Regex::Lit("o".chars()),
-                        Regex::Star(Regex::Lit("to".chars()).into()),
-                        Regex::Alt(vec![
-                            Regex::Lit("".chars()),
-                            Regex::Lit("t".chars()),
-                            Regex::Lit("gen".chars()),
-                        ]),
+                Lit("otat".chars()),
+                Alt(vec![
+                    Lit("".chars()),
+                    Cat(vec![
+                        Lit("o".chars()),
+                        Star(Lit("to".chars()).into()),
+                        Alt(vec![Lit("".chars()), Lit("t".chars()), Lit("gen".chars())]),
                     ]),
                 ]),
             ]),
             Proto::Potato,
         ),
         (
-            Regex::Cat(vec![
-                Regex::Lit("proo".chars()),
-                Regex::Star(Regex::Lit("o".chars()).into()),
-                Regex::Lit("t".chars()),
+            Cat(vec![
+                Lit("proo".chars()),
+                Star(Lit("o".chars()).into()),
+                Lit("t".chars()),
             ]),
             Proto::Proot,
         ),
@@ -121,7 +119,14 @@ fn main() {
     let non_dfa = re.compile_atomic();
     let dfa = non_dfa.compile();
     let (dfa, _) = dfa.atomize_nodes::<u64>();
-    let (dfa_opt, eg) = dfa.optimize();
+    let (dfa_opt, eg, cm) = dfa.optimize();
+
+    let cm = cm.into_iter().fold(HashMap::new(), |mut m, (k, v)| {
+        m.entry(eg.find(v).unwrap())
+            .or_insert_with(HashSet::new)
+            .insert(k);
+        m
+    });
 
     match output {
         Output::Nfa => println!(
@@ -151,7 +156,7 @@ fn main() {
         Output::Eg => println!(
             "{}",
             eg.dot(
-                |n| format!("{n:?}").into(),
+                |n, c| format!("{:?}", cm[&c]).into(),
                 |n, i| match n {
                     shrec::dfa::optimize::Op::Node { accept, edges } =>
                         Some(format!("{:?}", edges.iter().nth(i).unwrap()).into()),

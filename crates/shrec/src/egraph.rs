@@ -302,7 +302,7 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
     #[must_use]
     pub fn dot<'a>(
         &self,
-        fmt_op: impl Fn(&F) -> Cow<'a, str>,
+        fmt_op: impl Fn(&F, ClassId<C>) -> Cow<'a, str>,
         fmt_edge: impl Fn(&F, usize) -> Option<Cow<'a, str>>,
     ) -> dot::Graph<'a> {
         self.poison_check();
@@ -324,7 +324,7 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
 
             if let Some(data) = self.class_data.get(&root) {
                 for node in &data.nodes {
-                    let mut label = format!("{}(", fmt_op(&node.0));
+                    let mut label = format!("{}(", fmt_op(&node.0, root));
                     for (i, arg) in node.1.iter().enumerate() {
                         if i > 0 {
                             label.push(',');
