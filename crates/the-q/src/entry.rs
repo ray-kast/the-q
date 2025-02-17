@@ -28,9 +28,15 @@ macro_rules! init_error {
     })
 }
 
-fn fmt_layer<S>() -> tracing_subscriber::fmt::Layer<S> {
+type FmtLayer<S> = tracing_subscriber::fmt::Layer<
+    S,
+    tracing_subscriber::fmt::format::Pretty,
+    tracing_subscriber::fmt::format::Format<tracing_subscriber::fmt::format::Pretty>,
+>;
+
+fn fmt_layer<S>() -> FmtLayer<S> {
     // configure log format here
-    tracing_subscriber::fmt::layer()
+    tracing_subscriber::fmt::layer().pretty()
 }
 
 #[instrument(name = "init_logger", skip(log_filter, f))]
@@ -40,7 +46,7 @@ fn init_subscriber<
     log_filter: impl AsRef<str>,
     f: impl FnOnce(Layered<EnvFilter, tracing_subscriber::Registry>) -> S,
 ) where
-    Layered<tracing_subscriber::fmt::Layer<S>, S>: Into<tracing::Dispatch>,
+    Layered<FmtLayer<S>, S>: Into<tracing::Dispatch>,
 {
     let log_filter = log_filter.as_ref();
     let reg = tracing_subscriber::registry().with(
