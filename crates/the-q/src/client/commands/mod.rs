@@ -89,6 +89,7 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
     let jpeg_message = Arc::new(jpeg::JpegMessageCommand::from(opts));
     let point = Arc::new(point::PointCommand::from(opts));
     let re = Arc::new(re::ReCommand::from(opts));
+    let re_message = Arc::new(re::ReMessageCommand::from(opts));
     let say = Arc::new(say::SayCommand::from(opts));
     let sound = Arc::new(sound::SoundCommand::from(opts));
     let test = Arc::new(test::TestCommand::from(opts));
@@ -100,6 +101,7 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
             jpeg_message,
             point,
             re,
+            re_message,
             say,
             test,
             Arc::clone(&sound) as Arc<dyn CommandHandler<Schema>>,

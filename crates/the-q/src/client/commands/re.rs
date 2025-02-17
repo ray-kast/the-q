@@ -5,19 +5,6 @@ use tokio::{fs::File, io::AsyncWriteExt, process};
 
 use super::prelude::*;
 
-#[derive(Debug)]
-pub struct ReCommand {
-    name: String,
-}
-
-impl From<&CommandOpts> for ReCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}Compile Regexes", opts.context_menu_base),
-        }
-    }
-}
-
 type Regex<'a> = shrec::re::kleene::Regex<Chars<'a>>;
 
 // TODO: miserably hacky, but it should work until shrec gets proper regex parsing support
@@ -91,7 +78,7 @@ mod parse {
             self
         }
 
-        fn try_shift_op(&mut self, s: &'a str, end: usize, op: ReOp) -> Result {
+        fn try_shift_op(&mut self, s: &'a str, end: Option<usize>, op: ReOp) -> Result {
             let (re, slice) = self.reduce(s, end, op)?;
             match op {
                 ReOp::Pipe => self.0.push(ReStackSym::Alt(re, slice)),
@@ -107,7 +94,13 @@ mod parse {
             Ok(())
         }
 
-        fn shift_op(mut self, s: &'a str, end: usize, op: ReOp, res: &mut ParseResult) -> Self {
+        fn shift_op(
+            mut self,
+            s: &'a str,
+            end: Option<usize>,
+            op: ReOp,
+            res: &mut ParseResult,
+        ) -> Self {
             match self.try_shift_op(s, end, op) {
                 Ok(()) => (),
                 Err(e) => push_err(res, e),
@@ -119,7 +112,7 @@ mod parse {
         fn reduce(
             &mut self,
             s: &'a str,
-            end: usize,
+            end: Option<usize>,
             op: ReOp,
         ) -> Result<(Regex<'a>, Option<Slice>)> {
             let mut slice = None::<Slice>;
@@ -129,8 +122,14 @@ mod parse {
                 let (r, s) = match (sym, op) {
                     (ReStackSym::Segment(t), _) => {
                         if let Some(re) = re {
-                            unreachable!("Invalid Segment entered parser stack: {re:?}");
+                            unreachable!(
+                                "Invalid Segment in parser stack: regex {re:?} already reduced"
+                            );
                         }
+
+                        let Some(end) = end else {
+                            unreachable!("Invalid Segment in parser stack: no segment end given");
+                        };
 
                         (Regex::Lit(s[t..=end].chars()), Some(Slice(t..=end)))
                     },
@@ -179,14 +178,14 @@ mod parse {
             Ok((re.unwrap_or(Regex::EMPTY), slice))
         }
 
-        fn finish(mut self, s: &'a str, slice: &Slice) -> Result<Regex<'a>> {
-            let (re, _) = self.reduce(s, *slice.0.end(), ReOp::Eof)?;
+        fn finish(mut self, s: &'a str, slice: Option<&Slice>) -> Result<Regex<'a>> {
+            let (re, _) = self.reduce(s, slice.map(|s| *s.0.end()), ReOp::Eof)?;
             let Self(stack) = self;
 
             if !stack.is_empty() {
                 unreachable!(
                     "Trailing symbols in parser stack for {:?}: {stack:?}",
-                    slice.get(s)
+                    slice.map_or("", |t| t.get(s))
                 );
             }
 
@@ -195,22 +194,26 @@ mod parse {
     }
 
     #[derive(Debug)]
-    struct ReState<'a>(Slice, ReStack<'a>);
+    struct ReState<'a>(Option<Slice>, ReStack<'a>);
 
     impl<'a> ReState<'a> {
-        fn new(s: &'a str, i: usize, c: char, res: &mut ParseResult) -> Self {
-            Self(Slice(i..=i), ReStack::EMPTY).shift(s, i, c, res)
-        }
+        const EMPTY: Self = Self(None, ReStack::EMPTY);
 
         fn shift_idx(self, i: usize) -> Self {
             let Self(slice, stack) = self;
-            Self(slice.push_end(i), stack.shift_idx(i))
+            Self(
+                Some(slice.map_or(Slice(i..=i), |s| s.push_end(i))),
+                stack.shift_idx(i),
+            )
         }
 
         fn shift_op(self, s: &'a str, i: usize, op: ReOp, res: &mut ParseResult) -> Self {
             let Self(slice, stack) = self;
-            let seg_end = *slice.0.end();
-            Self(slice.push_end(i), stack.shift_op(s, seg_end, op, res))
+            let seg_end = slice.as_ref().map(|s| *s.0.end());
+            Self(
+                Some(slice.map_or(Slice(i..=i), |s| s.push_end(i))),
+                stack.shift_op(s, seg_end, op, res),
+            )
         }
 
         fn shift(self, s: &'a str, i: usize, c: char, res: &mut ParseResult) -> Self {
@@ -225,7 +228,7 @@ mod parse {
 
         fn finish(self, s: &'a str) -> Result<Regex<'a>, Error> {
             let Self(slice, stack) = self;
-            stack.finish(s, &slice)
+            stack.finish(s, slice.as_ref())
         }
     }
 
@@ -236,6 +239,7 @@ mod parse {
         Start(Delim),
         Re(Delim, ReState<'a>),
         TickFinish(ReState<'a>),
+        TickFinishBlank,
         TickTrail(Slice),
     }
 
@@ -248,18 +252,40 @@ mod parse {
 
     fn tick_trail_err(s: &str) -> Error { anyhow!("Trailing characters inside backticks: {s:?}") }
 
-    pub fn run(s: &str) -> ParseResult {
+    pub fn scan_one(s: &str) -> ParseResult {
+        let mut res = Ok(vec![]);
+        let mut state = ReState::EMPTY;
+
+        for (i, c) in s.char_indices() {
+            state = state.shift(s, i, c, &mut res);
+        }
+
+        match (state.finish(s), &mut res) {
+            (Ok(r), Ok(v)) => v.push(r),
+            (Ok(_), Err(_)) => (),
+            (Err(e), r) => push_err(r, e),
+        }
+
+        res
+    }
+
+    pub fn scan_any(s: &str) -> ParseResult {
         let mut res = Ok(vec![]);
         let mut state = State::Message;
 
         for (i, c) in s.char_indices() {
-            trace!(?state, ?c, "Lexing character");
             state = match (mem::replace(&mut state, State::Poison), c) {
                 (State::Message, '/') => State::Start(Delim::Slash),
                 (State::Message, '`') => State::Start(Delim::Tick),
                 (State::Message, _) => State::Message,
+                (State::Start(Delim::Slash), '/') | (State::Start(Delim::Tick), '`') => {
+                    State::Message
+                },
                 (State::Start(Delim::Tick), '/') => State::Start(Delim::TickSlash),
-                (State::Start(delim), c) => State::Re(delim, ReState::new(s, i, c, &mut res)),
+                (State::Start(Delim::TickSlash), '/') => State::TickFinishBlank,
+                (State::Start(delim), c) => {
+                    State::Re(delim, ReState::EMPTY.shift(s, i, c, &mut res))
+                },
                 (State::Re(Delim::TickSlash, s), '/') => State::TickFinish(s),
                 (State::Re(Delim::Slash, state), '/')
                 | (State::Re(Delim::Tick, state) | State::TickFinish(state), '`') => {
@@ -271,7 +297,9 @@ mod parse {
                     State::Message
                 },
                 (State::Re(d, t), c) => State::Re(d, t.shift(s, i, c, &mut res)),
-                (State::TickFinish(_), _) => State::TickTrail(Slice(i..=i)),
+                (State::TickFinish(_) | State::TickFinishBlank, _) => {
+                    State::TickTrail(Slice(i..=i))
+                },
                 (State::TickTrail(t), '`') => {
                     push_err(&mut res, tick_trail_err(t.get(s)));
                     State::Message
@@ -281,12 +309,14 @@ mod parse {
             }
         }
 
-        trace!(?state, "Lexing EOF");
         match state {
-            State::Message | State::Start(_) => (),
+            State::Message | State::Start(_) | State::TickFinishBlank => (),
             State::Re(_, t) | State::TickFinish(t) => push_err(
                 &mut res,
-                anyhow!("Unclosed regular expression at {:?}", t.0.get(s)),
+                anyhow!(
+                    "Unclosed regular expression at {:?}",
+                    t.0.map_or("", |t| t.get(s))
+                ),
             ),
             State::TickTrail(t) => push_err(&mut res, tick_trail_err(t.get(s))),
             State::Poison => unreachable!("Lexer finished in poisoned state!"),
@@ -324,7 +354,7 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
 
     let mut cmd = process::Command::new("dot");
     cmd.current_dir(dir.path())
-        .args(["-Grankdir=LR", "-Tpng", "-o"])
+        .args(["-Grankdir=LR", "-Gdpi=288", "-Tpng", "-o"])
         .arg(&path)
         .stdin(Stdio::piped());
 
@@ -366,8 +396,85 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
     .context("Error attaching graph file")
 }
 
+#[derive(Debug)]
+pub struct ReCommand {
+    name: String,
+}
+
+impl From<&CommandOpts> for ReCommand {
+    fn from(opts: &CommandOpts) -> Self {
+        Self {
+            name: format!("{}regex", opts.command_base),
+        }
+    }
+}
+
 #[async_trait]
 impl CommandHandler<Schema> for ReCommand {
+    fn register_global(&self) -> CommandInfo {
+        CommandInfo::build_slash(
+            &self.name,
+            "Compiles and visualizes a regular expression",
+            |a| a.string("regex", "The regular expression to compile", true, ..),
+        )
+        .unwrap()
+    }
+
+    async fn respond<'a>(
+        &self,
+        _: &Context,
+        visitor: &mut CommandVisitor<'_>,
+        responder: CommandResponder<'_, 'a>,
+    ) -> CommandResult<'a> {
+        let regex = visitor.visit_string("regex")?.required()?;
+
+        let msg = {
+            match parse::scan_one(regex) {
+                Ok(r) if r.is_empty() => {
+                    Message::plain("No regular expressions detected.").ephemeral(true)
+                },
+                Ok(r) => {
+                    Message::plain("Compiled regular expressions:").attach(graph_res(r).await?)
+                },
+                Err(e) => Message::rich(|b| {
+                    b.push_line("Errors encountered while parsing regexes:");
+
+                    for e in e {
+                        b.push("- ")
+                            .push_bold("ERROR:")
+                            .push(" ")
+                            .push_line_safe(e.to_string());
+                    }
+
+                    b
+                }),
+            }
+        };
+
+        let responder = responder
+            .create_message(msg)
+            .await
+            .context("Error sending DFA message")?;
+
+        Ok(responder.into())
+    }
+}
+
+#[derive(Debug)]
+pub struct ReMessageCommand {
+    name: String,
+}
+
+impl From<&CommandOpts> for ReMessageCommand {
+    fn from(opts: &CommandOpts) -> Self {
+        Self {
+            name: format!("{}Compile Regexes", opts.context_menu_base),
+        }
+    }
+}
+
+#[async_trait]
+impl CommandHandler<Schema> for ReMessageCommand {
     fn register_global(&self) -> CommandInfo { CommandInfo::message(&self.name) }
 
     async fn respond<'a>(
@@ -379,7 +486,7 @@ impl CommandHandler<Schema> for ReCommand {
         let target = visitor.target().message()?;
 
         let msg = {
-            match parse::run(&target.content) {
+            match parse::scan_any(&target.content) {
                 Ok(r) if r.is_empty() => {
                     Message::plain("No regular expressions detected.").ephemeral(true)
                 },
