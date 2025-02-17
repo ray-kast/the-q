@@ -1,6 +1,6 @@
 use std::{process::Stdio, str::Chars};
 
-use serenity::builder::CreateAttachment;
+use serenity::{builder::CreateAttachment, utils::MessageBuilder};
 use tokio::{fs::File, io::AsyncWriteExt, process};
 
 use super::prelude::*;
@@ -326,6 +326,17 @@ mod parse {
     }
 }
 
+fn print_errs(errs: Vec<Error>, b: &mut MessageBuilder) -> &mut MessageBuilder {
+    for e in errs {
+        b.push("- ")
+            .push_bold("ERROR:")
+            .push(" ")
+            .push_line_safe(e.to_string());
+    }
+
+    b
+}
+
 async fn graph_res(
     res: impl IntoIterator<Item = Regex<'_>, IntoIter: ExactSizeIterator>,
 ) -> Result<Vec<CreateAttachment>> {
@@ -430,23 +441,12 @@ impl CommandHandler<Schema> for ReCommand {
 
         let msg = {
             match parse::scan_one(regex) {
-                Ok(r) if r.is_empty() => {
-                    Message::plain("No regular expressions detected.").ephemeral(true)
-                },
                 Ok(r) => {
-                    Message::plain("Compiled regular expressions:").attach(graph_res(r).await?)
+                    assert!(r.len() == 1);
+                    Message::plain("").attach(graph_res(r).await?)
                 },
                 Err(e) => Message::rich(|b| {
-                    b.push_line("Errors encountered while parsing regexes:");
-
-                    for e in e {
-                        b.push("- ")
-                            .push_bold("ERROR:")
-                            .push(" ")
-                            .push_line_safe(e.to_string());
-                    }
-
-                    b
+                    print_errs(e, b.push_line("Errors encountered while parsing regex:"))
                 }),
             }
         };
@@ -494,16 +494,7 @@ impl CommandHandler<Schema> for ReMessageCommand {
                     Message::plain("Compiled regular expressions:").attach(graph_res(r).await?)
                 },
                 Err(e) => Message::rich(|b| {
-                    b.push_line("Errors encountered while parsing regexes:");
-
-                    for e in e {
-                        b.push("- ")
-                            .push_bold("ERROR:")
-                            .push(" ")
-                            .push_line_safe(e.to_string());
-                    }
-
-                    b
+                    print_errs(e, b.push_line("Errors encountered while parsing regexes:"))
                 }),
             }
         };
