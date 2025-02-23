@@ -7,3 +7,6 @@
 cc bcbe293af23edf3456838b6a151f2db3b95cbddbf36b5a08748be1fa142a4430 # shrinks to r = Lit([])
 cc 16efc0f4e9d8d5bfbf5fe02a9d64ce00c4c4c9ff42b29646d6642993744bc126 # shrinks to r = Alt([])
 cc 46faea468f2305e9fd36a891a9c47120ff20d348c6b4906e173b807cf191ce7e # shrinks to r = Alt([Alt([Lit([]), Lit([])])])
+cc 61603124ba154b5c8b5b94143f4c6ea461addb07953877e4edb50a14099a3729 # shrinks to r = Alt([Lit(['('])])
+cc de0a762ae3da1e76b4297958dd6f835f37f8650a6900aa4b4918f6b2164342ae # shrinks to s = "("
+cc a1bb7716edb92b028a4f32881943e4e814218fa70631065a74b53901b446145b # shrinks to s = "("

@@ -7,3 +7,4 @@
 cc a940528075ba4d2b5e4754732f6774e657f1572b79ff8e1af2bee800731164f7 # shrinks to r = Star(Alt([Lit(['!', 'a']), Lit(['0', '!'])]))
 cc 5c2afa6162ac417618254252b336db7c902a6caba0bb8f6b1e42d2580eed2b8d # shrinks to r = Star(Alt([Lit(['¯', '¡']), Lit(['0', '¡'])]))
 cc e8fe9f41284d309462f2309df35c7a7089bb13aadbcb124273a3142131c4d575 # shrinks to r = Star(Alt([Lit(['A', '!']), Lit(['a', 'A'])]))
+cc 4e82faedb53f950e22b69da8b5c7ee0797323bb8d2d78dfc221b8cdbcdde076e # shrinks to r = Star(Alt([Lit(['ǁ']), Lit([]), Lit(['Ά'])]))

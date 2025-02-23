@@ -144,11 +144,7 @@ mod test {
             64,
             8,
             0..16,
-            prop::char::ranges([
-                '\x21'..='\x7e',     // ASCII
-                '\u{a1}'..='\u{ac}', // Latin-1 (up to SHY)
-                '\u{ae}'..='\u{ff}', // Latin-1 (after SHY)
-            ].as_slice().into()),
+            crate::prop::symbol(),
         )) {
             let nfa = r.compile_atomic();
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();

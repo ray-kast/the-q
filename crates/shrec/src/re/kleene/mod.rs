@@ -93,7 +93,7 @@ mod prop {
         prop::collection::vec(chr, lit_size)
             .prop_map(Regex::Lit)
             .prop_recursive(depth, tree_size, branch_size, move |s| {
-                let size = 0..(branch_size.try_into().unwrap_or(usize::MAX));
+                let size = 0..=(branch_size.try_into().unwrap());
                 prop_oneof![
                     prop::collection::vec(s.clone(), size.clone()).prop_map(Regex::Alt),
                     prop::collection::vec(s.clone(), size).prop_map(Regex::Cat),

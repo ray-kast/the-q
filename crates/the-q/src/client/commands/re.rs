@@ -247,11 +247,16 @@ mod parse {
             let WithPos(prod, _) = self.reduce(s, slice.0.end, ReOp::Eof)?;
             let Self(stack) = self;
 
-            if !stack.is_empty() {
-                unreachable!(
-                    "Trailing symbols in parser stack for {:?}: {stack:?}",
-                    slice.get(s)
-                );
+            if let Some(trail) = stack.last() {
+                match trail {
+                    ReStackSym::LParen => bail!("Unclosed parenthesis in {s:?}"),
+                    ReStackSym::SegmentStart(_) | ReStackSym::Cat(_) | ReStackSym::Alt(_) => {
+                        unreachable!(
+                            "Trailing symbols in parser stack for {:?}: {stack:?}",
+                            slice.get(s)
+                        );
+                    },
+                }
             }
 
             Ok(prod.re())
@@ -429,14 +434,7 @@ mod parse {
                 64,
                 8,
                 0..16,
-                prop::char::ranges([
-                    '\x21'..='\x27',     // ASCII (up to `(`)
-                    '\x2c'..='\x3e',     // ASCII (after *, up to ?)
-                    '\x40'..='\x7b',     // ASCII (after ?, up to |)
-                    '\x7d'..='\x7e',     // ASCII (after |)
-                    '\u{a1}'..='\u{ac}', // Latin-1 (up to SHY)
-                    '\u{ae}'..='\u{ff}', // Latin-1 (after SHY)
-                ].as_slice().into()),
+                shrec::prop::symbol_safe(),
             ).prop_filter("Regex::BOTTOM cannot be parsed", |r| *r != Regex::BOTTOM)) {
                 // TODO: this Sucks
                 let mut strings = HashMap::<u64, String>::new();
@@ -457,6 +455,22 @@ mod parse {
                 // let l = parsed.map(|l| l.as_str());
                 // let r = r.map(|l| l.as_str());
                 // assert_eq!(l, r);
+            }
+
+            #[test]
+            fn test_random_one(s in any::<String>()) {
+                match super::scan_one(&s) {
+                    Ok(v) => assert_eq!(v.len(), 1),
+                    Err(e) => assert!(!e.is_empty()),
+                }
+            }
+
+            #[test]
+            fn test_random_any(s in any::<String>()) {
+                match super::scan_one(&s) {
+                    Ok(_) => (),
+                    Err(e) => assert!(!e.is_empty()),
+                }
             }
         }
     }
@@ -575,6 +589,11 @@ impl CommandHandler<Schema> for ReCommand {
     ) -> CommandResult<'a> {
         let regex = visitor.visit_string("regex")?.required()?;
 
+        let responder = responder
+            .defer_message(MessageOpts::default())
+            .await
+            .context("Error sending deferred message")?;
+
         let msg = {
             match parse::scan_one(regex) {
                 Ok(r) => {
@@ -587,8 +606,8 @@ impl CommandHandler<Schema> for ReCommand {
             }
         };
 
-        let responder = responder
-            .create_message(msg)
+        responder
+            .create_followup(msg)
             .await
             .context("Error sending DFA message")?;
 
@@ -621,6 +640,11 @@ impl CommandHandler<Schema> for ReMessageCommand {
     ) -> CommandResult<'a> {
         let target = visitor.target().message()?;
 
+        let responder = responder
+            .defer_message(MessageOpts::default())
+            .await
+            .context("Error sending deferred message")?;
+
         let msg = {
             match parse::scan_any(&target.content) {
                 Ok(r) if r.is_empty() => {
@@ -635,8 +659,8 @@ impl CommandHandler<Schema> for ReMessageCommand {
             }
         };
 
-        let responder = responder
-            .create_message(msg)
+        responder
+            .create_followup(msg)
             .await
             .context("Error sending DFA message")?;
 
