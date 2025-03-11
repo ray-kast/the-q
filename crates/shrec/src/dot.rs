@@ -5,6 +5,8 @@ use std::{
 
 use indexmap::IndexMap;
 
+use crate::union_find::ClassId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum GraphType {
     Undirected,
@@ -160,6 +162,69 @@ impl<'a> Graph<'a> {
         start_node.shape("point".into());
         start_node.label("".into());
         graph.edge(start_id, get_id(start).to_string().into());
+
+        graph
+    }
+
+    pub(crate) fn egraph<
+        'b,
+        F: Eq + std::hash::Hash + 'b,
+        C: 'b,
+        IR: IntoIterator<Item = (ClassId<C>, IN)> + Clone,
+        IN: IntoIterator<Item = &'b crate::egraph::ENode<F, C>>,
+        FO: Fn(&F, ClassId<C>) -> Cow<'a, str>,
+        FE: Fn(&F, usize) -> Option<Cow<'a, str>>,
+    >(
+        roots: IR,
+        fmt_op: FO,
+        fmt_edge: FE,
+    ) -> Self {
+        let mut graph = Graph::new(GraphType::Directed, None);
+        let mut class_reps = hashbrown::HashMap::new();
+        let mut node_ids = hashbrown::HashMap::new();
+
+        for (root, nodes) in roots.clone() {
+            let sg = graph.subgraph(format!("cluster_{}", root.id()).into());
+            sg.style("filled".into());
+
+            let rep_id = Cow::from(format!("class_{}", root.id()));
+            let class_node = sg.node(rep_id.clone());
+            class_reps.insert(root, rep_id.clone());
+            class_node.style("invis".into());
+            class_node.shape("point".into());
+            class_node.label("".into());
+
+            for node in nodes {
+                let mut label = format!("{}(", fmt_op(node.op(), root));
+                for (i, arg) in node.args().iter().enumerate() {
+                    if i > 0 {
+                        label.push(',');
+                    }
+
+                    label.push_str(&arg.id().to_string());
+                }
+                label.push(')');
+                let id = Cow::from(format!("node_{label}"));
+                node_ids.entry(node).or_insert_with(|| id.clone());
+
+                let node = sg.node(id.clone());
+                node.label(label.into());
+                let edge = sg.edge(rep_id.clone(), id.clone());
+                edge.style("invis".into());
+            }
+        }
+
+        for (_, nodes) in roots {
+            for node in nodes {
+                for (i, edge) in node.args().iter().enumerate() {
+                    let edge = graph.edge(node_ids[node].clone(), class_reps[edge].clone());
+
+                    if let Some(label) = fmt_edge(node.op(), i) {
+                        edge.label(label);
+                    }
+                }
+            }
+        }
 
         graph
     }

@@ -7,9 +7,10 @@ use std::{
 use hashbrown::HashMap;
 
 use super::Dfa;
+// TODO: switch to the optimized implementation once it...well, works
 use crate::{
     dfa::Node,
-    egraph::{EGraph, ENode},
+    egraph::{prelude::*, reference::EGraph, ENode},
     union_find::ClassId,
 };
 

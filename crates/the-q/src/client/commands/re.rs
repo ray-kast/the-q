@@ -1,6 +1,7 @@
 use std::{process::Stdio, str::Chars};
 
 use serenity::{builder::CreateAttachment, utils::MessageBuilder};
+use shrec::egraph::EGraphRead;
 use tokio::{fs::File, io::AsyncWriteExt, process};
 
 use super::prelude::*;

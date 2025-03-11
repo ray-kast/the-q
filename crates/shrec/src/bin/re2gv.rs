@@ -17,10 +17,13 @@
 
 use clap::Parser;
 use hashbrown::{HashMap, HashSet};
-use shrec::re::kleene::{
-    Regex,
-    Regex::{Alt, Cat, Lit, Star},
-    RegexBag,
+use shrec::{
+    egraph::prelude::*,
+    re::kleene::{
+        Regex,
+        Regex::{Alt, Cat, Lit, Star},
+        RegexBag,
+    },
 };
 
 #[derive(Parser)]

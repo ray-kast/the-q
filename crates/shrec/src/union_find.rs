@@ -119,7 +119,24 @@ pub struct UnionFind<C = ()>(Vec<UnionFindNode>, PhantomData<[ClassId<C>]>);
 impl<C> fmt::Debug for UnionFind<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self(nodes, PhantomData) = self;
-        f.debug_tuple("UnionFind").field(nodes).finish()
+        let mut f = f.debug_map();
+
+        for (klass, node) in nodes.iter().enumerate() {
+            let mut root = node.parent.load(atomic::Ordering::Relaxed);
+            loop {
+                let par = nodes.get(root).unwrap_or_else(|| unreachable!());
+                let gpar = par.parent.load(atomic::Ordering::Relaxed);
+                if gpar == root {
+                    break;
+                }
+
+                root = gpar;
+            }
+
+            f.entry(&klass, &(root != klass).then_some(root));
+        }
+
+        f.finish()
     }
 }
 
@@ -256,6 +273,10 @@ impl<C> fmt::Debug for Roots<'_, C> {
         let Self(it, PhantomData) = self;
         f.debug_tuple("Roots").field(it).finish()
     }
+}
+
+impl<C> Clone for Roots<'_, C> {
+    fn clone(&self) -> Self { Self(self.0.clone(), PhantomData) }
 }
 
 impl<C> Iterator for Roots<'_, C> {
