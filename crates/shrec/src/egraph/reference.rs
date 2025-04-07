@@ -83,7 +83,41 @@ impl<F, C> EGraph<F, C> {
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraph<F, C> {
+impl<F: Eq + Hash, C> EGraph<F, C> {
+    #[cfg(test)]
+    #[must_use]
+    pub(super) fn into_parts(self) -> super::EGraphParts<F, C> {
+        let Self {
+            uf,
+            class_data,
+            node_classes,
+        } = self;
+
+        let class_refs = class_data
+            .into_iter()
+            .map(|(k, EClassData { parents })| {
+                (
+                    k,
+                    parents
+                        .into_keys()
+                        .map(|mut n| {
+                            n.canonicalize_classes(&uf).unwrap();
+                            n
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+
+        super::EGraphParts {
+            uf,
+            class_refs,
+            node_classes,
+        }
+    }
+}
+
+impl<F: Eq + Hash, C> EGraph<F, C> {
     #[must_use]
     pub fn class_nodes(&self) -> HashMap<ClassId<C>, HashSet<&ENode<F, C>>> {
         self.node_classes
@@ -96,7 +130,7 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraph<F, C> {
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraphCore for EGraph<F, C> {
+impl<F: Eq + Hash, C> EGraphCore for EGraph<F, C> {
     type Class = C;
     type FuncSymbol = F;
 
@@ -125,7 +159,7 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraphCore for EGraph<F, C> {
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraphRead for EGraph<F, C> {
+impl<F: Eq + Hash, C> EGraphRead for EGraph<F, C> {
     #[inline]
     fn find(&self, klass: ClassId<C>) -> Result<ClassId<C>, NoNode> { self.uf.find(klass) }
 
@@ -149,20 +183,26 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraphRead for EGraph<F, C> {
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraphWrite for EGraph<F, C> {
+impl<F: Eq + Hash, C> EGraphWrite for EGraph<F, C> {
     fn merge(&mut self, a: ClassId<C>, b: ClassId<C>) -> Result<Union<C>, NoNode> {
-        let ret = self.merge_impl(a, b, "");
+        let ret = self.merge_impl(a, b, &mut self.uf.clone());
         self.assert_invariants(true);
         ret
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraph<F, C> {
-    fn merge_impl(&mut self, a: ClassId<C>, b: ClassId<C>, i: &str) -> Result<Union<C>, NoNode> {
+impl<F: Eq + Hash, C> EGraph<F, C> {
+    fn merge_impl(
+        &mut self,
+        a: ClassId<C>,
+        b: ClassId<C>,
+        old_uf: &mut UnionFind<C>,
+        // i: &str,
+    ) -> Result<Union<C>, NoNode> {
         // println!("{i}[merge a = {a:?}, b = {b:?}]");
         // println!("{i}    uf = {:?}", self.uf);
 
-        let old_uf = self.uf.clone();
+        old_uf.clone_from(&self.uf);
         let union = self.uf.union(a, b)?;
         // println!("{i}    union = {union:?}");
         let Union { root, unioned } = union;
@@ -184,7 +224,7 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraph<F, C> {
                 assert!(par.args().iter().any(|&c| c == unioned || c == root));
 
                 // print!("{i}        canonicalize_old({par:?}) ");
-                par.canonicalize_classes(&old_uf).unwrap();
+                par.canonicalize_classes(old_uf).unwrap();
                 // println!("-> {par:?}");
 
                 let par_class = self.uf.find(par_class).unwrap();
@@ -219,7 +259,7 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraph<F, C> {
             self.assert_invariants(false);
 
             for (a, b) in to_merge {
-                self.merge_impl(a, b, &format!("{i}    ")).unwrap();
+                self.merge_impl(a, b, old_uf).unwrap();
             }
         } else {
             // println!("{i}--  done");
@@ -230,11 +270,11 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraph<F, C> {
         Ok(union)
     }
 
-    // #[cfg(not(test))]
-    // #[inline]
-    // fn assert_invariants(&self) {}
+    #[cfg(not(test))]
+    #[inline]
+    fn assert_invariants(&self, _: bool) { let _ = self; }
 
-    // #[cfg(test)]
+    #[cfg(test)]
     fn assert_invariants(&self, merged: bool) {
         for node in self.node_classes.keys() {
             assert!(node.classes_canonical(&self.uf).unwrap());
@@ -260,8 +300,7 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraph<F, C> {
                     if let Some(&other) = seen.get(&canon) {
                         assert_eq!(
                             other, klass,
-                            "Node {par:?} canonicalizes to duplicate {canon:?} in {parents:?} of \
-                             {klass:?}"
+                            "Class referents canonicalize to multiple duplicate classes"
                         );
                     } else {
                         seen.insert(canon, klass);

@@ -36,10 +36,10 @@ features = [
   "voice",
 ]
 
-[profile.debug-opt]
+[profile.opt-with-debug-info]
 inherits = "release"
 debug = 2
-debug-assertions = true
+debug-assertions = false
 incremental = true
 
 [profile.docker]

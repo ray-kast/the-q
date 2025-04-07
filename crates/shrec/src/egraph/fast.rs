@@ -141,6 +141,43 @@ impl<F, C> EGraph<F, C> {
     }
 }
 
+impl<F: Eq + Hash, C> EGraph<F, C> {
+    #[cfg(test)]
+    #[must_use]
+    pub(super) fn into_parts(self) -> super::EGraphParts<F, C> {
+        self.poison_check();
+
+        let Self {
+            uf,
+            class_data,
+            node_classes,
+            poison: _,
+        } = self;
+
+        let class_refs = class_data
+            .into_iter()
+            .map(|(k, EClassData { nodes: _, parents })| {
+                (
+                    k,
+                    parents
+                        .into_keys()
+                        .map(|mut n| {
+                            n.canonicalize_classes(&uf).unwrap();
+                            n
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+
+        super::EGraphParts {
+            uf,
+            class_refs,
+            node_classes,
+        }
+    }
+}
+
 impl<F: std::fmt::Debug + Eq + Hash, C> EGraphCore for EGraph<F, C> {
     type Class = C;
     type FuncSymbol = F;

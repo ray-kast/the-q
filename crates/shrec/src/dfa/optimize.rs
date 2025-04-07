@@ -27,11 +27,7 @@ pub type Graph<I, N, T> = EGraph<Op<I, N, T>, N>;
 pub type ClassMap<N> = HashMap<N, ClassId<N>>;
 pub type Output<I, N, T> = (Dfa<I, usize, T>, Graph<I, N, T>, ClassMap<N>);
 
-pub(super) fn run<
-    I: std::fmt::Debug + Copy + Ord + Hash,
-    N: std::fmt::Debug + Copy + Ord + Hash,
-    T: std::fmt::Debug + Clone + Ord + Hash,
->(
+pub(super) fn run<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash>(
     dfa: &Dfa<I, N, T>,
 ) -> Output<I, N, T> {
     enum Command<N> {

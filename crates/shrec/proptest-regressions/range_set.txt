@@ -6,3 +6,5 @@
 # everyone who runs the test benefits from these saved cases.
 cc d5402937e2c6ed00e19a5148d2459bf73ede51da0a416ad411d05eeae80c041e # shrinks to ls = true, lv = [], rs = false, rv = []
 cc 137080030635cd9cb561430dbed7fe3e44ba7dcb45958606813cf62f144b79ab # shrinks to ls = false, lv = [Partition(140.., true)], rs = false, rv = [Partition(..140, true)]
+cc 270d6d95e9b7cdebdd43c74a1442f65f1cb849cb1339dfdbfdab4e3a8bad1112 # shrinks to s = false, v = [Partition(..0, true)]
+cc 0c9e3a0557db504102b9e82fc80d3375ec27a147763163e2a184d6d5f278c5e6 # shrinks to ls = false, lv = [Partition(.., true), Partition(..0, false)], rs = false, rv = []

@@ -161,6 +161,8 @@ impl<C> UnionFind<C> {
     #[must_use]
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
 
+    pub fn classes(&self) -> Classes<C> { Classes(0..self.0.len(), PhantomData) }
+
     pub fn roots(&self) -> Roots<C> { Roots(self.0.iter().enumerate(), PhantomData) }
 
     /// Add a new node to the union-find, returning its ID
@@ -259,6 +261,23 @@ impl<C> UnionFind<C> {
             unioned: Some(ClassId::new(b)),
         })
     }
+}
+
+#[must_use]
+#[repr(transparent)]
+pub struct Classes<C>(std::ops::Range<usize>, PhantomData<[ClassId<C>]>);
+
+impl<C> fmt::Debug for Classes<C> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self(it, PhantomData) = self;
+        f.debug_tuple("Classes").field(it).finish()
+    }
+}
+
+impl<C> Iterator for Classes<C> {
+    type Item = ClassId<C>;
+
+    fn next(&mut self) -> Option<Self::Item> { self.0.next().map(ClassId::new) }
 }
 
 #[must_use]

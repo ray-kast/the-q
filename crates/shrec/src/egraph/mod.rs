@@ -1,7 +1,3 @@
-mod fast;
-pub mod node;
-pub mod reference;
-
 use std::borrow::Cow;
 
 pub use fast::*;
@@ -11,6 +7,10 @@ use crate::{
     dot,
     union_find::{ClassId, NoNode, Union},
 };
+
+mod fast;
+pub mod node;
+pub mod reference;
 
 // TODO: a lot of this module could be cleaned up if they introduced a solution
 //       for better derive bounds
@@ -73,6 +73,14 @@ impl<T: EGraphRead + EGraphWrite> EGraphUpgrade for T {
 }
 
 #[cfg(test)]
+#[derive(Debug)]
+struct EGraphParts<F, C> {
+    uf: crate::union_find::UnionFind<C>,
+    class_refs: hashbrown::HashMap<ClassId<C>, hashbrown::HashSet<ENode<F, C>>>,
+    node_classes: hashbrown::HashMap<ENode<F, C>, ClassId<C>>,
+}
+
+#[cfg(test)]
 mod test {
     use hashbrown::HashMap;
     use prop::sample::SizeRange;
@@ -86,11 +94,8 @@ mod test {
     #[derive(Debug, Clone)]
     struct Tree(Symbol, Vec<Tree>);
 
-    // Ah, yes.  The two genders.
-    // (translation: this bifurcates a metric ton of types into parallel Slow-
-    // and Fast- variants)
-    struct SlowExpr;
-    struct FastExpr;
+    #[derive(Debug)]
+    struct Expr;
 
     impl Tree {
         fn fold_impl<T>(self, f: &mut impl FnMut(Symbol, Vec<T>) -> T) -> T {
@@ -113,12 +118,9 @@ mod test {
         }
     }
 
-    type SlowClass = crate::union_find::ClassId<SlowExpr>;
-    type FastClass = crate::union_find::ClassId<FastExpr>;
-    type SlowNode = super::ENode<Symbol, SlowExpr>;
-    type FastNode = super::ENode<Symbol, FastExpr>;
-    type SlowGraph = super::reference::EGraph<Symbol, SlowExpr>;
-    type FastGraph = super::fast::EGraph<Symbol, FastExpr>;
+    type Node = super::ENode<Symbol, Expr>;
+    type SlowGraph = super::reference::EGraph<Symbol, Expr>;
+    type FastGraph = super::fast::EGraph<Symbol, Expr>;
 
     // TODO: track that only merged and originally-equivalent nodes are still equivalent
     fn assert_merges<G: EGraphRead>(
@@ -127,15 +129,29 @@ mod test {
     ) {
     }
 
-    fn assert_equiv(class_pairs: &[(SlowClass, FastClass)], slow: &SlowGraph, fast: &FastGraph) {
-        for &(slow_a, fast_a) in class_pairs {
-            for &(slow_b, fast_b) in class_pairs {
-                assert_eq!(
-                    slow.find(slow_a).unwrap() == slow.find(slow_b).unwrap(),
-                    fast.find(fast_a).unwrap() == fast.find(fast_b).unwrap(),
-                );
-            }
+    fn assert_equiv(slow: &SlowGraph, fast: &FastGraph) {
+        let super::EGraphParts {
+            uf: slow_uf,
+            class_refs: slow_class_refs,
+            node_classes: slow_node_classes,
+        } = slow.clone().into_parts();
+        let super::EGraphParts {
+            uf: fast_uf,
+            class_refs: fast_class_refs,
+            node_classes: fast_node_classes,
+        } = fast.clone().into_parts();
+
+        assert_eq!(slow_uf.len(), fast_uf.len());
+
+        for (slow, fast) in slow_uf.classes().zip(fast_uf.classes()) {
+            assert_eq!(
+                slow_uf.find(slow).unwrap().id(),
+                fast_uf.find(fast).unwrap().id()
+            );
         }
+
+        assert_eq!(slow_class_refs, fast_class_refs);
+        assert_eq!(slow_node_classes, fast_node_classes);
     }
 
     // TODO: test adding after merging
@@ -146,7 +162,7 @@ mod test {
             let mut class_list = vec![];
 
             let root = tree.clone().fold(|sym, args| {
-                let node = SlowNode::new(sym.into(), args.into());
+                let node = Node::new(sym.into(), args.into());
                 let klass = graph.add(node.clone()).unwrap();
 
                 class_list.push(klass);
@@ -171,60 +187,48 @@ mod test {
         for _ in 0..32 {
             let mut slow = SlowGraph::new();
             let mut fast = FastGraph::new();
-            let mut slow_classes = HashMap::new();
-            let mut fast_classes = HashMap::new();
-            let mut class_pairs = vec![];
+            let mut classes = HashMap::new();
+            let mut class_list = vec![];
 
             let root = tree.clone().fold(|sym, args| {
-                let (slow_args, fast_args): (Vec<_>, Vec<_>) = args.into_iter().unzip();
+                let node = Node::new(sym.into(), args.into());
 
-                let slow_node = SlowNode::new(sym.into(), slow_args.into());
-                let fast_node = FastNode::new(sym.into(), fast_args.into());
+                let klass = slow.add(node.clone()).unwrap();
+                assert_eq!(fast.add(node.clone()).unwrap(), klass);
 
-                let slow_class = slow.add(slow_node.clone()).unwrap();
-                let fast_class = fast.add(fast_node.clone()).unwrap();
+                class_list.push(klass);
 
-                let klass = (slow_class, fast_class);
-                class_pairs.push(klass);
-
-                assert_eq!(
-                    *slow_classes.entry(slow_node).or_insert(slow_class),
-                    slow_class
-                );
-                assert_eq!(
-                    *fast_classes.entry(fast_node).or_insert(fast_class),
-                    fast_class
-                );
+                assert_eq!(*classes.entry(node).or_insert(klass), klass);
 
                 klass
             });
 
             // Sanity assertion that the root ended up in the graphs
-            slow.find(root.0).unwrap();
-            fast.find(root.1).unwrap();
+            slow.find(root).unwrap();
+            fast.find(root).unwrap();
 
             if stepwise {
                 for &(a, b) in &merges {
-                    let (slow_a, fast_a) = class_pairs[a];
-                    let (slow_b, fast_b) = class_pairs[b];
-                    slow.merge(slow_a, slow_b).unwrap();
-                    fast.write().merge(fast_a, fast_b).unwrap();
+                    let a = class_list[a];
+                    let b = class_list[b];
+                    slow.merge(a, b).unwrap();
+                    fast.write().merge(a, b).unwrap();
 
-                    assert_equiv(&class_pairs, &slow, &fast);
+                    assert_equiv(&slow, &fast);
                 }
             } else {
                 {
                     let mut fast = fast.write();
 
                     for &(a, b) in &merges {
-                        let (slow_a, fast_a) = class_pairs[a];
-                        let (slow_b, fast_b) = class_pairs[b];
-                        slow.merge(slow_a, slow_b).unwrap();
-                        fast.merge(fast_a, fast_b).unwrap();
+                        let a = class_list[a];
+                        let b = class_list[b];
+                        slow.merge(a, b).unwrap();
+                        fast.merge(a, b).unwrap();
                     }
                 }
 
-                assert_equiv(&class_pairs, &slow, &fast);
+                assert_equiv(&slow, &fast);
             }
         }
     }

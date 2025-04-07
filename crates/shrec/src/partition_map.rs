@@ -164,7 +164,8 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
         });
 
         for key in over.drain(..) {
-            debug_assert!(self.ranges_from.remove(&key).is_some());
+            let ok = self.ranges_from.remove(&key).is_some();
+            debug_assert!(ok);
         }
 
         let start_value = start
@@ -183,14 +184,16 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
 
         if *start_value != value {
             if let Some(start) = start {
-                debug_assert!(self.ranges_from.insert(start, value).is_none());
+                let ok = self.ranges_from.insert(start, value).is_none();
+                debug_assert!(ok);
             } else {
                 self.unbounded_start = value;
             }
         }
 
         if let Some((end, value)) = end {
-            debug_assert!(self.ranges_from.insert(end, value).is_none());
+            let ok = self.ranges_from.insert(end, value).is_none();
+            debug_assert!(ok);
         }
     }
 
