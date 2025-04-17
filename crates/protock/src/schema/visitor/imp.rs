@@ -2,9 +2,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use prost_types::{
     descriptor_proto::ReservedRange, enum_descriptor_proto::EnumReservedRange,
-    file_options::OptimizeMode, DescriptorProto, EnumDescriptorProto, EnumOptions,
-    EnumValueDescriptorProto, FieldDescriptorProto, FieldOptions, FileDescriptorProto,
-    FileDescriptorSet, FileOptions, MessageOptions, OneofDescriptorProto,
+    file_options::OptimizeMode, method_options::IdempotencyLevel, DescriptorProto,
+    EnumDescriptorProto, EnumOptions, EnumValueDescriptorProto, FieldDescriptorProto, FieldOptions,
+    FileDescriptorProto, FileDescriptorSet, FileOptions, MessageOptions, MethodDescriptorProto,
+    MethodOptions, OneofDescriptorProto, ServiceDescriptorProto, ServiceOptions,
 };
 use shrec::range_set::RangeSet;
 
@@ -15,7 +16,9 @@ use crate::schema::{
     field_type::FieldType,
     oneof::Oneof,
     primitive::PrimitiveType,
+    qual_name::QualName,
     record::Record,
+    service::{Method, Service},
     ty::Type,
     variant::Variant,
     Schema,
@@ -25,6 +28,19 @@ pub struct Visitor<'a>(&'a mut Schema);
 
 impl<'a> From<&'a mut Schema> for Visitor<'a> {
     fn from(val: &'a mut Schema) -> Self { Self(val) }
+}
+
+fn resolve_type_name<'a>(name: &str, scope: &'a ScopeRef) -> QualName<'a> {
+    if let Some(name) = name.strip_prefix('.') {
+        scope
+            .global()
+            .resolve(name.split('.'))
+            .expect("Couldn't resolve fully-qualified type name")
+    } else {
+        scope
+            .search(name.split('.'))
+            .expect("Couldn't find valid scope for name")
+    }
 }
 
 impl Visitor<'_> {
@@ -85,7 +101,6 @@ impl Visitor<'_> {
         assert!(dependency.iter().all(|d| d.starts_with("google/protobuf")));
         assert!(public_dependency.is_empty());
         assert!(weak_dependency.is_empty());
-        assert!(service.is_empty());
         assert!(extension.is_empty());
         assert!(source_code_info.is_none());
         assert_eq!(syntax.as_deref(), Some("proto3"));
@@ -135,6 +150,100 @@ impl Visitor<'_> {
         let scope = scope.package_ref(package.as_ref()).unwrap();
 
         self.descend(&scope, message_type, enum_type);
+
+        for s in service {
+            self.svc(
+                &scope
+                    .clone()
+                    .child(s.name.as_deref().unwrap())
+                    .expect("Missing service scope"),
+                s,
+            );
+        }
+    }
+
+    fn svc(&mut self, scope: &ScopeRef<'_>, desc: &ServiceDescriptorProto) {
+        let ServiceDescriptorProto {
+            name,
+            method,
+            options,
+        } = desc;
+
+        let name = name.as_ref().unwrap();
+
+        let qual_name = scope
+            .parent()
+            .and_then(|p| p.qualify([&**name]))
+            .expect("Invalid service name");
+
+        let deprecated = if let Some(opts) = options {
+            let ServiceOptions {
+                deprecated,
+                uninterpreted_option,
+            } = opts;
+
+            assert!(uninterpreted_option.is_empty());
+
+            deprecated.unwrap_or(false)
+        } else {
+            false
+        };
+
+        let mut methods = HashMap::new();
+        for method in method {
+            let MethodDescriptorProto {
+                name,
+                input_type,
+                output_type,
+                options,
+                client_streaming,
+                server_streaming,
+            } = method;
+
+            let name = name.as_ref().unwrap();
+            let in_ty = input_type.as_ref().unwrap();
+            let out_ty = output_type.as_ref().unwrap();
+
+            let in_qual = resolve_type_name(in_ty, scope).into_owned();
+            let out_qual = resolve_type_name(out_ty, scope).into_owned();
+
+            let (deprecated, idempotency_level) = if let Some(opts) = options {
+                let all_deprecated = deprecated;
+                let MethodOptions {
+                    deprecated,
+                    idempotency_level,
+                    uninterpreted_option,
+                } = opts;
+
+                assert!(uninterpreted_option.is_empty());
+
+                (
+                    all_deprecated || deprecated.unwrap_or(false),
+                    idempotency_level
+                        .and_then(|l| l.try_into().ok())
+                        .unwrap_or_default(),
+                )
+            } else {
+                (deprecated, IdempotencyLevel::default())
+            };
+
+            assert!(methods
+                .insert(name.into(), Method {
+                    idempotency: idempotency_level,
+                    deprecated,
+                    input_type: in_qual,
+                    input_stream: client_streaming.unwrap_or_default(),
+                    output_type: out_qual,
+                    output_stream: server_streaming.unwrap_or_default()
+                })
+                .is_none());
+        }
+
+        assert!(self
+            .0
+            .types
+            .insert(qual_name.into_owned(), Type::service(Service::new(methods)))
+            .is_none());
     }
 
     fn desc(&mut self, scope: &ScopeRef<'_>, desc: &DescriptorProto) {
@@ -280,22 +389,7 @@ impl Visitor<'_> {
                 assert!(type_name.is_none());
                 FieldType::Primitive(ty)
             } else {
-                let type_name = type_name.unwrap();
-
-                let qual = if let Some(type_name) = type_name.strip_prefix('.') {
-                    scope
-                        .global()
-                        .resolve(type_name.split('.'))
-                        .expect("Couldn't resolve fully-qualified type name")
-                        .to_owned()
-                } else {
-                    scope
-                        .search(type_name.split('.'))
-                        .expect("Couldn't find valid scope for name")
-                        .to_owned()
-                };
-
-                FieldType::Named(qual)
+                FieldType::Named(resolve_type_name(type_name.unwrap(), scope).into_owned())
             },
             FieldKind::new(label, packed, *proto3_optional),
             oneof_index.map(|i| usize::try_from(i).unwrap().into()),

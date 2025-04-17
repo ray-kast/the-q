@@ -3,7 +3,7 @@ use prost_types::field_descriptor_proto::Type;
 use super::{field_kind::FieldKind, field_type::FieldTypeContext};
 use crate::{
     check_compat::{CheckCompat, CompatError, CompatLog},
-    compat_pair::CompatPair,
+    compat_pair::{CompatPair, Variance},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -102,23 +102,23 @@ impl WireType {
 impl CheckCompat for WireType {
     type Context<'a> = FieldTypeContext<'a>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Self>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Self, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     ) {
         match ck.into_inner() {
             (WireType::VarInt(ref reader), WireType::VarInt(ref writer)) => {
-                CompatPair::new(reader, writer).check(cx, log);
+                CompatPair::new_var(reader, writer).check(cx, log);
             },
             (WireType::Fix32(ref reader), WireType::Fix32(ref writer))
             | (WireType::Fix64(ref reader), WireType::Fix64(ref writer)) => {
-                CompatPair::new(reader, writer).check(cx, log);
+                CompatPair::new_var(reader, writer).check(cx, log);
             },
             (WireType::Bytes(ref reader), WireType::Bytes(ref writer)) => {
-                CompatPair::new(reader, writer).check(cx, log);
+                CompatPair::new_var(reader, writer).check(cx, log);
             },
-            (rd, wr) => CompatError::new(
+            (rd, wr) => CompatError::new_var(
                 cx.map(|c| c.field.to_owned()).into(),
                 format!(
                     "Fields have incompatible wire formats ({rd:?} for reader, {wr:?} for writer)"
@@ -140,15 +140,15 @@ pub enum VarIntMode {
 impl CheckCompat for VarIntMode {
     type Context<'a> = FieldTypeContext<'a>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Self>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Self, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     ) {
         match ck.into_inner() {
             (a, b) if a == b => (),
             (rd @ (Self::Signed | Self::Unsigned), wr @ (Self::Signed | Self::Unsigned)) => {
-                CompatError::new(
+                CompatError::new_var(
                     cx.map(|c| c.field.to_owned()).into(),
                     format!(
                         "Varint sign difference ({:?})",
@@ -158,7 +158,7 @@ impl CheckCompat for VarIntMode {
                 .warn(log);
             },
             (rd @ (Self::Signed | Self::Unsigned), wr @ Self::Enum)
-            | (rd @ Self::Enum, wr @ (Self::Signed | Self::Unsigned)) => CompatError::new(
+            | (rd @ Self::Enum, wr @ (Self::Signed | Self::Unsigned)) => CompatError::new_var(
                 cx.map(|c| c.field.to_owned()).into(),
                 format!(
                     "Enum type punning ({:?})",
@@ -166,7 +166,7 @@ impl CheckCompat for VarIntMode {
                 ),
             )
             .warn(log),
-            (rd, wr) => CompatError::new(
+            (rd, wr) => CompatError::new_var(
                 cx.map(|c| c.field.to_owned()).into(),
                 format!(
                     "Incompatible varint formats ({:?})",
@@ -188,15 +188,15 @@ pub enum FixIntMode {
 impl CheckCompat for FixIntMode {
     type Context<'a> = FieldTypeContext<'a>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Self>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Self, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     ) {
         match ck.into_inner() {
             (a, b) if a == b => (),
             (rd @ (Self::Signed | Self::Unsigned), wr @ (Self::Signed | Self::Unsigned)) => {
-                CompatError::new(
+                CompatError::new_var(
                     cx.map(|c| c.field.to_owned()).into(),
                     format!(
                         "Sign difference in fixint fields ({:?})",
@@ -205,7 +205,7 @@ impl CheckCompat for FixIntMode {
                 )
                 .warn(log);
             },
-            (rd, wr) => CompatError::new(
+            (rd, wr) => CompatError::new_var(
                 cx.map(|c| c.field.to_owned()).into(),
                 format!(
                     "Incompatible fixint formats ({:?})",
@@ -222,26 +222,29 @@ pub enum BytesMode {
     Bytes,
     Utf8,
     Message,
+    Rpc,
     Packed(NumericWireType),
 }
 
 impl CheckCompat for BytesMode {
     type Context<'a> = FieldTypeContext<'a>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Self>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Self, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     ) {
         match ck.into_inner() {
             (a, b) if a == b => (),
-            (rd @ (Self::Bytes | Self::Utf8), wr @ (Self::Bytes | Self::Utf8)) => CompatError::new(
-                cx.map(|c| c.field.to_owned()).into(),
-                format!("UTF-8 type punning ({:?})", CompatPair::new(rd, wr)),
-            )
-            .warn(log),
+            (rd @ (Self::Bytes | Self::Utf8), wr @ (Self::Bytes | Self::Utf8)) => {
+                CompatError::new_var(
+                    cx.map(|c| c.field.to_owned()).into(),
+                    format!("UTF-8 type punning ({:?})", CompatPair::new(rd, wr)),
+                )
+                .warn(log);
+            },
             (rd @ (Self::Bytes | Self::Message), wr @ (Self::Bytes | Self::Message)) => {
-                CompatError::new(
+                CompatError::new_var(
                     cx.map(|c| c.field.to_owned()).into(),
                     format!(
                         "Embedded message type punning ({:?})",
@@ -250,7 +253,7 @@ impl CheckCompat for BytesMode {
                 )
                 .warn(log);
             },
-            (rd, wr) => CompatError::new(
+            (rd, wr) => CompatError::new_var(
                 cx.map(|c| c.field.to_owned()).into(),
                 format!(
                     "Incompatible byte formats ({:?})",

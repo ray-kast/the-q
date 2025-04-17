@@ -1,6 +1,6 @@
 use std::{borrow::Cow, fmt};
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct QualName<'a> {
     package: Option<Cow<'a, str>>,
     path: Vec<Cow<'a, str>>,
@@ -61,6 +61,7 @@ impl<'a> QualName<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct MemberQualName<'a> {
     ty: QualName<'a>,
     memb: Cow<'a, str>,

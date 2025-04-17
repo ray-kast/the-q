@@ -5,7 +5,7 @@ use shrec::range_set::RangeSet;
 use super::ty::TypeContext;
 use crate::{
     check_compat::{CheckCompat, CompatLog},
-    compat_pair::{CompatPair, Side, SideInclusive},
+    compat_pair::{CompatPair, Side, SideInclusive, Variance},
 };
 
 pub struct RecordContext<'a> {
@@ -23,28 +23,33 @@ pub trait RecordValue<'a>: RecordExtra + CheckCompat<Context<'a> = RecordContext
     fn names(&'a self) -> Self::Names;
 
     // self (with id ID) only exists on the side given - ID should be reserved on the other side
-    fn missing_id(&self, cx: &CompatPair<TypeContext<'a>>, id: Side<i32>, log: &mut CompatLog);
+    fn missing_id<V: Variance>(
+        &self,
+        cx: &CompatPair<TypeContext<'a>, V>,
+        id: Side<i32>,
+        log: &mut CompatLog,
+    );
 
     // Shared name has conflicting IDs
-    fn id_conflict(
-        cx: &CompatPair<TypeContext<'a>>,
+    fn id_conflict<V: Variance>(
+        cx: &CompatPair<TypeContext<'a>, V>,
         name: &str,
-        ids: CompatPair<i32>,
+        ids: CompatPair<i32, V>,
         log: &mut CompatLog,
     );
 
     // Shared name only has an ID on the side given - name should be reserved on the other side
-    fn missing_name(
-        cx: &CompatPair<TypeContext<'a>>,
+    fn missing_name<V: Variance>(
+        cx: &CompatPair<TypeContext<'a>, V>,
         name: &str,
         id: Side<i32>,
         log: &mut CompatLog,
     );
 
-    fn check_extra(
-        ck: CompatPair<std::collections::hash_map::Iter<'_, i32, Self>>,
-        cx: &CompatPair<TypeContext<'a>>,
-        extra: CompatPair<&Self::Extra>,
+    fn check_extra<V: Variance>(
+        ck: CompatPair<std::collections::hash_map::Iter<'_, i32, Self>, V>,
+        cx: &CompatPair<TypeContext<'a>, V>,
+        extra: CompatPair<&Self::Extra, V>,
         log: &mut CompatLog,
     ) where
         Self: Sized;
@@ -98,9 +103,9 @@ impl<T: for<'a> RecordValue<'a>> Record<T> {
 impl<T: for<'a> RecordValue<'a>> CheckCompat for Record<T> {
     type Context<'b> = TypeContext<'b>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Self>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Self, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     ) {
         // TODO: convert pair tomfuckery into map-unzip ops
@@ -138,7 +143,7 @@ impl<T: for<'a> RecordValue<'a>> CheckCompat for Record<T> {
                 },
                 SideInclusive::Both(pair) => match pair.copied().into_inner() {
                     (Some(reader), Some(writer)) if reader != writer => {
-                        T::id_conflict(&cx, key, CompatPair::new(reader, writer), log);
+                        T::id_conflict(&cx, key, CompatPair::new_var(reader, writer), log);
                     },
                     (..) => (),
                 },

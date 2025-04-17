@@ -6,16 +6,18 @@ use super::{
     primitive::{BytesMode, VarIntMode, WireType},
     qual_name::{MemberQualName, QualName},
     record::Record,
+    service::Service,
     variant::Variant,
     TypeMap,
 };
 use crate::{
     check_compat::{CheckCompat, CompatError, CompatLog},
-    compat_pair::CompatPair,
+    compat_pair::{CompatPair, Variance},
 };
 
 #[derive(Debug)]
 enum Kind {
+    Service(Service),
     Message(Record<Field>),
     Enum(Record<Variant>),
 }
@@ -23,6 +25,7 @@ enum Kind {
 impl Kind {
     const fn var_pretty(&self) -> &'static str {
         match self {
+            Self::Service(_) => "service",
             Self::Message(_) => "message",
             Self::Enum(_) => "enum",
         }
@@ -33,6 +36,8 @@ impl Kind {
 pub struct Type(Kind);
 
 impl Type {
+    pub const fn service(svc: Service) -> Self { Self(Kind::Service(svc)) }
+
     #[inline]
     pub const fn message(rec: Record<Field>) -> Self { Self(Kind::Message(rec)) }
 
@@ -45,6 +50,7 @@ impl Type {
     #[inline]
     pub const fn internal(&self) -> bool {
         match self.0 {
+            Kind::Service(_) => false,
             Kind::Message(ref m) => m.internal(),
             Kind::Enum(ref e) => e.internal(),
         }
@@ -52,6 +58,7 @@ impl Type {
 
     pub fn wire_format(&self, kind: FieldKind) -> WireType {
         match self.0 {
+            Kind::Service(_) => WireType::Bytes(BytesMode::Rpc),
             Kind::Message(_) => WireType::Bytes(BytesMode::Message),
             Kind::Enum(_) => WireType::VarInt(VarIntMode::Enum),
         }
@@ -59,6 +66,7 @@ impl Type {
     }
 }
 
+#[derive(Clone)]
 pub enum TypeCheckKind<'a> {
     ByName(QualName<'a>),
     ForField {
@@ -97,6 +105,7 @@ impl<'a> TypeCheckKind<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct TypeContext<'a> {
     pub kind: TypeCheckKind<'a>,
     pub types: &'a TypeMap,
@@ -105,19 +114,22 @@ pub struct TypeContext<'a> {
 impl CheckCompat for Type {
     type Context<'a> = TypeContext<'a>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Type>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Type, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     ) {
         match ck.map(|t| &t.0).into_inner() {
+            (Kind::Service(ref reader), Kind::Service(ref writer)) => {
+                CompatPair::new_var(reader, writer).check(cx, log);
+            },
             (Kind::Message(ref reader), Kind::Message(ref writer)) => {
-                CompatPair::new(reader, writer).check(cx, log);
+                CompatPair::new_var(reader, writer).check(cx, log);
             },
             (Kind::Enum(ref reader), Kind::Enum(ref writer)) => {
-                CompatPair::new(reader, writer).check(cx, log);
+                CompatPair::new_var(reader, writer).check(cx, log);
             },
-            (rd, wr) => CompatError::new(
+            (rd, wr) => CompatError::new_var(
                 cx.map(|c| c.kind.to_owned()).into(),
                 format!(
                     "Type mismatch: {}",

@@ -8,7 +8,7 @@ use shrec::union_find::{ClassId, UnionFind};
 use super::ty::TypeContext;
 use crate::{
     check_compat::{CompatError, CompatLog},
-    compat_pair::{CompatPair, Side, SideInclusive},
+    compat_pair::{CompatPair, Side, SideInclusive, Variance},
 };
 
 #[derive(Debug)]
@@ -42,10 +42,10 @@ struct FieldInfo<'a> {
     group: Group,
 }
 
-pub fn check<'a>(
-    field_info: CompatPair<impl Iterator<Item = (i32, &'a str, Option<OneofId>)>>,
-    cx: &CompatPair<TypeContext<'a>>,
-    oneofs: CompatPair<&Vec<Oneof>>,
+pub fn check<'a, V: Variance>(
+    field_info: CompatPair<impl Iterator<Item = (i32, &'a str, Option<OneofId>)>, V>,
+    cx: &CompatPair<TypeContext<'a>, V>,
+    oneofs: CompatPair<&Vec<Oneof>, V>,
     log: &mut CompatLog,
 ) {
     let mut uf: UnionFind = UnionFind::new();
@@ -160,6 +160,6 @@ pub fn check<'a>(
             .unwrap();
         }
 
-        CompatError::new(cx.as_ref().map(|c| c.kind.to_owned()).into(), s).err(log);
+        CompatError::new_var(cx.as_ref().map(|c| c.kind.to_owned()).into(), s).err(log);
     }
 }

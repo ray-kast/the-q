@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     check_compat::{CheckCompat, CompatError, CompatLog},
-    compat_pair::{CompatPair, Side},
+    compat_pair::{CompatPair, Side, Variance},
 };
 
 #[derive(Debug)]
@@ -65,9 +65,9 @@ impl FieldExtra {
 impl CheckCompat for Field {
     type Context<'a> = RecordContext<'a>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Self>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Self, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     ) {
         let id = cx.as_ref().map(|c| c.id).unwrap_eq();
@@ -85,7 +85,7 @@ impl CheckCompat for Field {
             .map(|((field, types), kind)| FieldTypeContext { field, types, kind });
 
         if ck.as_ref().map(|f| &f.name).try_unwrap_eq().is_err() {
-            CompatError::new(
+            CompatError::new_var(
                 cx.as_ref().map(|c| c.field.to_owned()).into(),
                 format!("Field name mismatch for ID {id}"),
             )
@@ -108,8 +108,13 @@ impl<'a> RecordValue<'a> for Field {
 
     fn names(&'a self) -> Self::Names { std::iter::once(&self.name) }
 
-    fn missing_id(&self, cx: &CompatPair<TypeContext<'a>>, id: Side<i32>, log: &mut CompatLog) {
-        CompatError::new(
+    fn missing_id<V: Variance>(
+        &self,
+        cx: &CompatPair<TypeContext<'a>, V>,
+        id: Side<i32>,
+        log: &mut CompatLog,
+    ) {
+        CompatError::new_var(
             cx.as_ref().map(|c| c.kind.to_owned()).into(),
             format!(
                 "Field {} (ID {}) missing and not reserved on {}",
@@ -121,26 +126,26 @@ impl<'a> RecordValue<'a> for Field {
         .warn(log);
     }
 
-    fn id_conflict(
-        cx: &CompatPair<TypeContext<'a>>,
+    fn id_conflict<V: Variance>(
+        cx: &CompatPair<TypeContext<'a>, V>,
         name: &str,
-        ids: CompatPair<i32>,
+        ids: CompatPair<i32, V>,
         log: &mut CompatLog,
     ) {
-        CompatError::new(
+        CompatError::new_var(
             cx.as_ref().map(|c| c.kind.to_owned()).into(),
             format!("Field {name} has ID {}", ids.display()),
         )
         .warn(log);
     }
 
-    fn missing_name(
-        cx: &CompatPair<TypeContext<'a>>,
+    fn missing_name<V: Variance>(
+        cx: &CompatPair<TypeContext<'a>, V>,
         name: &str,
         id: Side<i32>,
         log: &mut CompatLog,
     ) {
-        CompatError::new(
+        CompatError::new_var(
             cx.as_ref().map(|c| c.kind.to_owned()).into(),
             format!(
                 "Field name {name} (ID {}) missing and not reserved on {}",
@@ -151,10 +156,10 @@ impl<'a> RecordValue<'a> for Field {
         .warn(log);
     }
 
-    fn check_extra(
-        ck: CompatPair<std::collections::hash_map::Iter<'_, i32, Self>>,
-        cx: &CompatPair<TypeContext<'a>>,
-        extra: CompatPair<&FieldExtra>,
+    fn check_extra<V: Variance>(
+        ck: CompatPair<std::collections::hash_map::Iter<'_, i32, Self>, V>,
+        cx: &CompatPair<TypeContext<'a>, V>,
+        extra: CompatPair<&FieldExtra, V>,
         log: &mut CompatLog,
     ) where
         Self: Sized,

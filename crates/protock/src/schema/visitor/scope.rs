@@ -5,7 +5,10 @@ use std::{
     mem,
 };
 
-use prost_types::{DescriptorProto, EnumDescriptorProto, FileDescriptorProto, FileDescriptorSet};
+use prost_types::{
+    DescriptorProto, EnumDescriptorProto, FileDescriptorProto, FileDescriptorSet,
+    ServiceDescriptorProto,
+};
 
 use super::scope_ref::ScopeRef;
 use crate::schema::qual_name::QualName;
@@ -95,6 +98,7 @@ pub(super) struct Scope<'a> {
 fn scope_children<'a>(
     msgs: impl IntoIterator<Item = &'a DescriptorProto>,
     enums: impl IntoIterator<Item = &'a EnumDescriptorProto>,
+    svcs: impl IntoIterator<Item = &'a ServiceDescriptorProto>,
 ) -> impl Iterator<Item = (&'a str, Scope<'a>)> {
     msgs.into_iter()
         .map(|m| (m.name.as_deref().unwrap(), Scope::message(m)))
@@ -103,20 +107,31 @@ fn scope_children<'a>(
                 .into_iter()
                 .map(|e| (e.name.as_deref().unwrap(), Scope::enumeration(e))),
         )
+        .chain(
+            svcs.into_iter()
+                .map(|s| (s.name.as_deref().unwrap(), Scope::service(s))),
+        )
 }
 
 impl<'a> Scope<'a> {
     fn message(msg: &'a DescriptorProto) -> Self {
         Self {
             kind: Some(ScopeKind::Type(msg.name.as_deref().unwrap())),
-            children: scope_children(&msg.nested_type, &msg.enum_type).collect(),
+            children: scope_children(&msg.nested_type, &msg.enum_type, []).collect(),
         }
     }
 
     fn enumeration(num: &'a EnumDescriptorProto) -> Self {
         Self {
             kind: Some(ScopeKind::Type(num.name.as_deref().unwrap())),
-            children: scope_children([], []).collect(),
+            children: HashMap::new(),
+        }
+    }
+
+    fn service(svc: &'a ServiceDescriptorProto) -> Self {
+        Self {
+            kind: Some(ScopeKind::Type(svc.name.as_deref().unwrap())),
+            children: HashMap::new(),
         }
     }
 
@@ -129,7 +144,7 @@ impl<'a> Scope<'a> {
             fildes.package
         );
 
-        for (k, v) in scope_children(&fildes.message_type, &fildes.enum_type) {
+        for (k, v) in scope_children(&fildes.message_type, &fildes.enum_type, &fildes.service) {
             assert!(
                 self.children.insert(k, v).is_none(),
                 "Duplicate declaration {k:?} in package {:?}",

@@ -5,6 +5,7 @@ mod oneof;
 mod primitive;
 mod qual_name;
 mod record;
+mod service;
 mod ty;
 mod variant;
 
@@ -24,7 +25,7 @@ mod imp {
     };
     use crate::{
         check_compat::{CheckCompat, CompatError, CompatLog},
-        compat_pair::{CompatPair, Side},
+        compat_pair::{CompatPair, Side, Variance},
     };
 
     #[derive(Debug)]
@@ -75,9 +76,9 @@ mod imp {
     impl CheckCompat for Schema {
         type Context<'a> = SchemaContext<'a>;
 
-        fn check_compat(
-            ck: CompatPair<&'_ Schema>,
-            cx: CompatPair<Self::Context<'_>>,
+        fn check_compat<V: Variance>(
+            ck: CompatPair<&'_ Schema, V>,
+            cx: CompatPair<Self::Context<'_>, V>,
             log: &mut CompatLog,
         ) {
             let type_maps = ck.map(|s| &s.types);
@@ -91,7 +92,7 @@ mod imp {
                 |k, v, log| {
                     if let Some(writer) = v.visit(Side::Writer(())) {
                         if !writer.internal() {
-                            CompatError::new(
+                            CompatError::new_var(
                                 cx.as_ref().map(|c| c.name.to_owned()).into(),
                                 format!(
                                     "Missing {} type {k:?} present in writer",

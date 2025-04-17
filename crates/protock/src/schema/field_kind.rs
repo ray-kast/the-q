@@ -3,7 +3,7 @@ use prost_types::field_descriptor_proto::Label;
 use super::qual_name::MemberQualName;
 use crate::{
     check_compat::{CheckCompat, CompatError, CompatLog},
-    compat_pair::CompatPair,
+    compat_pair::{CompatPair, Variance},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,9 +32,9 @@ impl FieldKind {
 impl CheckCompat for FieldKind {
     type Context<'a> = MemberQualName<'a>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Self>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Self, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     ) {
         match ck.into_inner() {
@@ -42,7 +42,7 @@ impl CheckCompat for FieldKind {
             (Self::Singular | Self::Optional, Self::Singular | Self::Optional) => (),
             (Self::Repeated { packed: _ }, Self::Singular | Self::Optional) => {},
             (rd @ (Self::Singular | Self::Optional), wr @ Self::Repeated { packed: _ }) => {
-                CompatError::new(
+                CompatError::new_var(
                     cx.map(|n| n.to_owned()).into(),
                     format!(
                         "Repeated/singular mismatch ({:?})",
@@ -51,7 +51,7 @@ impl CheckCompat for FieldKind {
                 )
                 .warn(log);
             },
-            (rd, wr) => CompatError::new(
+            (rd, wr) => CompatError::new_var(
                 cx.map(|n| n.to_owned()).into(),
                 format!(
                     "Incompatible field kinds ({:?})",

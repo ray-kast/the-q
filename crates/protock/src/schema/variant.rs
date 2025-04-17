@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     check_compat::{CheckCompat, CompatError, CompatLog},
-    compat_pair::{CompatPair, Side},
+    compat_pair::{CompatPair, Side, Variance},
 };
 
 #[derive(Debug, Default)]
@@ -36,9 +36,9 @@ impl Variant {
 impl CheckCompat for Variant {
     type Context<'a> = RecordContext<'a>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Self>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Self, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     ) {
         let qual_names = ck
@@ -55,7 +55,7 @@ impl CheckCompat for Variant {
         match ck.map(BTreeSet::len).into_inner() {
             (0, _) | (_, 0) => unreachable!(),
             (1, 1) => {
-                CompatError::new(
+                CompatError::new_var(
                     qual_names.map(|n| n.to_owned()).into(),
                     format!("Enum variant name mismatch for value {id}"),
                 )
@@ -103,7 +103,7 @@ impl CheckCompat for Variant {
                         s.push_str(" for writer");
                     }
 
-                    CompatError::new(qual_names.map(|n| n.to_owned()).into(), s).warn(log);
+                    CompatError::new_var(qual_names.map(|n| n.to_owned()).into(), s).warn(log);
                 }
             },
         }
@@ -119,8 +119,13 @@ impl<'a> RecordValue<'a> for Variant {
 
     fn names(&'a self) -> Self::Names { self.0.iter().map(AsRef::as_ref) }
 
-    fn missing_id(&self, cx: &CompatPair<TypeContext<'a>>, id: Side<i32>, log: &mut CompatLog) {
-        CompatError::new(
+    fn missing_id<V: Variance>(
+        &self,
+        cx: &CompatPair<TypeContext<'a>, V>,
+        id: Side<i32>,
+        log: &mut CompatLog,
+    ) {
+        CompatError::new_var(
             cx.as_ref().map(|c| c.kind.to_owned()).into(),
             format!(
                 "Enum variant(s) {} (value {}) missing and not reserved on {}",
@@ -132,26 +137,26 @@ impl<'a> RecordValue<'a> for Variant {
         .warn(log);
     }
 
-    fn id_conflict(
-        cx: &CompatPair<TypeContext<'a>>,
+    fn id_conflict<V: Variance>(
+        cx: &CompatPair<TypeContext<'a>, V>,
         name: &str,
-        ids: CompatPair<i32>,
+        ids: CompatPair<i32, V>,
         log: &mut CompatLog,
     ) {
-        CompatError::new(
+        CompatError::new_var(
             cx.as_ref().map(|c| c.kind.to_owned()).into(),
             format!("Enum variant {name} has value {}", ids.display()),
         )
         .err(log);
     }
 
-    fn missing_name(
-        cx: &CompatPair<TypeContext<'a>>,
+    fn missing_name<V: Variance>(
+        cx: &CompatPair<TypeContext<'a>, V>,
         name: &str,
         id: Side<i32>,
         log: &mut CompatLog,
     ) {
-        CompatError::new(
+        CompatError::new_var(
             cx.as_ref().map(|c| c.kind.to_owned()).into(),
             format!(
                 "Enum variant name {name} (value {}) missing and not reserved on {}",
@@ -162,10 +167,10 @@ impl<'a> RecordValue<'a> for Variant {
         .warn(log);
     }
 
-    fn check_extra(
-        ck: CompatPair<std::collections::hash_map::Iter<'_, i32, Self>>,
-        cx: &CompatPair<TypeContext<'a>>,
-        extra: CompatPair<&VariantExtra>,
+    fn check_extra<V: Variance>(
+        ck: CompatPair<std::collections::hash_map::Iter<'_, i32, Self>, V>,
+        cx: &CompatPair<TypeContext<'a>, V>,
+        extra: CompatPair<&VariantExtra, V>,
         log: &mut CompatLog,
     ) where
         Self: Sized,

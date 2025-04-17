@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     check_compat::{CheckCompat, CompatError, CompatLog},
-    compat_pair::CompatPair,
+    compat_pair::{CompatPair, Variance},
     schema::ty::{TypeCheckKind, TypeContext},
 };
 
@@ -39,9 +39,9 @@ pub struct FieldTypeContext<'a> {
 impl CheckCompat for FieldType {
     type Context<'a> = FieldTypeContext<'a>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Self>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Self, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     ) {
         let names = cx.as_ref().map(|c| c.field.to_owned());

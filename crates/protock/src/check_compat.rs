@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::compat_pair::{CompatPair, SideInclusive};
+use crate::compat_pair::{CompatPair, SideInclusive, Variance};
 
 #[derive(Debug, Default)]
 pub struct CompatLog {
@@ -34,9 +34,9 @@ impl CompatLog {
 pub trait CheckCompat {
     type Context<'a>;
 
-    fn check_compat(
-        ck: CompatPair<&'_ Self>,
-        cx: CompatPair<Self::Context<'_>>,
+    fn check_compat<V: Variance>(
+        ck: CompatPair<&'_ Self, V>,
+        cx: CompatPair<Self::Context<'_>, V>,
         log: &mut CompatLog,
     );
 }
@@ -54,10 +54,21 @@ impl fmt::Display for CompatError {
 }
 
 impl CompatError {
-    // TODO: choose a better context type than dyn Debug
+    #[inline]
     pub fn new(pair: SideInclusive<impl fmt::Debug + 'static>, message: impl fmt::Display) -> Self {
+        Self::new_var(pair, message)
+    }
+
+    // TODO: choose a better context type than dyn Debug
+    pub fn new_var<V: Variance>(
+        pair: SideInclusive<impl fmt::Debug + 'static, V>,
+        message: impl fmt::Display,
+    ) -> Self {
         Self {
-            cx: pair.map(|s| Box::new(s) as Box<(dyn fmt::Debug + 'static)>),
+            cx: unsafe {
+                pair.map(|s| Box::new(s) as Box<(dyn fmt::Debug + 'static)>)
+                    .force_covar()
+            },
             message: message.to_string(),
         }
     }
