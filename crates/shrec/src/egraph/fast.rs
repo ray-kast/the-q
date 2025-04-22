@@ -5,7 +5,7 @@ use hashbrown::{HashMap, HashSet};
 use super::{prelude::*, ENode};
 use crate::{
     dot,
-    union_find::{ClassId, NoNode, Union, UnionFind},
+    union_find::{ClassId, NoNode, UnionFind, Unioned},
 };
 
 // TODO: tests to add:
@@ -330,7 +330,7 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraphCore for EGraphMut<'_, F, C> {
 }
 
 impl<F: std::fmt::Debug + Eq + Hash, C> EGraphWrite for EGraphMut<'_, F, C> {
-    fn merge(&mut self, a: ClassId<C>, b: ClassId<C>) -> Result<Union<C>, NoNode> {
+    fn merge(&mut self, a: ClassId<C>, b: ClassId<C>) -> Result<Unioned<C>, NoNode> {
         if self.old_uf.is_empty() {
             self.old_uf.clone_from(&self.eg.uf);
         }

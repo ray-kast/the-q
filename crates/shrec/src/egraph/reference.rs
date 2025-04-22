@@ -5,7 +5,7 @@ use hashbrown::{HashMap, HashSet};
 use super::{prelude::*, ENode};
 use crate::{
     dot,
-    union_find::{ClassId, NoNode, Union, UnionFind},
+    union_find::{ClassId, NoNode, UnionFind, Unioned},
 };
 
 struct EClassData<F, C> {
@@ -184,7 +184,7 @@ impl<F: Eq + Hash, C> EGraphRead for EGraph<F, C> {
 }
 
 impl<F: Eq + Hash, C> EGraphWrite for EGraph<F, C> {
-    fn merge(&mut self, a: ClassId<C>, b: ClassId<C>) -> Result<Union<C>, NoNode> {
+    fn merge(&mut self, a: ClassId<C>, b: ClassId<C>) -> Result<Unioned<C>, NoNode> {
         let ret = self.merge_impl(a, b, &mut self.uf.clone());
         self.assert_invariants(true);
         ret
@@ -198,14 +198,14 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
         b: ClassId<C>,
         old_uf: &mut UnionFind<C>,
         // i: &str,
-    ) -> Result<Union<C>, NoNode> {
+    ) -> Result<Unioned<C>, NoNode> {
         // println!("{i}[merge a = {a:?}, b = {b:?}]");
         // println!("{i}    uf = {:?}", self.uf);
 
         old_uf.clone_from(&self.uf);
         let union = self.uf.union(a, b)?;
         // println!("{i}    union = {union:?}");
-        let Union { root, unioned } = union;
+        let Unioned { root, unioned } = union;
 
         if let Some(unioned) = unioned {
             // println!("{i}    class_data = {:?}", self.class_data);

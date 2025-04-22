@@ -5,7 +5,7 @@ pub use node::*;
 
 use crate::{
     dot,
-    union_find::{ClassId, NoNode, Union},
+    union_find::{ClassId, NoNode, Unioned},
 };
 
 mod fast;
@@ -54,7 +54,7 @@ pub trait EGraphWrite: EGraphCore {
         &mut self,
         a: ClassId<Self::Class>,
         b: ClassId<Self::Class>,
-    ) -> Result<Union<Self::Class>, NoNode>;
+    ) -> Result<Unioned<Self::Class>, NoNode>;
 }
 
 pub trait EGraphUpgrade: EGraphRead {
