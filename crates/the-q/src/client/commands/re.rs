@@ -1,7 +1,6 @@
 use std::{process::Stdio, str::Chars};
 
 use serenity::{builder::CreateAttachment, utils::MessageBuilder};
-use shrec::egraph::EGraphRead;
 use tokio::{fs::File, io::AsyncWriteExt, process};
 
 use super::prelude::*;
@@ -107,6 +106,42 @@ mod parse {
     #[derive(Debug)]
     struct ReStack<'a>(Vec<ReStackSym<'a>>);
 
+    fn join_cat<'a>(r: Regex<'a>, s: Regex<'a>) -> Regex<'a> {
+        match (r, s) {
+            (Regex::Cat(mut v), Regex::Cat(w)) => {
+                v.extend(w);
+                Regex::Cat(v)
+            },
+            (Regex::Cat(mut v), p) => {
+                v.push(p);
+                Regex::Cat(v)
+            },
+            (r, Regex::Cat(mut v)) => {
+                v.insert(0, r);
+                Regex::Cat(v)
+            },
+            (r, p) => Regex::Cat(vec![r, p]),
+        }
+    }
+
+    fn join_alt<'a>(r: Regex<'a>, s: Regex<'a>) -> Regex<'a> {
+        match (r, s) {
+            (Regex::Alt(mut v), Regex::Alt(w)) => {
+                v.extend(w);
+                Regex::Alt(v)
+            },
+            (Regex::Alt(mut v), p) => {
+                v.push(p);
+                Regex::Alt(v)
+            },
+            (r, Regex::Alt(mut v)) => {
+                v.insert(0, r);
+                Regex::Alt(v)
+            },
+            (r, p) => Regex::Alt(vec![r, p]),
+        }
+    }
+
     impl<'a> ReStack<'a> {
         fn shift_idx(mut self, i: usize) -> Self {
             if !matches!(self.0.last(), Some(ReStackSym::SegmentStart(_))) {
@@ -125,26 +160,34 @@ mod parse {
                         Production::Blank => {
                             bail!("Missing operand while parsing {u:?} at {:?}", &s[..end])
                         },
-                        Production::Segment(l) => {
+                        Production::Segment(l) => 'pre: {
                             if let Some((idx, _)) = l.as_str().char_indices().last() {
-                                let (pre, suf) = l.as_str().split_at(idx);
-                                (Some(Regex::Lit(pre.chars())), Regex::Lit(suf.chars()))
-                            } else {
-                                (None, Regex::Lit(l))
+                                if idx > 0 {
+                                    let (pre, suf) = l.as_str().split_at(idx);
+                                    break 'pre (
+                                        Some(Regex::Lit(pre.chars())),
+                                        Regex::Lit(suf.chars()),
+                                    );
+                                }
                             }
+
+                            (None, Regex::Lit(l))
                         },
                         Production::Re(r) => (None, r),
                     };
 
                     let inner = match u {
                         Unop::Star => Regex::Star(re.into()),
-                        Unop::Plus => Regex::Cat(vec![re.clone(), Regex::Star(re.into())]),
-                        Unop::Opt => Regex::Alt(vec![Regex::EMPTY, re]),
+                        Unop::Plus => join_cat(re.clone(), Regex::Star(re.into())),
+                        Unop::Opt => join_alt(Regex::EMPTY, re),
                     };
 
                     self.0.push(ReStackSym::Cat(WithPos(
                         if let Some(prefix) = prefix {
-                            Regex::Cat(vec![prefix, inner])
+                            debug_assert!(
+                                !matches!(prefix, Regex::Lit(ref l) if l.as_str().is_empty())
+                            );
+                            join_cat(prefix, inner)
                         } else {
                             inner
                         },
@@ -183,6 +226,7 @@ mod parse {
             &mut self,
             s: &'a str,
             end: usize,
+            opt: bool,
             stop: impl Fn(&ReStackSym<'a>) -> bool,
         ) -> Result<WithPos<Production<'a>>> {
             let mut curr = None::<WithPos<Production>>;
@@ -191,7 +235,7 @@ mod parse {
                 let Some(sym) = self.0.pop() else {
                     break Ok(curr.unwrap_or(WithPos(Production::EMPTY, Slice(end..end))));
                 };
-                if matches!(sym, ReStackSym::LParen) || curr.is_some() && stop(&sym) {
+                if matches!(sym, ReStackSym::LParen) || (opt || curr.is_some()) && stop(&sym) {
                     self.0.push(sym);
                     break Ok(curr.unwrap_or(WithPos(Production::EMPTY, Slice(end..end))));
                 }
@@ -206,31 +250,15 @@ mod parse {
                     (ReStackSym::LParen, _) => unreachable!(),
                     (ReStackSym::Cat(r), Some(WithPos(p, s))) => {
                         let WithPos(r, t) = r;
-                        WithPos(
-                            Production::Re(if let Regex::Cat(mut v) = r {
-                                v.push(p.re());
-                                Regex::Cat(v)
-                            } else {
-                                Regex::Cat(vec![r, p.re()])
-                            }),
-                            s.zip(&t),
-                        )
+                        WithPos(Production::Re(join_cat(r, p.re())), s.zip(&t))
                     },
                     (ReStackSym::Cat(r), None) => r.map(Production::Re),
                     (ReStackSym::Alt(r), Some(WithPos(p, s))) => {
                         let WithPos(r, t) = r;
-                        WithPos(
-                            Production::Re(if let Regex::Alt(mut v) = r {
-                                v.push(p.re());
-                                Regex::Alt(v)
-                            } else {
-                                Regex::Alt(vec![r, p.re()])
-                            }),
-                            s.zip(&t),
-                        )
+                        WithPos(Production::Re(join_alt(r, p.re())), s.zip(&t))
                     },
                     (ReStackSym::Alt(r), None) => {
-                        r.map(|r| Production::Re(Regex::Alt(vec![r, Regex::EMPTY])))
+                        r.map(|r| Production::Re(join_alt(r, Regex::EMPTY)))
                     },
                 });
             }
@@ -238,9 +266,9 @@ mod parse {
 
         fn reduce(&mut self, s: &'a str, end: usize, op: ReOp) -> Result<WithPos<Production<'a>>> {
             match op {
-                ReOp::Pipe | ReOp::RPar | ReOp::Eof => self.pop_until(s, end, |_| false),
-                ReOp::Unop(_) => self.pop_until(s, end, |_| true),
-                ReOp::LPar => self.pop_until(s, end, |s| matches!(s, ReStackSym::Alt(..))),
+                ReOp::Pipe | ReOp::RPar | ReOp::Eof => self.pop_until(s, end, true, |_| false),
+                ReOp::Unop(_) => self.pop_until(s, end, false, |_| true),
+                ReOp::LPar => self.pop_until(s, end, true, |s| matches!(s, ReStackSym::Alt(..))),
             }
         }
 
@@ -398,17 +426,17 @@ mod parse {
 
         fn stringify_re(re: &Regex<std::str::Chars<'_>>, s: &mut String) {
             match re {
+                Regex::Alt(v) if v.is_empty() => s.push('ϵ'),
                 Regex::Alt(v) => {
                     for (i, r) in v.iter().enumerate() {
                         if i != 0 {
                             s.push('|');
                         }
 
-                        s.push('(');
                         stringify_re(r, s);
-                        s.push(')');
                     }
                 },
+                Regex::Cat(v) if v.is_empty() => s.push_str("()"),
                 Regex::Cat(v) => {
                     for r in v {
                         s.push('(');
@@ -426,6 +454,62 @@ mod parse {
                     l => s.push_str(l),
                 },
             }
+        }
+
+        fn assert_parse_eq(expected: Regex<String>, s: &str) {
+            let actual = super::scan_one(s).unwrap();
+
+            assert_eq!(
+                actual
+                    .clone()
+                    .into_iter()
+                    .map(|r| r.map(Iterator::collect::<String>))
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                &[expected],
+            );
+        }
+
+        #[test]
+        fn bnnuy() {
+            let expected = Regex::Cat(vec![
+                Regex::Lit("b".into()),
+                Regex::Alt(vec![
+                    Regex::Cat(vec![
+                        Regex::Star(Regex::Lit("n".into()).into()),
+                        Regex::Lit("u".into()),
+                        Regex::Lit("n".into()),
+                        Regex::Star(Regex::Lit("n".into()).into()),
+                        Regex::Star(
+                            Regex::Cat(vec![
+                                Regex::Star(Regex::Lit("n".into()).into()),
+                                Regex::Lit("u".into()),
+                                Regex::Lit("n".into()),
+                                Regex::Star(Regex::Lit("n".into()).into()),
+                            ])
+                            .into(),
+                        ),
+                    ]),
+                    Regex::Cat(vec![
+                        Regex::Lit("n".into()),
+                        Regex::Star(Regex::Lit("n".into()).into()),
+                        Regex::Lit("u".into()),
+                        Regex::Star(Regex::Lit("u".into()).into()),
+                        Regex::Star(
+                            Regex::Cat(vec![
+                                Regex::Lit("n".into()),
+                                Regex::Star(Regex::Lit("n".into()).into()),
+                                Regex::Lit("u".into()),
+                                Regex::Star(Regex::Lit("u".into()).into()),
+                            ])
+                            .into(),
+                        ),
+                    ]),
+                ]),
+                Regex::Lit("y".into()),
+            ]);
+
+            assert_parse_eq(expected.clone(), "b((n*un+)+|(n+u+)+)y");
         }
 
         proptest! {
