@@ -1,9 +1,18 @@
 use std::{
     borrow::Cow,
+    collections::BTreeMap,
     fmt::{self, Display},
 };
 
 use indexmap::IndexMap;
+
+macro_rules! attr {
+    ($id:ident, $name:literal) => {
+        pub fn $id<S: Into<Cow<'a, str>>>(&mut self, $id: S) {
+            self.attrs.insert($name, $id.into());
+        }
+    };
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum GraphType {
@@ -30,41 +39,43 @@ enum NodeLike<'a> {
 pub struct Graph<'a> {
     ty: Option<GraphType>,
     id: Option<Cow<'a, str>>,
-    style: Option<Cow<'a, str>>,
-    penwidth: Option<Cow<'a, str>>,
-    label: Option<Cow<'a, str>>,
+    attrs: BTreeMap<&'static str, Cow<'a, str>>,
     nodes: IndexMap<Cow<'a, str>, NodeLike<'a>>,
     edges: IndexMap<(Cow<'a, str>, Cow<'a, str>), Vec<Edge<'a>>>,
 }
 
 impl<'a> Graph<'a> {
+    attr!(style, "style");
+
+    attr!(label, "label");
+
+    attr!(penwidth, "penwidth");
+
     #[must_use]
     #[inline]
-    pub fn new(ty: GraphType, id: Option<Cow<'a, str>>) -> Self { Self::new_impl(Some(ty), id) }
+    pub fn new(ty: GraphType) -> Self { Self::new_impl(Some(ty), None) }
+
+    #[must_use]
+    #[inline]
+    pub fn new_with_id<S: Into<Cow<'a, str>>>(ty: GraphType, id: S) -> Self {
+        Self::new_impl(Some(ty), Some(id.into()))
+    }
 
     fn new_impl(ty: Option<GraphType>, id: Option<Cow<'a, str>>) -> Self {
         Self {
             ty,
             id,
-            style: None,
-            penwidth: None,
-            label: None,
+            attrs: BTreeMap::new(),
             nodes: IndexMap::new(),
             edges: IndexMap::new(),
         }
     }
 
-    pub fn style(&mut self, style: Cow<'a, str>) { self.style = Some(style); }
-
-    pub fn label(&mut self, label: Cow<'a, str>) { self.label = Some(label); }
-
-    pub fn penwidth(&mut self, penwidth: Cow<'a, str>) { self.penwidth = Some(penwidth); }
-
     #[inline]
-    pub fn node(&mut self, id: Cow<'a, str>) -> &mut Node<'a> {
+    pub fn node<S: Into<Cow<'a, str>>>(&mut self, id: S) -> &mut Node<'a> {
         use indexmap::map::Entry;
 
-        let entry = match self.nodes.entry(id) {
+        let entry = match self.nodes.entry(id.into()) {
             Entry::Vacant(v) => v.insert(NodeLike::Node(Node::default())),
             Entry::Occupied(e) => {
                 assert!(
@@ -84,10 +95,10 @@ impl<'a> Graph<'a> {
     }
 
     #[inline]
-    pub fn subgraph(&mut self, id: Cow<'a, str>) -> &mut Graph<'a> {
+    pub fn subgraph<S: Into<Cow<'a, str>>>(&mut self, id: S) -> &mut Graph<'a> {
         use indexmap::map::Entry;
 
-        let entry = match self.nodes.entry(id) {
+        let entry = match self.nodes.entry(id.into()) {
             Entry::Vacant(v) => v.insert(NodeLike::Subgraph(Graph::new_impl(None, None))),
             Entry::Occupied(e) => {
                 assert!(
@@ -107,7 +118,13 @@ impl<'a> Graph<'a> {
     }
 
     #[inline]
-    pub fn edge(&mut self, l: Cow<'a, str>, r: Cow<'a, str>) -> &mut Edge<'a> {
+    pub fn edge<L: Into<Cow<'a, str>>, R: Into<Cow<'a, str>>>(
+        &mut self,
+        l: L,
+        r: R,
+    ) -> &mut Edge<'a> {
+        let l = l.into();
+        let r = r.into();
         self.node(l.clone());
         self.node(r.clone());
         let edges = self.edges.entry((l, r)).or_default();
@@ -134,7 +151,7 @@ impl<'a> Graph<'a> {
         fmt_state: FS,
         fmt_tok: FT,
     ) -> Self {
-        let mut graph = Self::new(GraphType::Directed, None);
+        let mut graph = Self::new(GraphType::Directed);
 
         for (state, edges, accept) in nodes {
             let id = Cow::from(get_id(&state).to_string());
@@ -146,7 +163,7 @@ impl<'a> Graph<'a> {
                     label = format!("{label}:{tok}").into();
                 }
 
-                node.border_count(2);
+                node.border_count("2");
             }
 
             node.label(label);
@@ -155,7 +172,7 @@ impl<'a> Graph<'a> {
                 let input = fmt_input(input);
 
                 for next_state in outputs {
-                    let edge = graph.edge(id.clone(), get_id(&next_state).to_string().into());
+                    let edge = graph.edge(id.clone(), get_id(&next_state).to_string());
 
                     edge.label(input.clone());
                 }
@@ -164,10 +181,10 @@ impl<'a> Graph<'a> {
 
         let start_id = Cow::from("_start");
         let start_node = graph.node(start_id.clone());
-        start_node.style("invis".into());
-        start_node.shape("point".into());
-        start_node.label("".into());
-        graph.edge(start_id, get_id(start).to_string().into());
+        start_node.style("invis");
+        start_node.shape("point");
+        start_node.label("");
+        graph.edge(start_id, get_id(start).to_string());
 
         graph
     }
@@ -211,9 +228,7 @@ impl Graph<'_> {
         let Self {
             ty,
             id,
-            style,
-            penwidth,
-            label,
+            attrs,
             nodes,
             edges,
         } = self;
@@ -241,52 +256,21 @@ impl Graph<'_> {
 
         f.write_str(" {")?;
 
-        if let Some(ref style) = style {
-            write!(f, "style={style};")?;
-        }
-
-        if let Some(ref penwidth) = penwidth {
-            write!(f, "penwidth={penwidth};")?;
-        }
-
-        if let Some(ref label) = label {
-            write!(f, "label={label};")?;
+        for (key, val) in attrs {
+            write!(f, "{key}={val:?};")?;
         }
 
         for (id, node) in nodes {
             match node {
-                NodeLike::Node(Node {
-                    style,
-                    shape,
-                    margin,
-                    label,
-                    peripheries,
-                    _p,
-                }) => {
-                    let mut attrs = AttrState::default();
+                NodeLike::Node(Node { attrs }) => {
+                    let mut attr_state = AttrState::default();
                     write!(f, "{id:?}")?;
 
-                    if let Some(style) = style {
-                        attrs.write_one(f, "style", |f| write!(f, "{style:?}"))?;
+                    for (key, val) in attrs {
+                        attr_state.write_one(f, key, |f| write!(f, "{val:?}"))?;
                     }
 
-                    if let Some(shape) = shape {
-                        attrs.write_one(f, "shape", |f| write!(f, "{shape:?}"))?;
-                    }
-
-                    if let Some(margin) = margin {
-                        attrs.write_one(f, "margin", |f| write!(f, "{margin:?}"))?;
-                    }
-
-                    if let Some(label) = label {
-                        attrs.write_one(f, "label", |f| write!(f, "{label:?}"))?;
-                    }
-
-                    if let Some(peripheries) = peripheries {
-                        attrs.write_one(f, "peripheries", |f| write!(f, "{peripheries}"))?;
-                    }
-
-                    attrs.finish(f)?;
+                    attr_state.finish(f)?;
                 },
                 NodeLike::Subgraph(graph) => {
                     graph.fmt_impl(f, Some((ty, id)))?;
@@ -297,36 +281,18 @@ impl Graph<'_> {
         }
 
         for ((l, r), edges) in edges {
-            for Edge {
-                style,
-                minlen,
-                constraint,
-                label,
-            } in edges
-            {
-                let mut attrs = AttrState::default();
+            for Edge { attrs } in edges {
+                let mut attr_state = AttrState::default();
                 write!(f, "{l:?}{}{r:?}", match ty {
                     GraphType::Undirected => "--",
                     GraphType::Directed => "->",
                 })?;
 
-                if let Some(style) = style {
-                    attrs.write_one(f, "style", |f| write!(f, "{style:?}"))?;
+                for (key, val) in attrs {
+                    attr_state.write_one(f, key, |f| write!(f, "{val:?}"))?;
                 }
 
-                if let Some(minlen) = minlen {
-                    attrs.write_one(f, "minlen", |f| write!(f, "{minlen:?}"))?;
-                }
-
-                if let Some(constraint) = constraint {
-                    attrs.write_one(f, "constraint", |f| write!(f, "{constraint:?}"))?;
-                }
-
-                if let Some(label) = label {
-                    attrs.write_one(f, "label", |f| write!(f, "{label:?}"))?;
-                }
-
-                attrs.finish(f)?;
+                attr_state.finish(f)?;
                 f.write_str(";")?;
             }
         }
@@ -341,40 +307,32 @@ impl Display for Graph<'_> {
 
 #[derive(Debug, Default)]
 pub struct Node<'a> {
-    style: Option<Cow<'a, str>>,
-    shape: Option<Cow<'a, str>>,
-    margin: Option<Cow<'a, str>>,
-    label: Option<Cow<'a, str>>,
-    peripheries: Option<u8>,
-    _p: std::marker::PhantomData<&'a ()>,
+    attrs: BTreeMap<&'static str, Cow<'a, str>>,
 }
 
 impl<'a> Node<'a> {
-    pub fn style(&mut self, style: Cow<'a, str>) { self.style = Some(style); }
+    attr!(style, "style");
 
-    pub fn shape(&mut self, shape: Cow<'a, str>) { self.shape = Some(shape); }
+    attr!(shape, "shape");
 
-    pub fn margin(&mut self, margin: Cow<'a, str>) { self.margin = Some(margin); }
+    attr!(margin, "margin");
 
-    pub fn label(&mut self, label: Cow<'a, str>) { self.label = Some(label); }
+    attr!(label, "label");
 
-    pub fn border_count(&mut self, count: u8) { self.peripheries = Some(count); }
+    attr!(border_count, "peripheries");
 }
 
 #[derive(Debug, Default)]
 pub struct Edge<'a> {
-    style: Option<Cow<'a, str>>,
-    minlen: Option<Cow<'a, str>>,
-    constraint: Option<Cow<'a, str>>,
-    label: Option<Cow<'a, str>>,
+    attrs: BTreeMap<&'static str, Cow<'a, str>>,
 }
 
 impl<'a> Edge<'a> {
-    pub fn style(&mut self, style: Cow<'a, str>) { self.style = Some(style); }
+    attr!(style, "style");
 
-    pub fn minlen(&mut self, minlen: Cow<'a, str>) { self.minlen = Some(minlen); }
+    attr!(min_len, "minlen");
 
-    pub fn constraint(&mut self, constraint: Cow<'a, str>) { self.constraint = Some(constraint); }
+    attr!(constraint, "constraint");
 
-    pub fn label(&mut self, label: Cow<'a, str>) { self.label = Some(label); }
+    attr!(label, "label");
 }

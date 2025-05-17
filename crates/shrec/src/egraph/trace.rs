@@ -195,7 +195,7 @@ pub mod dot {
 
     impl<M> Graph<M> {
         #[inline]
-        pub fn new(f: M) -> Self { Self(DotGraph::new(GraphType::Directed, None), f) }
+        pub fn new(f: M) -> Self { Self(DotGraph::new(GraphType::Directed), f) }
     }
 
     impl<F: ?Sized, C: ?Sized, M: Formatter<F>> SnapshotEGraph<F, C> for Graph<M> {
@@ -206,15 +206,15 @@ pub mod dot {
         type NodeId = Cow<'static, str>;
 
         fn equiv_class(&mut self, root: ClassId<C>) -> Self::EquivClass<'_> {
-            let sg = self.0.subgraph(format!("cluster_{}", root.id()).into());
-            sg.style("filled".into());
-            sg.label(format!("{}", root.id()).into());
+            let sg = self.0.subgraph(format!("cluster_{}", root.id()));
+            sg.style("filled");
+            sg.label(format!("{}", root.id()));
 
             let rep_id = Cow::from(format!("class_{}", root.id()));
             let class_node = sg.node(rep_id.clone());
-            class_node.style("invis".into());
-            class_node.shape("point".into());
-            class_node.label("".into());
+            class_node.style("invis");
+            class_node.shape("point");
+            class_node.label("");
 
             EquivClass(rep_id, sg, self.1)
         }
@@ -233,7 +233,7 @@ pub mod dot {
 
             let s = format!("{}", Fmt(op, arg_idx, &self.1));
             if !s.is_empty() {
-                edge.label(s.into());
+                edge.label(s);
             }
         }
     }
@@ -267,9 +267,9 @@ pub mod dot {
             let id = Cow::from(format!("{}_node_{label}", self.0));
 
             let node = self.1.node(id.clone());
-            node.label(label.into());
+            node.label(label);
             let edge = self.1.edge(self.0.clone(), id.clone());
-            edge.style("invis".into());
+            edge.style("invis");
 
             Node(id)
         }
@@ -345,21 +345,18 @@ impl<F: ?Sized, C: ?Sized, M: dot::Formatter<F>> EGraphTrace<F, C> for DotTracer
             .last_mut()
             .unwrap()
             .graph
-            .subgraph(format!("cluster_{}", root.id()).into())
-            .penwidth("4.0".into());
+            .subgraph(format!("cluster_{}", root.id()))
+            .penwidth("4.0");
     }
 
     fn hl_merges<I: IntoIterator<Item = (ClassId<C>, ClassId<C>)>>(&mut self, it: I) {
         let graph = &mut self.0.last_mut().unwrap().graph;
 
         for (a, b) in it {
-            let edge = graph.edge(
-                format!("class_{}", a.id()).into(),
-                format!("class_{}", b.id()).into(),
-            );
+            let edge = graph.edge(format!("class_{}", a.id()), format!("class_{}", b.id()));
 
-            edge.style("dashed".into());
-            edge.constraint("false".into());
+            edge.style("dashed");
+            edge.constraint("false");
         }
     }
 }
