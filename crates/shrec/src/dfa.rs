@@ -13,10 +13,10 @@ mod atomize;
 pub mod optimize;
 mod scanner;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Node<I, N, T>(BTreeMap<I, N>, Option<T>);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Dfa<I, N, T> {
     states: BTreeMap<N, Node<I, N, T>>,
     start: N,
@@ -75,7 +75,7 @@ impl<I: Ord, N: Ord + Hash, T> Dfa<I, N, T> {
 }
 
 impl<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash> Dfa<I, N, T> {
-    pub fn optimize(&self) -> optimize::Output<I, N, T> { optimize::run(self) }
+    pub fn optimize(&self) -> optimize::Output<I, N, T> { optimize::run_default(self) }
 }
 
 impl<I, N: Ord, T> Dfa<I, N, T> {

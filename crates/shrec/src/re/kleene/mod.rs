@@ -27,6 +27,7 @@ impl<L> Regex<L> {
         }
     }
 
+    #[inline]
     pub fn map<M, F: FnMut(L) -> M>(self, mut f: F) -> Regex<M> { self.map_impl(&mut f) }
 }
 

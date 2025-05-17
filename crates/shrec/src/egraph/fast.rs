@@ -1,8 +1,9 @@
-use std::{borrow::Cow, fmt, hash::Hash};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt, mem,
+};
 
-use hashbrown::{HashMap, HashSet};
-
-use super::{prelude::*, ENode};
+use super::{prelude::*, trace, ClassNodes, EGraphTrace, ENode};
 use crate::{
     dot,
     union_find::{ClassId, NoNode, UnionFind, Unioned},
@@ -17,13 +18,12 @@ use crate::{
 //       - assert all parents are stored correctly
 //       - assert no empty e-classes
 
-// TODO: this uses HashMap and HashSet.  verify that behavior is deterministic
 // TODO: fixup usages of unwrap()
 
 struct EClassData<F, C> {
-    parents: HashMap<ENode<F, C>, ClassId<C>>,
+    parents: BTreeMap<ENode<F, C>, ClassId<C>>,
     // TODO: was it actually necessary to add this
-    nodes: HashSet<ENode<F, C>>,
+    nodes: BTreeSet<ENode<F, C>>,
 }
 
 impl<F: fmt::Debug, C> fmt::Debug for EClassData<F, C> {
@@ -45,10 +45,10 @@ impl<F, C> Clone for EClassData<F, C> {
     }
 }
 
-impl<F: Eq + Hash, C> EClassData<F, C> {
+impl<F: Ord, C> EClassData<F, C> {
     fn new(node: ENode<F, C>) -> Self {
         Self {
-            parents: HashMap::new(),
+            parents: BTreeMap::new(),
             nodes: [node].into_iter().collect(),
         }
     }
@@ -63,9 +63,8 @@ impl<F: Eq + Hash, C> EClassData<F, C> {
             );
         }
 
-        self.nodes = self
-            .nodes
-            .drain()
+        self.nodes = mem::take(&mut self.nodes)
+            .into_iter()
             .chain(nodes)
             .map(|mut n| {
                 n.canonicalize_classes(uf).unwrap();
@@ -77,7 +76,7 @@ impl<F: Eq + Hash, C> EClassData<F, C> {
     // TODO: is this the most efficient way to repair the class map?
     fn canonicalize_impl(&mut self, uf: &UnionFind<C>, buf: &mut Vec<ENode<F, C>>) {
         debug_assert!(buf.is_empty());
-        buf.extend(self.nodes.drain().map(|mut n| {
+        buf.extend(mem::take(&mut self.nodes).into_iter().map(|mut n| {
             safe_nodes(n.canonicalize_classes(uf));
             n
         }));
@@ -87,8 +86,8 @@ impl<F: Eq + Hash, C> EClassData<F, C> {
 
 pub struct EGraph<F, C> {
     uf: UnionFind<C>,
-    class_data: HashMap<ClassId<C>, EClassData<F, C>>,
-    node_classes: HashMap<ENode<F, C>, ClassId<C>>,
+    class_data: BTreeMap<ClassId<C>, EClassData<F, C>>,
+    node_classes: BTreeMap<ENode<F, C>, ClassId<C>>,
     poison: bool,
 }
 
@@ -129,8 +128,8 @@ impl<F, C> EGraph<F, C> {
     pub fn new() -> Self {
         Self {
             uf: UnionFind::new(),
-            class_data: HashMap::new(),
-            node_classes: HashMap::new(),
+            class_data: BTreeMap::new(),
+            node_classes: BTreeMap::new(),
             poison: false,
         }
     }
@@ -141,18 +140,17 @@ impl<F, C> EGraph<F, C> {
     }
 }
 
-impl<F: Eq + Hash, C> EGraph<F, C> {
-    #[cfg(test)]
-    #[must_use]
-    pub(super) fn into_parts(self) -> super::EGraphParts<F, C> {
-        self.poison_check();
+#[cfg(test)]
+impl<F: Ord, C> From<EGraph<F, C>> for super::EGraphParts<F, C> {
+    fn from(eg: EGraph<F, C>) -> Self {
+        eg.poison_check();
 
-        let Self {
+        let EGraph {
             uf,
             class_data,
             node_classes,
             poison: _,
-        } = self;
+        } = eg;
 
         let class_refs = class_data
             .into_iter()
@@ -178,7 +176,7 @@ impl<F: Eq + Hash, C> EGraph<F, C> {
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraphCore for EGraph<F, C> {
+impl<F: Ord, C> EGraphCore for EGraph<F, C> {
     type Class = C;
     type FuncSymbol = F;
 
@@ -212,7 +210,7 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraphCore for EGraph<F, C> {
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraphRead for EGraph<F, C> {
+impl<F: Ord, C> EGraphRead for EGraph<F, C> {
     #[inline]
     fn find(&self, klass: ClassId<C>) -> Result<ClassId<C>, NoNode> {
         self.poison_check();
@@ -232,22 +230,29 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraphRead for EGraph<F, C> {
     }
 
     #[must_use]
-    fn dot<'a, O: Fn(&F, ClassId<C>) -> Cow<'a, str>, E: Fn(&F, usize) -> Option<Cow<'a, str>>>(
-        &self,
-        fmt_op: O,
-        fmt_edge: E,
-    ) -> dot::Graph<'a> {
+    fn class_nodes(&self) -> ClassNodes<Self> {
         self.poison_check();
 
-        dot::Graph::egraph(
-            self.uf.roots().map(|r| (r, &self.class_data[&r].nodes)),
-            fmt_op,
-            fmt_edge,
-        )
+        self.class_data
+            .iter()
+            .map(|(&k, v)| {
+                let nodes: BTreeSet<_> = v.nodes.iter().collect();
+                assert!(nodes.len() == v.nodes.len());
+                (k, nodes)
+            })
+            .collect()
+    }
+
+    #[inline]
+    #[must_use]
+    fn dot<M: trace::dot::Formatter<Self::FuncSymbol>>(&self, f: M) -> dot::Graph<'static> {
+        self.poison_check();
+
+        trace::dot_graph(f, self.uf.roots().map(|r| (r, &self.class_data[&r].nodes)))
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraphUpgrade for EGraph<F, C> {
+impl<F: Ord, C> EGraphUpgrade for EGraph<F, C> {
     type WriteRef<'a>
         = EGraphMut<'a, F, C>
     where Self: 'a;
@@ -258,24 +263,14 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraphUpgrade for EGraph<F, C> {
 
         EGraphMut {
             eg: self,
-            dirty: HashMap::new(),
+            dirty: BTreeMap::new(),
             old_uf: UnionFind::new(),
         }
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraph<F, C> {
-    #[must_use]
-    pub fn class_nodes(&self) -> HashMap<ClassId<C>, &HashSet<ENode<F, C>>> {
-        self.poison_check();
-
-        self.class_data
-            .iter()
-            .map(|(&k, v)| (k, &v.nodes))
-            .collect()
-    }
-
-    pub fn get_nodes(&self, klass: ClassId<C>) -> Result<Option<&HashSet<ENode<F, C>>>, NoNode> {
+impl<F: Ord, C> EGraph<F, C> {
+    pub fn get_nodes(&self, klass: ClassId<C>) -> Result<Option<&BTreeSet<ENode<F, C>>>, NoNode> {
         self.poison_check();
         self.uf
             .find(klass)
@@ -289,16 +284,16 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraph<F, C> {
     }
 }
 
-type DirtySet<C> = HashMap<ClassId<C>, HashSet<ClassId<C>>>;
+type DirtySet<C> = BTreeMap<ClassId<C>, BTreeSet<ClassId<C>>>;
 
-pub struct EGraphMut<'a, F: std::fmt::Debug + Eq + Hash, C> {
+pub struct EGraphMut<'a, F: Ord, C> {
     eg: &'a mut EGraph<F, C>,
     dirty: DirtySet<C>,
     // TODO: it's not tracking rewrites, but it still feels hacky
     old_uf: UnionFind<C>,
 }
 
-impl<F: fmt::Debug + Eq + Hash, C> fmt::Debug for EGraphMut<'_, F, C> {
+impl<F: fmt::Debug + Ord, C> fmt::Debug for EGraphMut<'_, F, C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self { eg, dirty, old_uf } = self;
         f.debug_struct("EGraphMut")
@@ -309,7 +304,7 @@ impl<F: fmt::Debug + Eq + Hash, C> fmt::Debug for EGraphMut<'_, F, C> {
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> Drop for EGraphMut<'_, F, C> {
+impl<F: Ord, C> Drop for EGraphMut<'_, F, C> {
     fn drop(&mut self) {
         self.rebuild();
         self.eg.poison = false;
@@ -322,15 +317,21 @@ fn safe_nodes<T>(res: Result<T, NoNode>) -> T { res.unwrap_or_else(|_| unreachab
 #[inline]
 fn safe_nodes_opt<T>(opt: Option<T>) -> T { opt.unwrap_or_else(|| unreachable!()) }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraphCore for EGraphMut<'_, F, C> {
+impl<F: Ord, C> EGraphCore for EGraphMut<'_, F, C> {
     type Class = C;
     type FuncSymbol = F;
 
     fn add(&mut self, node: ENode<F, C>) -> Result<ClassId<C>, NoNode> { self.eg.add(node) }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraphWrite for EGraphMut<'_, F, C> {
-    fn merge(&mut self, a: ClassId<C>, b: ClassId<C>) -> Result<Unioned<C>, NoNode> {
+impl<F: Ord, C> EGraphWrite for EGraphMut<'_, F, C> {
+    fn merge_trace<T: EGraphTrace<F, C>>(
+        &mut self,
+        a: ClassId<C>,
+        b: ClassId<C>,
+        _: &mut T,
+    ) -> Result<Unioned<C>, NoNode> {
+        // TODO: can we trace anything, merges are deferred
         if self.old_uf.is_empty() {
             self.old_uf.clone_from(&self.eg.uf);
         }
@@ -345,17 +346,19 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraphWrite for EGraphMut<'_, F, C> {
     }
 }
 
-impl<F: std::fmt::Debug + Eq + Hash, C> EGraphMut<'_, F, C> {
+impl<F: Ord, C> EGraphMut<'_, F, C> {
     fn rebuild(&mut self) {
         let mut q = DirtySet::new();
         loop {
             debug_assert!(q.is_empty());
-            for (root, others) in self.dirty.drain() {
+            for (root, others) in mem::take(&mut self.dirty) {
                 let root = safe_nodes(self.eg.uf.find(root));
                 q.entry(root).or_default().extend(others);
             }
 
-            q.drain().for_each(|(c, o)| self.repair(c, o));
+            mem::take(&mut q)
+                .into_iter()
+                .for_each(|(c, o)| self.repair(c, o));
 
             if self.dirty.is_empty() {
                 break;
@@ -365,7 +368,7 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraphMut<'_, F, C> {
         }
     }
 
-    fn repair(&mut self, repair_class: ClassId<C>, equiv_classes: HashSet<ClassId<C>>) {
+    fn repair(&mut self, repair_class: ClassId<C>, equiv_classes: BTreeSet<ClassId<C>>) {
         let merged = equiv_classes
             .into_iter()
             .map(|c| self.eg.class_data.remove(&c).unwrap())
@@ -379,10 +382,10 @@ impl<F: std::fmt::Debug + Eq + Hash, C> EGraphMut<'_, F, C> {
             data.merge(merged, &self.eg.uf);
         }
 
-        let mut new_parents = HashMap::new();
+        let mut new_parents = BTreeMap::new();
         let mut canon_buf = vec![];
         for (mut node, klass) in data.parents {
-            use hashbrown::hash_map::Entry;
+            use std::collections::btree_map::Entry;
 
             safe_nodes(node.canonicalize_classes(&self.old_uf));
             safe_nodes_opt(self.eg.node_classes.remove(&node));

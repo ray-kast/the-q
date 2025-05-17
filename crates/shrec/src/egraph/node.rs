@@ -8,9 +8,9 @@ use super::EGraphRead;
 use crate::union_find::{ClassId, NoNode, UnionFind};
 
 // TODO: probably memoize this rather than use Arc
-pub struct ENode<F, C>(Arc<F>, Arc<[ClassId<C>]>);
+pub struct ENode<F: ?Sized, C: ?Sized>(Arc<F>, Arc<[ClassId<C>]>);
 
-impl<F, C> ENode<F, C> {
+impl<F: ?Sized, C: ?Sized> ENode<F, C> {
     #[must_use]
     pub fn op(&self) -> &F { &self.0 }
 
@@ -28,7 +28,7 @@ impl<F, C> ENode<F, C> {
     }
 
     #[inline]
-    pub fn is_canonial<G: EGraphRead<FuncSymbol = F, Class = C>>(
+    pub fn is_canonical<G: EGraphRead<FuncSymbol = F, Class = C>>(
         &self,
         eg: &G,
     ) -> Result<bool, NoNode> {
@@ -36,7 +36,7 @@ impl<F, C> ENode<F, C> {
     }
 
     pub fn canonicalize_classes(&mut self, uf: &UnionFind<C>) -> Result<bool, NoNode> {
-        enum State<'a, C> {
+        enum State<'a, C: ?Sized> {
             Ref(&'a Arc<[ClassId<C>]>),
             Mut(&'a mut [ClassId<C>]),
         }
@@ -84,12 +84,12 @@ impl<F, C> ENode<F, C> {
     }
 }
 
-impl<F: fmt::Debug, C> fmt::Debug for ENode<F, C> {
+impl<F: ?Sized + fmt::Debug, C: ?Sized> fmt::Debug for ENode<F, C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[repr(transparent)]
-        struct Args<'a, C>(&'a Arc<[ClassId<C>]>);
+        struct Args<'a, C: ?Sized>(&'a Arc<[ClassId<C>]>);
 
-        impl<C> fmt::Debug for Args<'_, C> {
+        impl<C: ?Sized> fmt::Debug for Args<'_, C> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.debug_list()
                     .entries(self.0.iter().map(|c| c.id()))
@@ -105,11 +105,11 @@ impl<F: fmt::Debug, C> fmt::Debug for ENode<F, C> {
     }
 }
 
-impl<F, C> Clone for ENode<F, C> {
+impl<F: ?Sized, C: ?Sized> Clone for ENode<F, C> {
     fn clone(&self) -> Self { Self(Arc::clone(&self.0), Arc::clone(&self.1)) }
 }
 
-impl<F: PartialEq, C> PartialEq for ENode<F, C> {
+impl<F: ?Sized + PartialEq, C: ?Sized> PartialEq for ENode<F, C> {
     fn eq(&self, other: &Self) -> bool {
         let Self(l_op, l_args) = self;
         let Self(r_op, r_args) = other;
@@ -117,9 +117,9 @@ impl<F: PartialEq, C> PartialEq for ENode<F, C> {
     }
 }
 
-impl<F: Eq, C> Eq for ENode<F, C> {}
+impl<F: ?Sized + Eq, C: ?Sized> Eq for ENode<F, C> {}
 
-impl<F: Ord, C> Ord for ENode<F, C> {
+impl<F: ?Sized + Ord, C: ?Sized> Ord for ENode<F, C> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         let Self(l_op, l_args) = self;
         let Self(r_op, r_args) = other;
@@ -127,7 +127,7 @@ impl<F: Ord, C> Ord for ENode<F, C> {
     }
 }
 
-impl<F: PartialOrd, C> PartialOrd for ENode<F, C> {
+impl<F: ?Sized + PartialOrd, C: ?Sized> PartialOrd for ENode<F, C> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         let Self(l_op, l_args) = self;
         let Self(r_op, r_args) = other;
@@ -135,7 +135,7 @@ impl<F: PartialOrd, C> PartialOrd for ENode<F, C> {
     }
 }
 
-impl<F: Hash, C> Hash for ENode<F, C> {
+impl<F: ?Sized + Hash, C: ?Sized> Hash for ENode<F, C> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let Self(op, args) = self;
         op.hash(state);
@@ -143,6 +143,6 @@ impl<F: Hash, C> Hash for ENode<F, C> {
     }
 }
 
-impl<F, C> ENode<F, C> {
+impl<F: ?Sized, C: ?Sized> ENode<F, C> {
     pub const fn new(op: Arc<F>, args: Arc<[ClassId<C>]>) -> Self { Self(op, args) }
 }

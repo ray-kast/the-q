@@ -5,8 +5,6 @@ use std::{
 
 use indexmap::IndexMap;
 
-use crate::union_find::ClassId;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum GraphType {
     Undirected,
@@ -33,6 +31,8 @@ pub struct Graph<'a> {
     ty: Option<GraphType>,
     id: Option<Cow<'a, str>>,
     style: Option<Cow<'a, str>>,
+    penwidth: Option<Cow<'a, str>>,
+    label: Option<Cow<'a, str>>,
     nodes: IndexMap<Cow<'a, str>, NodeLike<'a>>,
     edges: IndexMap<(Cow<'a, str>, Cow<'a, str>), Vec<Edge<'a>>>,
 }
@@ -47,12 +47,18 @@ impl<'a> Graph<'a> {
             ty,
             id,
             style: None,
+            penwidth: None,
+            label: None,
             nodes: IndexMap::new(),
             edges: IndexMap::new(),
         }
     }
 
     pub fn style(&mut self, style: Cow<'a, str>) { self.style = Some(style); }
+
+    pub fn label(&mut self, label: Cow<'a, str>) { self.label = Some(label); }
+
+    pub fn penwidth(&mut self, penwidth: Cow<'a, str>) { self.penwidth = Some(penwidth); }
 
     #[inline]
     pub fn node(&mut self, id: Cow<'a, str>) -> &mut Node<'a> {
@@ -165,69 +171,6 @@ impl<'a> Graph<'a> {
 
         graph
     }
-
-    pub(crate) fn egraph<
-        'b,
-        F: Eq + std::hash::Hash + 'b,
-        C: 'b,
-        IR: IntoIterator<Item = (ClassId<C>, IN)> + Clone,
-        IN: IntoIterator<Item = &'b crate::egraph::ENode<F, C>>,
-        FO: Fn(&F, ClassId<C>) -> Cow<'a, str>,
-        FE: Fn(&F, usize) -> Option<Cow<'a, str>>,
-    >(
-        roots: IR,
-        fmt_op: FO,
-        fmt_edge: FE,
-    ) -> Self {
-        let mut graph = Graph::new(GraphType::Directed, None);
-        let mut class_reps = hashbrown::HashMap::new();
-        let mut node_ids = hashbrown::HashMap::new();
-
-        for (root, nodes) in roots.clone() {
-            let sg = graph.subgraph(format!("cluster_{}", root.id()).into());
-            sg.style("filled".into());
-
-            let rep_id = Cow::from(format!("class_{}", root.id()));
-            let class_node = sg.node(rep_id.clone());
-            class_reps.insert(root, rep_id.clone());
-            class_node.style("invis".into());
-            class_node.shape("point".into());
-            class_node.label("".into());
-
-            for node in nodes {
-                let mut label = format!("{}(", fmt_op(node.op(), root));
-                for (i, arg) in node.args().iter().enumerate() {
-                    if i > 0 {
-                        label.push(',');
-                    }
-
-                    label.push_str(&arg.id().to_string());
-                }
-                label.push(')');
-                let id = Cow::from(format!("node_{label}"));
-                node_ids.entry(node).or_insert_with(|| id.clone());
-
-                let node = sg.node(id.clone());
-                node.label(label.into());
-                let edge = sg.edge(rep_id.clone(), id.clone());
-                edge.style("invis".into());
-            }
-        }
-
-        for (_, nodes) in roots {
-            for node in nodes {
-                for (i, edge) in node.args().iter().enumerate() {
-                    let edge = graph.edge(node_ids[node].clone(), class_reps[edge].clone());
-
-                    if let Some(label) = fmt_edge(node.op(), i) {
-                        edge.label(label);
-                    }
-                }
-            }
-        }
-
-        graph
-    }
 }
 
 #[derive(Default)]
@@ -265,19 +208,29 @@ impl AttrState {
 
 impl Graph<'_> {
     fn fmt_impl(&self, f: &mut fmt::Formatter, sub_id: Option<(GraphType, &str)>) -> fmt::Result {
-        let ty = match (self.ty, sub_id) {
+        let Self {
+            ty,
+            id,
+            style,
+            penwidth,
+            label,
+            nodes,
+            edges,
+        } = self;
+
+        let ty = match (ty, sub_id) {
             (ty, None) => {
                 let ty = ty.unwrap();
                 write!(f, "{ty}")?;
 
-                if let Some(id) = &self.id {
+                if let Some(id) = id {
                     write!(f, " {id:?}")?;
                 }
 
                 ty
             },
             (ty, sub) => {
-                assert!(ty.is_none() && self.id.is_none());
+                assert!(ty.is_none() && id.is_none());
                 let (ty, sub) = sub.unwrap();
 
                 write!(f, "subgraph {sub:?}")?;
@@ -288,15 +241,24 @@ impl Graph<'_> {
 
         f.write_str(" {")?;
 
-        if let Some(ref style) = self.style {
+        if let Some(ref style) = style {
             write!(f, "style={style};")?;
         }
 
-        for (id, node) in &self.nodes {
+        if let Some(ref penwidth) = penwidth {
+            write!(f, "penwidth={penwidth};")?;
+        }
+
+        if let Some(ref label) = label {
+            write!(f, "label={label};")?;
+        }
+
+        for (id, node) in nodes {
             match node {
                 NodeLike::Node(Node {
                     style,
                     shape,
+                    margin,
                     label,
                     peripheries,
                     _p,
@@ -310,6 +272,10 @@ impl Graph<'_> {
 
                     if let Some(shape) = shape {
                         attrs.write_one(f, "shape", |f| write!(f, "{shape:?}"))?;
+                    }
+
+                    if let Some(margin) = margin {
+                        attrs.write_one(f, "margin", |f| write!(f, "{margin:?}"))?;
                     }
 
                     if let Some(label) = label {
@@ -330,10 +296,11 @@ impl Graph<'_> {
             f.write_str(";")?;
         }
 
-        for ((l, r), edges) in &self.edges {
+        for ((l, r), edges) in edges {
             for Edge {
                 style,
                 minlen,
+                constraint,
                 label,
             } in edges
             {
@@ -349,6 +316,10 @@ impl Graph<'_> {
 
                 if let Some(minlen) = minlen {
                     attrs.write_one(f, "minlen", |f| write!(f, "{minlen:?}"))?;
+                }
+
+                if let Some(constraint) = constraint {
+                    attrs.write_one(f, "constraint", |f| write!(f, "{constraint:?}"))?;
                 }
 
                 if let Some(label) = label {
@@ -372,6 +343,7 @@ impl Display for Graph<'_> {
 pub struct Node<'a> {
     style: Option<Cow<'a, str>>,
     shape: Option<Cow<'a, str>>,
+    margin: Option<Cow<'a, str>>,
     label: Option<Cow<'a, str>>,
     peripheries: Option<u8>,
     _p: std::marker::PhantomData<&'a ()>,
@@ -382,6 +354,8 @@ impl<'a> Node<'a> {
 
     pub fn shape(&mut self, shape: Cow<'a, str>) { self.shape = Some(shape); }
 
+    pub fn margin(&mut self, margin: Cow<'a, str>) { self.margin = Some(margin); }
+
     pub fn label(&mut self, label: Cow<'a, str>) { self.label = Some(label); }
 
     pub fn border_count(&mut self, count: u8) { self.peripheries = Some(count); }
@@ -391,6 +365,7 @@ impl<'a> Node<'a> {
 pub struct Edge<'a> {
     style: Option<Cow<'a, str>>,
     minlen: Option<Cow<'a, str>>,
+    constraint: Option<Cow<'a, str>>,
     label: Option<Cow<'a, str>>,
 }
 
@@ -398,6 +373,8 @@ impl<'a> Edge<'a> {
     pub fn style(&mut self, style: Cow<'a, str>) { self.style = Some(style); }
 
     pub fn minlen(&mut self, minlen: Cow<'a, str>) { self.minlen = Some(minlen); }
+
+    pub fn constraint(&mut self, constraint: Cow<'a, str>) { self.constraint = Some(constraint); }
 
     pub fn label(&mut self, label: Cow<'a, str>) { self.label = Some(label); }
 }

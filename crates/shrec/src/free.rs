@@ -12,7 +12,7 @@ where RangeFrom<T>: Iterator<Item = T>
     fn succ(self) -> Self { (self..).nth(1).unwrap() }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 #[repr(transparent)]
 pub struct Free<T>(T);
 

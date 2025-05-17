@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 #[error("No disjoint-set node found with ID {0}")]
 pub struct NoNode<T>(pub T);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Unioned<K> {
     pub root: K,
     pub unioned: Option<K>,

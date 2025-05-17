@@ -6,9 +6,9 @@ use std::{
 use super::disjoint_set::{forest_find, ForestFind, NoNode, RankedUnion};
 
 #[derive(Debug)]
-pub struct Node {
-    parent: AtomicUsize,
-    rank: usize,
+pub(super) struct Node {
+    pub parent: AtomicUsize,
+    pub rank: usize,
 }
 
 impl Clone for Node {
@@ -22,7 +22,7 @@ impl Clone for Node {
 
 #[derive(Default, Clone)]
 #[repr(transparent)]
-pub struct VecForestSet(Vec<Node>);
+pub struct VecForestSet(pub(super) Vec<Node>);
 
 impl fmt::Debug for VecForestSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

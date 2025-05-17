@@ -1,16 +1,18 @@
-use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet};
 
-pub use fast::*;
 pub use node::*;
+pub use trace::EGraphTrace;
 
 use crate::{
     dot,
     union_find::{ClassId, NoNode, Unioned},
 };
 
-mod fast;
-pub mod node;
+pub mod fast;
+pub mod intrusive;
+mod node;
 pub mod reference;
+pub mod trace;
 
 // TODO: a lot of this module could be cleaned up if they introduced a solution
 //       for better derive bounds
@@ -29,6 +31,23 @@ pub trait EGraphCore {
     ) -> Result<ClassId<Self::Class>, NoNode>;
 }
 
+impl<T: ?Sized + EGraphCore> EGraphCore for &mut T {
+    type Class = T::Class;
+    type FuncSymbol = T::FuncSymbol;
+
+    fn add(
+        &mut self,
+        node: ENode<Self::FuncSymbol, Self::Class>,
+    ) -> Result<ClassId<Self::Class>, NoNode> {
+        T::add(self, node)
+    }
+}
+
+pub type ClassNodes<'a, G> = BTreeMap<
+    ClassId<<G as EGraphCore>::Class>,
+    BTreeSet<&'a ENode<<G as EGraphCore>::FuncSymbol, <G as EGraphCore>::Class>>,
+>;
+
 pub trait EGraphRead: EGraphCore {
     fn find(&self, class: ClassId<Self::Class>) -> Result<ClassId<Self::Class>, NoNode>;
 
@@ -38,15 +57,9 @@ pub trait EGraphRead: EGraphCore {
 
     fn is_canonical(&self, node: &ENode<Self::FuncSymbol, Self::Class>) -> Result<bool, NoNode>;
 
-    fn dot<
-        'a,
-        O: Fn(&Self::FuncSymbol, ClassId<Self::Class>) -> Cow<'a, str>,
-        E: Fn(&Self::FuncSymbol, usize) -> Option<Cow<'a, str>>,
-    >(
-        &self,
-        fmt_op: O,
-        fmt_edge: E,
-    ) -> dot::Graph<'a>;
+    fn class_nodes(&self) -> ClassNodes<Self>;
+
+    fn dot<M: trace::dot::Formatter<Self::FuncSymbol>>(&self, f: M) -> dot::Graph<'static>;
 }
 
 pub trait EGraphWrite: EGraphCore {
@@ -54,11 +67,39 @@ pub trait EGraphWrite: EGraphCore {
         &mut self,
         a: ClassId<Self::Class>,
         b: ClassId<Self::Class>,
+    ) -> Result<Unioned<Self::Class>, NoNode> {
+        self.merge_trace(a, b, &mut ())
+    }
+
+    fn merge_trace<T: EGraphTrace<Self::FuncSymbol, Self::Class>>(
+        &mut self,
+        a: ClassId<Self::Class>,
+        b: ClassId<Self::Class>,
+        t: &mut T,
     ) -> Result<Unioned<Self::Class>, NoNode>;
 }
 
+impl<T: EGraphWrite> EGraphWrite for &mut T {
+    fn merge(
+        &mut self,
+        a: ClassId<Self::Class>,
+        b: ClassId<Self::Class>,
+    ) -> Result<Unioned<Self::Class>, NoNode> {
+        T::merge(self, a, b)
+    }
+
+    fn merge_trace<U: EGraphTrace<Self::FuncSymbol, Self::Class>>(
+        &mut self,
+        a: ClassId<Self::Class>,
+        b: ClassId<Self::Class>,
+        t: &mut U,
+    ) -> Result<Unioned<Self::Class>, NoNode> {
+        T::merge_trace(self, a, b, t)
+    }
+}
+
 pub trait EGraphUpgrade: EGraphRead {
-    type WriteRef<'a>
+    type WriteRef<'a>: EGraphWrite<FuncSymbol = Self::FuncSymbol, Class = Self::Class>
     where Self: 'a;
 
     fn write(&mut self) -> Self::WriteRef<'_>;
@@ -76,20 +117,21 @@ impl<T: EGraphRead + EGraphWrite> EGraphUpgrade for T {
 #[derive(Debug)]
 struct EGraphParts<F, C> {
     uf: crate::union_find::UnionFind<C>,
-    class_refs: hashbrown::HashMap<ClassId<C>, hashbrown::HashSet<ENode<F, C>>>,
-    node_classes: hashbrown::HashMap<ENode<F, C>, ClassId<C>>,
+    class_refs: BTreeMap<ClassId<C>, BTreeSet<ENode<F, C>>>,
+    node_classes: BTreeMap<ENode<F, C>, ClassId<C>>,
 }
 
 #[cfg(test)]
 mod test {
-    use hashbrown::HashMap;
+    use std::collections::BTreeMap;
+
     use prop::sample::SizeRange;
     use proptest::prelude::*;
 
     use super::prelude::*;
     use crate::union_find::ClassId;
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     struct Symbol(char);
     #[derive(Debug, Clone)]
     struct Tree(Symbol, Vec<Tree>);
@@ -120,7 +162,10 @@ mod test {
 
     type Node = super::ENode<Symbol, Expr>;
     type SlowGraph = super::reference::EGraph<Symbol, Expr>;
+    type IntGraph = super::intrusive::EGraph<Symbol, Expr>;
     type FastGraph = super::fast::EGraph<Symbol, Expr>;
+
+    type Parts = super::EGraphParts<Symbol, Expr>;
 
     // TODO: track that only merged and originally-equivalent nodes are still equivalent
     fn assert_merges<G: EGraphRead>(
@@ -129,107 +174,108 @@ mod test {
     ) {
     }
 
-    fn assert_equiv(slow: &SlowGraph, fast: &FastGraph) {
-        let super::EGraphParts {
-            uf: slow_uf,
-            class_refs: slow_class_refs,
-            node_classes: slow_node_classes,
-        } = slow.clone().into_parts();
-        let super::EGraphParts {
-            uf: fast_uf,
-            class_refs: fast_class_refs,
-            node_classes: fast_node_classes,
-        } = fast.clone().into_parts();
+    fn assert_equiv<A: Clone + Into<Parts>, B: Clone + Into<Parts>>(a: &A, b: &B) {
+        let Parts {
+            uf: a_uf,
+            class_refs: a_class_refs,
+            node_classes: a_node_classes,
+        } = a.clone().into();
+        let Parts {
+            uf: b_uf,
+            class_refs: b_class_refs,
+            node_classes: b_node_classes,
+        } = b.clone().into();
 
-        assert_eq!(slow_uf.len(), fast_uf.len());
+        assert_eq!(a_uf.len(), b_uf.len());
 
-        for (slow, fast) in slow_uf.classes().zip(fast_uf.classes()) {
-            assert_eq!(
-                slow_uf.find(slow).unwrap().id(),
-                fast_uf.find(fast).unwrap().id()
-            );
+        for (a, b) in a_uf.classes().zip(b_uf.classes()) {
+            assert_eq!(a_uf.find(a).unwrap().id(), b_uf.find(b).unwrap().id());
         }
 
-        assert_eq!(slow_class_refs, fast_class_refs);
-        assert_eq!(slow_node_classes, fast_node_classes);
+        assert_eq!(a_class_refs, b_class_refs);
+        assert_eq!(a_node_classes, b_node_classes);
     }
 
     // TODO: test adding after merging
-    fn run_reference(tree: Tree, merges: Vec<(usize, usize)>) {
-        for _ in 0..64 {
-            let mut graph = SlowGraph::new();
-            let mut classes = HashMap::new();
-            let mut class_list = vec![];
+    fn run_reference(tree: &Tree, merges: &Vec<(usize, usize)>) {
+        let mut graph = SlowGraph::new();
+        let mut classes = BTreeMap::new();
+        let mut class_list = vec![];
 
-            let root = tree.clone().fold(|sym, args| {
-                let node = Node::new(sym.into(), args.into());
-                let klass = graph.add(node.clone()).unwrap();
+        let root = tree.clone().fold(|sym, args| {
+            let node = Node::new(sym.into(), args.into());
+            let klass = graph.add(node.clone()).unwrap();
 
-                class_list.push(klass);
+            class_list.push(klass);
 
-                assert_eq!(*classes.entry(node).or_insert(klass), klass);
+            assert_eq!(*classes.entry(node).or_insert(klass), klass);
 
-                klass
-            });
+            klass
+        });
 
-            graph.find(root).unwrap();
+        graph.find(root).unwrap();
 
-            for &(a, b) in &merges {
-                let a = class_list[a];
-                let b = class_list[b];
-                graph.merge(a, b).unwrap();
-            }
+        for &(a, b) in merges {
+            let a = class_list[a];
+            let b = class_list[b];
+            graph.merge(a, b).unwrap();
         }
     }
 
     // TODO: test adding after merging
-    fn run(tree: Tree, merges: Vec<(usize, usize)>, stepwise: bool) {
-        for _ in 0..32 {
-            let mut slow = SlowGraph::new();
-            let mut fast = FastGraph::new();
-            let mut classes = HashMap::new();
-            let mut class_list = vec![];
+    fn run<
+        A: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
+        B: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
+    >(
+        tree: &Tree,
+        merges: &Vec<(usize, usize)>,
+        stepwise: bool,
+    ) {
+        let mut a = A::default();
+        let mut b = B::default();
+        let mut classes = BTreeMap::new();
+        let mut class_list = vec![];
 
-            let root = tree.clone().fold(|sym, args| {
-                let node = Node::new(sym.into(), args.into());
+        let root = tree.clone().fold(|sym, args| {
+            let node = Node::new(sym.into(), args.into());
 
-                let klass = slow.add(node.clone()).unwrap();
-                assert_eq!(fast.add(node.clone()).unwrap(), klass);
+            let klass = a.add(node.clone()).unwrap();
+            assert_eq!(b.add(node.clone()).unwrap(), klass);
 
-                class_list.push(klass);
+            class_list.push(klass);
 
-                assert_eq!(*classes.entry(node).or_insert(klass), klass);
+            assert_eq!(*classes.entry(node).or_insert(klass), klass);
 
-                klass
-            });
+            klass
+        });
 
-            // Sanity assertion that the root ended up in the graphs
-            slow.find(root).unwrap();
-            fast.find(root).unwrap();
+        // Sanity assertion that the root ended up in the graphs
+        a.find(root).unwrap();
+        b.find(root).unwrap();
 
-            if stepwise {
-                for &(a, b) in &merges {
-                    let a = class_list[a];
-                    let b = class_list[b];
-                    slow.merge(a, b).unwrap();
-                    fast.write().merge(a, b).unwrap();
+        if stepwise {
+            for &(l, r) in merges {
+                let l = class_list[l];
+                let r = class_list[r];
+                a.write().merge(l, r).unwrap();
+                b.write().merge(l, r).unwrap();
 
-                    assert_equiv(&slow, &fast);
-                }
-            } else {
-                {
-                    let mut fast = fast.write();
-
-                    for &(a, b) in &merges {
-                        let a = class_list[a];
-                        let b = class_list[b];
-                        slow.merge(a, b).unwrap();
-                        fast.merge(a, b).unwrap();
-                    }
-                }
-
-                assert_equiv(&slow, &fast);
+                assert_equiv(&a, &b);
             }
+        } else {
+            {
+                let mut a = a.write();
+                let mut b = b.write();
+
+                for &(l, r) in merges {
+                    let l = class_list[l];
+                    let r = class_list[r];
+                    a.merge(l, r).unwrap();
+                    b.merge(l, r).unwrap();
+                }
+            }
+
+            assert_equiv(&a, &b);
         }
     }
 
@@ -259,44 +305,6 @@ mod test {
             })
     }
 
-    #[test]
-    fn test_abc() {
-        run_reference(
-            Tree(Symbol('a'), vec![
-                Tree(Symbol('b'), vec![
-                    Tree(Symbol('c'), vec![]),
-                    Tree(Symbol('d'), vec![]),
-                ]),
-                Tree(Symbol('b'), vec![
-                    Tree(Symbol('e'), vec![]),
-                    Tree(Symbol('f'), vec![]),
-                ]),
-            ]),
-            vec![(1, 3), (1, 4), (1, 0)],
-        );
-    }
-
-    #[test]
-    fn test_non_dedup() {
-        run_reference(
-            Tree(Symbol('!'), vec![
-                Tree(Symbol('¹'), vec![Tree(Symbol('Ό'), vec![
-                    Tree(Symbol('A'), vec![]),
-                    Tree(Symbol('a'), vec![]),
-                    Tree(Symbol('0'), vec![]),
-                    Tree(Symbol('A'), vec![]),
-                ])]),
-                Tree(Symbol('Ό'), vec![
-                    Tree(Symbol('!'), vec![]),
-                    Tree(Symbol('!'), vec![]),
-                    Tree(Symbol('A'), vec![]),
-                    Tree(Symbol('͵'), vec![]),
-                ]),
-            ]),
-            vec![(6, 9), (8, 1), (0, 0), (0, 2), (6, 0)],
-        );
-    }
-
     proptest! {
         #![proptest_config(ProptestConfig {
             // cases: 2 << 16,
@@ -306,7 +314,7 @@ mod test {
         })]
 
         #[test]
-        fn test_reference(
+        fn reference(
             (nodes, merges) in nodes_and_merges(
                 crate::prop::symbol(),
                 32,
@@ -315,11 +323,11 @@ mod test {
                 1..=128,
             ),
         ) {
-            run_reference(nodes, merges);
+            run_reference(&nodes, &merges);
         }
 
         #[test]
-        fn test_batched(
+        fn batched(
             (nodes, merges) in nodes_and_merges(
                 crate::prop::symbol(),
                 32,
@@ -328,11 +336,11 @@ mod test {
                 1..=128,
             ),
         ) {
-            run(nodes, merges, false);
+            run::<SlowGraph, FastGraph>(&nodes, &merges, false);
         }
 
         #[test]
-        fn test_stepwise(
+        fn stepwise(
             (nodes, merges) in nodes_and_merges(
                 crate::prop::symbol(),
                 32,
@@ -341,7 +349,20 @@ mod test {
                 1..=128,
             ),
         ) {
-            run(nodes, merges, true);
+            run::<SlowGraph, FastGraph>(&nodes, &merges, true);
+        }
+
+        #[test]
+        fn intrusive(
+            (nodes, merges) in nodes_and_merges(
+                crate::prop::symbol(),
+                32,
+                512,
+                6,
+                1..=128,
+            ),
+        ) {
+            run::<SlowGraph, IntGraph>(&nodes, &merges, true);
         }
     }
 }

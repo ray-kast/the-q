@@ -18,10 +18,9 @@
 use clap::Parser;
 use hashbrown::{HashMap, HashSet};
 use shrec::{
-    egraph::prelude::*,
+    egraph::{prelude::*, trace::dot::ClosureFormatter},
     re::kleene::{
-        Regex,
-        Regex::{Alt, Cat, Lit, Star},
+        Regex::{self, Alt, Cat, Lit, Star},
         RegexBag,
     },
 };
@@ -179,14 +178,14 @@ fn main() {
         ),
         Output::Eg => println!(
             "{}",
-            eg.dot(
-                |n, c| format!("{:?}", cm[&c]).into(),
-                |n, i| match n {
+            eg.dot(ClosureFormatter::new(
+                |n, f| f.write_fmt(format_args!("{n:?}")),
+                |n, i, f| match n {
                     shrec::dfa::optimize::Op::Node { accept, edges } =>
-                        Some(format!("{:?}", edges.iter().nth(i).unwrap()).into()),
-                    shrec::dfa::optimize::Op::Impostor(_) => None,
+                        f.write_fmt(format_args!("{:?}", edges.iter().nth(i).unwrap())),
+                    shrec::dfa::optimize::Op::Impostor(_) => Ok(()),
                 }
-            ),
+            )),
         ),
     }
 }
