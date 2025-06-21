@@ -4,31 +4,11 @@ use shrec::{
         reference,
         trace::{dot, DotTracer},
     },
-    re::kleene::Regex::{Alt, Cat, Lit, Star},
+    re::kleene::Regex::{Alt, Lit, Star},
 };
 
 fn main() {
-    let re = Cat(vec![
-        Lit(vec!['b']),
-        Cat(vec![
-            Alt(vec![
-                Cat(vec![Cat(vec![
-                    Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]),
-                    Star(Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]).into()),
-                ])]),
-                Cat(vec![
-                    Lit(vec![]),
-                    Cat(vec![Lit(vec!['n']), Star(Lit(vec!['n']).into())]),
-                    Star(Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]).into()),
-                ]),
-            ]),
-            Cat(vec![
-                Lit(vec![]),
-                Alt(vec![Cat(vec![]), Lit(vec!['u'])]),
-                Lit(vec!['y']),
-            ]),
-        ]),
-    ]);
+    let re = Star(Alt(vec![Lit(vec!['0']), Lit(vec!['1'])]).into());
 
     let non_dfa = re.compile_atomic();
     let dfa = non_dfa.compile();

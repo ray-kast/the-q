@@ -111,6 +111,11 @@ impl<C: ?Sized> UnionFind<C> {
     #[inline]
     pub fn add(&mut self) -> ClassId<C> { ClassId::new(self.0.add()) }
 
+    #[inline]
+    pub fn parent(&self, key: ClassId<C>) -> Result<ClassId<C>, NoNode> {
+        self.0.parent(key.0).map(ClassId::new)
+    }
+
     /// Find the partition root ID for the given node ID, and optimize the
     /// search path between the node and its root
     ///

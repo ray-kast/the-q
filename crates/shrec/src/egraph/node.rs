@@ -35,7 +35,10 @@ impl<F: ?Sized, C: ?Sized> ENode<F, C> {
         eg.is_canonical(self)
     }
 
-    pub fn canonicalize_classes(&mut self, uf: &UnionFind<C>) -> Result<bool, NoNode> {
+    pub fn try_map_args<G: Fn(ClassId<C>) -> Result<ClassId<C>, E>, E>(
+        &mut self,
+        f: G,
+    ) -> Result<bool, E> {
         enum State<'a, C: ?Sized> {
             Ref(&'a Arc<[ClassId<C>]>),
             Mut(&'a mut [ClassId<C>]),
@@ -47,7 +50,7 @@ impl<F: ?Sized, C: ?Sized> ENode<F, C> {
                 State::Ref(a) => {
                     // SAFETY: i is bounded by self.1.len()
                     let arg = unsafe { a.get_unchecked(i) };
-                    let root = uf.find(*arg)?;
+                    let root = f(*arg)?;
                     if root != *arg {
                         let args_mut = Arc::make_mut(&mut self.1);
                         // SAFETY: i is bounded by self.1.len()
@@ -58,12 +61,21 @@ impl<F: ?Sized, C: ?Sized> ENode<F, C> {
                 State::Mut(ref mut m) => {
                     // SAFETY: i is bounded by self.1.len()
                     let arg = unsafe { m.get_unchecked_mut(i) };
-                    *arg = uf.find(*arg)?;
+                    *arg = f(*arg)?;
                 },
             }
         }
 
         Ok(matches!(args, State::Mut(..)))
+    }
+
+    pub fn map_args<G: Fn(ClassId<C>) -> ClassId<C>>(&mut self, f: G) -> bool {
+        let Ok(res) = self.try_map_args::<_, std::convert::Infallible>(|a| Ok(f(a)));
+        res
+    }
+
+    pub fn canonicalize_classes(&mut self, uf: &UnionFind<C>) -> Result<bool, NoNode> {
+        self.try_map_args(|a| uf.find(a))
     }
 
     #[inline]

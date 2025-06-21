@@ -20,3 +20,4 @@ proptest.workspace = true
 
 [features]
 proptest = ["dep:proptest"]
+test = []

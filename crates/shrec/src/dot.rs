@@ -320,6 +320,8 @@ impl<'a> Node<'a> {
     attr!(label, "label");
 
     attr!(border_count, "peripheries");
+
+    attr!(edge_ordering, "ordering");
 }
 
 #[derive(Debug, Default)]
@@ -334,5 +336,9 @@ impl<'a> Edge<'a> {
 
     attr!(constraint, "constraint");
 
+    attr!(concentrate, "concentrate");
+
     attr!(label, "label");
+
+    attr!(color, "color");
 }

@@ -3,7 +3,12 @@ use std::{
     fmt, mem,
 };
 
-use super::{prelude::*, trace, ClassNodes, EGraphTrace, ENode};
+use super::{
+    prelude::*,
+    test_tools::EGraphParts,
+    trace::{self, SnapshotEGraph},
+    ClassNodes, EGraphTrace, ENode,
+};
 use crate::{
     dot,
     union_find::{ClassId, NoNode, UnionFind, Unioned},
@@ -84,36 +89,20 @@ impl<F, C> EGraph<F, C> {
     }
 }
 
-#[cfg(test)]
-impl<F: Ord, C> From<EGraph<F, C>> for super::EGraphParts<F, C> {
+impl<F: Ord, C> From<EGraph<F, C>> for EGraphParts<F, C> {
     fn from(eg: EGraph<F, C>) -> Self {
         let EGraph {
             uf,
-            class_data,
+            class_data: _,
             node_classes,
         } = eg;
 
-        let class_refs = class_data
+        let node_classes = node_classes
             .into_iter()
-            .map(|(k, EClassData { parents })| {
-                (
-                    k,
-                    parents
-                        .into_keys()
-                        .map(|mut n| {
-                            n.canonicalize_classes(&uf).unwrap();
-                            n
-                        })
-                        .collect(),
-                )
-            })
+            .map(|(n, c)| (n, uf.find(c).unwrap()))
             .collect();
 
-        super::EGraphParts {
-            uf,
-            class_refs,
-            node_classes,
-        }
+        EGraphParts { uf, node_classes }
     }
 }
 
@@ -194,17 +183,41 @@ impl<F: Ord, C> EGraphWrite for EGraph<F, C> {
 
 impl<F: Ord, C> EGraph<F, C> {
     #[inline]
-    fn trace<T: EGraphTrace<F, C>>(&self, t: &mut T) {
+    fn trace<T: EGraphTrace<F, C>, G: FnOnce() -> I, I: IntoIterator<Item = ClassId<C>>>(
+        &self,
+        t: &mut T,
+        current: G,
+    ) {
         t.graph(|g| {
-            trace::snapshot_graph(g, {
+            let nodes = trace::snapshot_graph(
+                g,
                 self.node_classes.iter().fold(
                     BTreeMap::new(),
                     |mut m: BTreeMap<_, BTreeSet<_>>, (n, &c)| {
                         assert!(m.entry(self.uf.find(c).unwrap()).or_default().insert(n));
                         m
                     },
-                )
-            });
+                ),
+            );
+
+            let mut seen = BTreeSet::new();
+            for class in current() {
+                let data = self.class_data.get(&class).unwrap();
+                for (parent, par_id) in &data.parents {
+                    let parent = parent.to_canonical(self).unwrap();
+
+                    if !seen.insert((class, parent.clone(), par_id)) {
+                        continue;
+                    }
+
+                    g.parent_edge(
+                        nodes.class_reps.get(&class).unwrap(),
+                        nodes.node_ids.get(&parent).unwrap(),
+                        nodes.class_reps.get(par_id),
+                        None,
+                    );
+                }
+            }
         });
     }
 
@@ -215,7 +228,7 @@ impl<F: Ord, C> EGraph<F, C> {
         old_uf: &mut UnionFind<C>,
         t: &mut T,
     ) -> Result<Unioned<C>, NoNode> {
-        self.trace(t);
+        self.trace(t, || [self.uf.find(a).unwrap(), self.uf.find(b).unwrap()]);
 
         old_uf.clone_from(&self.uf);
         let union = self.uf.union(a, b)?;
@@ -272,7 +285,7 @@ impl<F: Ord, C> EGraph<F, C> {
 
             self.assert_invariants(false);
 
-            self.trace(t);
+            self.trace(t, || [root]);
             t.hl_class(root);
             t.hl_merges(to_merge.iter().copied());
 
@@ -280,19 +293,17 @@ impl<F: Ord, C> EGraph<F, C> {
                 self.merge_impl(a, b, old_uf, t).unwrap();
             }
         } else {
-            t.pop_graph();
-
             self.assert_invariants(false);
         }
 
         Ok(union)
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test")))]
     #[inline]
     fn assert_invariants(&self, _: bool) { let _ = self; }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test"))]
     fn assert_invariants(&self, merged: bool) {
         for node in self.node_classes.keys() {
             assert!(node.classes_canonical(&self.uf).unwrap());

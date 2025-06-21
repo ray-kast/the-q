@@ -109,7 +109,7 @@ impl<K, V> PartitionMap<K, V> {
     pub fn into_partitions(self) -> IntoPartitions<K, V> { IntoPartitions::new(self) }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test"))]
 impl<K, V: PartialEq> PartitionMap<K, V> {
     fn assert_invariants(&self) {
         let mut last = &self.unbounded_start;
@@ -201,7 +201,7 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
     pub fn set<B: PartitionBounds<K>>(&mut self, range: B, value: V) {
         self.set_internal(range, value, &mut vec![]);
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test"))]
         self.assert_invariants();
     }
 
@@ -278,7 +278,7 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
     ) {
         self.update_internal(range, f, &mut vec![], &mut vec![]);
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test"))]
         self.assert_invariants();
     }
 
@@ -297,7 +297,7 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
             self.update_internal(range, &mut f, &mut over, &mut set_over);
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test"))]
         self.assert_invariants();
     }
 
@@ -318,7 +318,7 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
             );
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test"))]
         self.assert_invariants();
     }
 
@@ -359,7 +359,7 @@ impl<K: Clone + Ord, V: Clone + PartialEq, B: PartitionBounds<K>> Extend<(B, V)>
             self.set_internal(range, value, &mut over);
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test"))]
         self.assert_invariants();
     }
 }

@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use super::{prelude::*, trace, ClassNodes, EGraphTrace, ENode};
+use super::{prelude::*, test_tools::EGraphParts, trace, ClassNodes, EGraphTrace, ENode};
 use crate::{
     dot,
     union_find::{
@@ -255,42 +255,20 @@ impl<F, C> EGraph<F, C> {
     }
 }
 
-#[cfg(test)]
-impl<F: Ord, C> From<EGraph<F, C>> for super::EGraphParts<F, C> {
+impl<F: Ord, C> From<EGraph<F, C>> for EGraphParts<F, C> {
     fn from(eg: EGraph<F, C>) -> Self {
         let EGraph {
             uf,
-            class_data,
+            class_data: _,
             node_classes,
         } = eg;
 
-        let class_refs = class_data
-            .into_iter()
-            .map(|(k, EClassData { parents })| {
-                (
-                    k,
-                    parents
-                        .into_keys()
-                        .map(|n| {
-                            let mut n = n.as_ref().clone();
-                            n.canonicalize_classes(&uf).unwrap();
-                            n
-                        })
-                        .collect(),
-                )
-            })
-            .collect();
-
         let node_classes = node_classes
             .into_iter()
-            .map(|(k, v)| (k.as_ref().clone(), v))
+            .map(|(k, v)| (k.as_ref().clone(), uf.find(v).unwrap()))
             .collect();
 
-        super::EGraphParts {
-            uf,
-            class_refs,
-            node_classes,
-        }
+        EGraphParts { uf, node_classes }
     }
 }
 
@@ -489,11 +467,11 @@ impl<F: Ord, C> EGraph<F, C> {
         Ok(union)
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test")))]
     #[inline]
     fn assert_invariants(&self, _: bool) { let _ = self; }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test"))]
     fn assert_invariants(&self, merged: bool) {
         for node in self.node_classes.keys() {
             assert!(node.classes_canonical(&self.uf).unwrap());

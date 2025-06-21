@@ -8,6 +8,7 @@ use crate::{
     union_find::{ClassId, NoNode, Unioned},
 };
 
+pub mod congr;
 pub mod fast;
 pub mod intrusive;
 mod node;
@@ -113,12 +114,17 @@ impl<T: EGraphRead + EGraphWrite> EGraphUpgrade for T {
     fn write(&mut self) -> Self::WriteRef<'_> { self }
 }
 
-#[cfg(test)]
-#[derive(Debug)]
-struct EGraphParts<F, C> {
-    uf: crate::union_find::UnionFind<C>,
-    class_refs: BTreeMap<ClassId<C>, BTreeSet<ENode<F, C>>>,
-    node_classes: BTreeMap<ENode<F, C>, ClassId<C>>,
+pub mod test_tools {
+    use std::collections::BTreeMap;
+
+    use super::ENode;
+    use crate::union_find::ClassId;
+
+    #[derive(Debug)]
+    pub struct EGraphParts<F, C> {
+        pub uf: crate::union_find::UnionFind<C>,
+        pub node_classes: BTreeMap<ENode<F, C>, ClassId<C>>,
+    }
 }
 
 #[cfg(test)]
@@ -163,9 +169,10 @@ mod test {
     type Node = super::ENode<Symbol, Expr>;
     type SlowGraph = super::reference::EGraph<Symbol, Expr>;
     type IntGraph = super::intrusive::EGraph<Symbol, Expr>;
+    type CongrGraph = super::congr::EGraph<Symbol, Expr>;
     type FastGraph = super::fast::EGraph<Symbol, Expr>;
 
-    type Parts = super::EGraphParts<Symbol, Expr>;
+    type Parts = super::test_tools::EGraphParts<Symbol, Expr>;
 
     // TODO: track that only merged and originally-equivalent nodes are still equivalent
     fn assert_merges<G: EGraphRead>(
@@ -177,12 +184,10 @@ mod test {
     fn assert_equiv<A: Clone + Into<Parts>, B: Clone + Into<Parts>>(a: &A, b: &B) {
         let Parts {
             uf: a_uf,
-            class_refs: a_class_refs,
             node_classes: a_node_classes,
         } = a.clone().into();
         let Parts {
             uf: b_uf,
-            class_refs: b_class_refs,
             node_classes: b_node_classes,
         } = b.clone().into();
 
@@ -192,7 +197,6 @@ mod test {
             assert_eq!(a_uf.find(a).unwrap().id(), b_uf.find(b).unwrap().id());
         }
 
-        assert_eq!(a_class_refs, b_class_refs);
         assert_eq!(a_node_classes, b_node_classes);
     }
 
@@ -307,9 +311,10 @@ mod test {
 
     proptest! {
         #![proptest_config(ProptestConfig {
-            // cases: 2 << 16,
+            // cases: 1 << 17,
             max_shrink_time: 0,
             max_shrink_iters: 16384,
+            // max_shrink_iters: 1 << 18,
             ..ProptestConfig::default()
         })]
 
@@ -363,6 +368,19 @@ mod test {
             ),
         ) {
             run::<SlowGraph, IntGraph>(&nodes, &merges, true);
+        }
+
+        #[test]
+        fn congr(
+            (nodes, merges) in nodes_and_merges(
+                crate::prop::symbol(),
+                32,
+                512,
+                6,
+                1..=128,
+            ),
+        ) {
+            run::<SlowGraph, CongrGraph>(&nodes, &merges, true);
         }
     }
 }

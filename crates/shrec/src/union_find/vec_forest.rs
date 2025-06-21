@@ -71,6 +71,14 @@ impl VecForestSet {
     }
 
     #[inline]
+    pub fn parent(&self, id: usize) -> Result<usize, NoNode<usize>> {
+        self.0
+            .get(id)
+            .ok_or(NoNode(id))
+            .map(|n| n.parent.load(atomic::Ordering::Relaxed))
+    }
+
+    #[inline]
     pub fn roots(&self) -> Roots { Roots(self.0.iter().enumerate()) }
 }
 

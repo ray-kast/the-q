@@ -3,7 +3,7 @@ use std::{
     fmt, mem,
 };
 
-use super::{prelude::*, trace, ClassNodes, EGraphTrace, ENode};
+use super::{prelude::*, test_tools::EGraphParts, trace, ClassNodes, EGraphTrace, ENode};
 use crate::{
     dot,
     union_find::{ClassId, NoNode, UnionFind, Unioned},
@@ -140,39 +140,23 @@ impl<F, C> EGraph<F, C> {
     }
 }
 
-#[cfg(test)]
-impl<F: Ord, C> From<EGraph<F, C>> for super::EGraphParts<F, C> {
+impl<F: Ord, C> From<EGraph<F, C>> for EGraphParts<F, C> {
     fn from(eg: EGraph<F, C>) -> Self {
         eg.poison_check();
 
         let EGraph {
             uf,
-            class_data,
+            class_data: _,
             node_classes,
             poison: _,
         } = eg;
 
-        let class_refs = class_data
+        let node_classes = node_classes
             .into_iter()
-            .map(|(k, EClassData { nodes: _, parents })| {
-                (
-                    k,
-                    parents
-                        .into_keys()
-                        .map(|mut n| {
-                            n.canonicalize_classes(&uf).unwrap();
-                            n
-                        })
-                        .collect(),
-                )
-            })
+            .map(|(n, c)| (n, uf.find(c).unwrap()))
             .collect();
 
-        super::EGraphParts {
-            uf,
-            class_refs,
-            node_classes,
-        }
+        EGraphParts { uf, node_classes }
     }
 }
 

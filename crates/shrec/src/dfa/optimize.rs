@@ -168,7 +168,7 @@ mod test {
     use super::EGraphUpgrade;
     use crate::{
         egraph::{
-            fast, intrusive, reference,
+            congr, fast, intrusive, reference,
             trace::{dot, DotTracer},
         },
         re::kleene,
@@ -208,6 +208,13 @@ mod test {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig {
+            // cases: 2 << 16,
+            max_shrink_time: 0,
+            max_shrink_iters: 16384,
+            ..ProptestConfig::default()
+        })]
+
         #[test]
         fn reference(r in kleene::re(
             8,
@@ -236,6 +243,22 @@ mod test {
             let mut t = FlushOnDrop::new();
 
             let (opt, ..) = run::<intrusive::EGraph<_, _>, _, _, _>(&dfa, &mut t);
+            assert_eq!(opt, run_ref(&dfa).0);
+        }
+
+        #[test]
+        fn congr(r in kleene::re(
+            8,
+            64,
+            8,
+            0..16,
+            crate::prop::symbol(),
+        )) {
+            let nfa = r.compile_atomic();
+            let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
+            let mut t = FlushOnDrop::new();
+
+            let (opt, ..) = run::<congr::EGraph<_, _>, _, _, _>(&dfa, &mut t);
             assert_eq!(opt, run_ref(&dfa).0);
         }
 
