@@ -161,35 +161,32 @@ pub fn run<
 
 #[cfg(test)]
 mod test {
-    use std::{fmt, thread};
+    use std::fmt;
 
     use proptest::prelude::*;
 
     use super::EGraphUpgrade;
     use crate::{
-        egraph::{
-            congr, fast, intrusive, reference,
-            trace::{dot, DotTracer},
-        },
+        egraph::{congr, fast, reference},
         re::kleene,
     };
 
-    fn print_snap(dot::Snapshot { graph }: dot::Snapshot) { println!("{graph}") }
+    // fn print_snap(dot::Snapshot { graph }: dot::Snapshot) { println!("{graph}") }
 
-    struct FlushOnDrop(DotTracer<dot::RichFormatter, fn(dot::Snapshot)>);
+    // struct FlushOnDrop(DotTracer<dot::RichFormatter, fn(dot::Snapshot)>);
 
-    impl FlushOnDrop {
-        fn new() -> Self { Self(DotTracer::rich(print_snap)) }
-    }
+    // impl FlushOnDrop {
+    //     fn new() -> Self { Self(DotTracer::rich(print_snap)) }
+    // }
 
-    impl Drop for FlushOnDrop {
-        fn drop(&mut self) {
-            if thread::panicking() {
-                println!("================");
-                self.0.flush();
-            }
-        }
-    }
+    // impl Drop for FlushOnDrop {
+    //     fn drop(&mut self) {
+    //         if thread::panicking() {
+    //             println!("================");
+    //             self.0.flush();
+    //         }
+    //     }
+    // }
 
     fn run<
         G: Default + EGraphUpgrade<FuncSymbol = super::Op<I, N, T>, Class = N>,
@@ -198,9 +195,8 @@ mod test {
         T: Clone + Ord + fmt::Debug,
     >(
         dfa: &super::Dfa<I, N, T>,
-        tracer: &mut FlushOnDrop,
     ) -> super::Output<I, N, T, G> {
-        super::run::<_, _, _, G, _>(dfa, &mut tracer.0)
+        super::run::<_, _, _, G, _>(dfa, &mut ())
     }
 
     #[expect(clippy::type_complexity, reason = "chill out man, it's a test helper")]
@@ -228,25 +224,9 @@ mod test {
         )) {
             let nfa = r.compile_atomic();
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
-            let mut t = FlushOnDrop::new();
+            // let mut t = FlushOnDrop::new();
 
-            run::<reference::EGraph<_, _>, _, _, _>(&dfa, &mut t);
-        }
-
-        #[test]
-        fn intrusive(r in kleene::re(
-            8,
-            64,
-            8,
-            0..16,
-            crate::prop::symbol(),
-        )) {
-            let nfa = r.compile_atomic();
-            let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
-            let mut t = FlushOnDrop::new();
-
-            let (opt, ..) = run::<intrusive::EGraph<_, _>, _, _, _>(&dfa, &mut t);
-            assert_eq!(opt, run_ref(&dfa).0);
+            run::<reference::EGraph<_, _>, _, _, _>(&dfa);
         }
 
         #[test]
@@ -259,9 +239,9 @@ mod test {
         )) {
             let nfa = r.compile_atomic();
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
-            let mut t = FlushOnDrop::new();
+            // let mut t = FlushOnDrop::new();
 
-            let (opt, ..) = run::<congr::EGraph<_, _>, _, _, _>(&dfa, &mut t);
+            let (opt, ..) = run::<congr::EGraph<_, _>, _, _, _>(&dfa);
             assert_eq!(opt, run_ref(&dfa).0);
         }
 
@@ -275,9 +255,9 @@ mod test {
         )) {
             let nfa = r.compile_atomic();
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
-            let mut t = FlushOnDrop::new();
+            // let mut t = FlushOnDrop::new();
 
-            let (opt, ..) = run::<fast::EGraph<_, _>, _, _, _>(&dfa, &mut t);
+            let (opt, ..) = run::<fast::EGraph<_, _>, _, _, _>(&dfa);
             assert_eq!(opt, run_ref(&dfa).0);
         }
     }

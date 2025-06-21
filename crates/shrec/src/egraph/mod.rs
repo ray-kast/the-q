@@ -10,7 +10,6 @@ use crate::{
 
 pub mod congr;
 pub mod fast;
-pub mod intrusive;
 mod node;
 pub mod reference;
 pub mod trace;
@@ -185,7 +184,6 @@ mod test {
     use proptest::prelude::*;
 
     use super::prelude::*;
-    use crate::union_find::ClassId;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     struct Symbol(char);
@@ -218,18 +216,17 @@ mod test {
 
     type Node = super::ENode<Symbol, Expr>;
     type SlowGraph = super::reference::EGraph<Symbol, Expr>;
-    type IntGraph = super::intrusive::EGraph<Symbol, Expr>;
     type CongrGraph = super::congr::EGraph<Symbol, Expr>;
     type FastGraph = super::fast::EGraph<Symbol, Expr>;
 
     type Parts = super::test_tools::EGraphParts<Symbol, Expr>;
 
     // TODO: track that only merged and originally-equivalent nodes are still equivalent
-    fn assert_merges<G: EGraphRead>(
-        merges: &[(usize, usize)],
-        klass: impl Fn(usize) -> ClassId<G::Class>,
-    ) {
-    }
+    // fn assert_merges<G: EGraphRead>(
+    //     merges: &[(usize, usize)],
+    //     klass: impl Fn(usize) -> ClassId<G::Class>,
+    // ) {
+    // }
 
     fn assert_equiv<A: Clone + Into<Parts>, B: Clone + Into<Parts>>(a: &A, b: &B) {
         let Parts {
@@ -405,19 +402,6 @@ mod test {
             ),
         ) {
             run::<SlowGraph, FastGraph>(&nodes, &merges, true);
-        }
-
-        #[test]
-        fn intrusive(
-            (nodes, merges) in nodes_and_merges(
-                crate::prop::symbol(),
-                32,
-                512,
-                6,
-                1..=128,
-            ),
-        ) {
-            run::<SlowGraph, IntGraph>(&nodes, &merges, true);
         }
 
         #[test]
