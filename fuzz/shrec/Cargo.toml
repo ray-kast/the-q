@@ -1,0 +1,13 @@
+[package]
+name = "fuzz-shrec"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+afl = "0.15.19"
+arbitrary = { version = "1.4.1", features = ["derive"] }
+shrec = { version = "0.1.0", path = "../../crates/shrec", features = ["test"] }
+
+[features]
+trace = []
