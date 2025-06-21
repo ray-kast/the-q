@@ -32,7 +32,7 @@ fn main() {
         "{}",
         dfa.dot(
             |i| format!("{i:?}").into(),
-            |n| format!("{n}").into(),
+            |n| format!("{}", n.id()).into(),
             |t| Some(format!("{t:?}").into()),
         )
     );

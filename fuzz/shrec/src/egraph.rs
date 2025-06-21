@@ -4,8 +4,7 @@ use arbitrary::Arbitrary;
 #[cfg(feature = "trace")]
 use shrec::egraph::trace::{dot, DotTracer};
 use shrec::{
-    bijection::Bijection,
-    egraph::{self, prelude::*},
+    egraph::{self, prelude::*, test_tools},
     union_find::ClassId,
 };
 
@@ -16,23 +15,33 @@ struct Tracer(
 
 impl Tracer {
     #[cfg(feature = "trace")]
-    fn print(dot::Snapshot { graph }: dot::Snapshot) { println!("{graph}") }
+    fn print(dot::Snapshot { graph }: dot::Snapshot) {
+        println!("{graph}")
+    }
 
     #[cfg(not(feature = "trace"))]
-    fn new() -> Self { Self(()) }
+    fn new() -> Self {
+        Self(())
+    }
 
     #[cfg(feature = "trace")]
-    fn new() -> Self { Self(DotTracer::debug(Self::print)) }
+    fn new() -> Self {
+        Self(DotTracer::debug(Self::print))
+    }
 
     #[cfg(not(feature = "trace"))]
     fn flush(&mut self) {}
 
     #[cfg(feature = "trace")]
-    fn flush(&mut self) { self.0.flush() }
+    fn flush(&mut self) {
+        self.0.flush()
+    }
 }
 
 impl Drop for Tracer {
-    fn drop(&mut self) { self.flush() }
+    fn drop(&mut self) {
+        self.flush()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Arbitrary)]
@@ -51,7 +60,9 @@ impl Tree {
     }
 
     #[inline]
-    fn fold<T>(self, mut f: impl FnMut(Symbol, Vec<T>) -> T) -> T { self.fold_impl(&mut f) }
+    fn fold<T>(self, mut f: impl FnMut(Symbol, Vec<T>) -> T) -> T {
+        self.fold_impl(&mut f)
+    }
 
     pub fn count(&self) -> usize {
         self.1
@@ -67,62 +78,29 @@ impl Tree {
 type Node = egraph::ENode<Symbol, Expr>;
 pub type SlowGraph = egraph::reference::EGraph<Symbol, Expr>;
 pub type CongrGraph = egraph::congr::EGraph<Symbol, Expr>;
-pub type IntrusiveGraph = egraph::intrusive::EGraph<Symbol, Expr>;
 pub type FastGraph = egraph::fast::EGraph<Symbol, Expr>;
 
 type Parts = egraph::test_tools::EGraphParts<Symbol, Expr>;
 
 // TODO: track that only merged and originally-equivalent nodes are still equivalent
-fn assert_merges<G: EGraphRead>(
-    merges: &[(usize, usize)],
-    klass: impl Fn(usize) -> ClassId<G::Class>,
-) {
-}
+// fn assert_merges<G: EGraphRead>(
+//     merges: &[(usize, usize)],
+//     klass: impl Fn(usize) -> ClassId<G::Class>,
+// ) {
+// }
 
-fn assert_equiv<A: Clone + Into<Parts>, B: Clone + Into<Parts>>(a: &A, b: &B) {
-    let Parts {
-        uf: a_uf,
-        node_classes: a_node_classes,
-    } = a.clone().into();
-    let Parts {
-        uf: b_uf,
-        node_classes: b_node_classes,
-    } = b.clone().into();
+fn assert_equiv<A: Into<Parts>, B: Into<Parts>>(a: A, b: B) {
+    let mapping = test_tools::assert_equiv(a, b);
 
-    let mut mapping = Bijection::new();
-
-    assert_eq!(a_uf.len(), b_uf.len());
-    for (a, b) in a_uf.classes().zip(b_uf.classes()) {
-        mapping
-            .insert(a_uf.find(a).unwrap(), b_uf.find(b).unwrap())
-            .unwrap();
+    #[cfg(not(feature = "trace"))]
+    {
+        let _ = mapping;
     }
 
     #[cfg(feature = "trace")]
     {
         eprintln!("{mapping:?}");
     }
-
-    let a_node_classes_mapped: BTreeMap<_, _> = a_node_classes
-        .iter()
-        .map(|(n, c)| {
-            let mut n = n.clone();
-            n.map_args(|c| *mapping.image(&c).unwrap());
-            (n, *mapping.image(c).unwrap())
-        })
-        .collect();
-
-    let b_node_classes_mapped: BTreeMap<_, _> = b_node_classes
-        .iter()
-        .map(|(n, c)| {
-            let mut n = n.clone();
-            n.map_args(|c| *mapping.preimage(&c).unwrap());
-            (n, *mapping.preimage(c).unwrap())
-        })
-        .collect();
-
-    assert_eq!(a_node_classes, b_node_classes_mapped);
-    assert_eq!(a_node_classes_mapped, b_node_classes);
 }
 
 #[derive(Arbitrary)]
@@ -233,7 +211,7 @@ impl Input {
 
                 t.flush();
 
-                assert_equiv(&a, &b);
+                assert_equiv(a.clone(), b.clone());
             }
         } else {
             {
@@ -250,7 +228,7 @@ impl Input {
 
             t.flush();
 
-            assert_equiv(&a, &b);
+            assert_equiv(a.clone(), b.clone());
         }
     }
 }

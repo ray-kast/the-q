@@ -164,15 +164,66 @@ impl<G: EGraphWriteTrace, T: EGraphTrace<G::FuncSymbol, G::Class>> EGraphWrite
 }
 
 pub mod test_tools {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, fmt};
 
     use super::ENode;
-    use crate::union_find::ClassId;
+    use crate::{bijection::Bijection, union_find::ClassId};
 
     #[derive(Debug)]
     pub struct EGraphParts<F, C> {
         pub uf: crate::union_find::UnionFind<C>,
         pub node_classes: BTreeMap<ENode<F, C>, ClassId<C>>,
+    }
+
+    pub fn assert_equiv<
+        F: fmt::Debug + Ord,
+        C,
+        A: Into<EGraphParts<F, C>>,
+        B: Into<EGraphParts<F, C>>,
+    >(
+        a: A,
+        b: B,
+    ) -> Bijection<ClassId<C>, ClassId<C>> {
+        let EGraphParts {
+            uf: a_uf,
+            node_classes: a_node_classes,
+        } = a.into();
+        let EGraphParts {
+            uf: b_uf,
+            node_classes: b_node_classes,
+        } = b.into();
+
+        let mut mapping = Bijection::new();
+
+        assert_eq!(a_uf.len(), b_uf.len());
+        for (a, b) in a_uf.classes().zip(b_uf.classes()) {
+            mapping
+                .insert(a_uf.find(a).unwrap(), b_uf.find(b).unwrap())
+                .unwrap();
+        }
+
+        let a_node_classes_mapped: BTreeMap<_, _> = a_node_classes
+            .iter()
+            .map(|(n, c)| {
+                let mut n = n.clone();
+                n.map_args(|c| *mapping.image(&c).unwrap());
+                (n, *mapping.image(c).unwrap())
+            })
+            .collect();
+
+        let b_node_classes_mapped: BTreeMap<_, _> = b_node_classes
+            .iter()
+            .map(|(n, c)| {
+                let mut n = n.clone();
+                n.map_args(|c| *mapping.preimage(&c).unwrap());
+                (n, *mapping.preimage(c).unwrap())
+            })
+            .collect();
+
+        assert_eq!(a_node_classes, b_node_classes_mapped);
+        assert_eq!(a_node_classes_mapped, b_node_classes);
+
+        mapping
     }
 }
 
@@ -183,7 +234,7 @@ mod test {
     use prop::sample::SizeRange;
     use proptest::prelude::*;
 
-    use super::prelude::*;
+    use super::{prelude::*, test_tools::assert_equiv};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     struct Symbol(char);
@@ -227,25 +278,6 @@ mod test {
     //     klass: impl Fn(usize) -> ClassId<G::Class>,
     // ) {
     // }
-
-    fn assert_equiv<A: Clone + Into<Parts>, B: Clone + Into<Parts>>(a: &A, b: &B) {
-        let Parts {
-            uf: a_uf,
-            node_classes: a_node_classes,
-        } = a.clone().into();
-        let Parts {
-            uf: b_uf,
-            node_classes: b_node_classes,
-        } = b.clone().into();
-
-        assert_eq!(a_uf.len(), b_uf.len());
-
-        for (a, b) in a_uf.classes().zip(b_uf.classes()) {
-            assert_eq!(a_uf.find(a).unwrap().id(), b_uf.find(b).unwrap().id());
-        }
-
-        assert_eq!(a_node_classes, b_node_classes);
-    }
 
     // TODO: test adding after merging
     fn run_reference(tree: &Tree, merges: &Vec<(usize, usize)>) {
@@ -311,7 +343,7 @@ mod test {
                 a.write().merge(l, r).unwrap();
                 b.write().merge(l, r).unwrap();
 
-                assert_equiv(&a, &b);
+                assert_equiv(a.clone(), b.clone());
             }
         } else {
             {
@@ -326,7 +358,7 @@ mod test {
                 }
             }
 
-            assert_equiv(&a, &b);
+            assert_equiv(a, b);
         }
     }
 

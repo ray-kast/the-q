@@ -42,7 +42,7 @@ impl<I: fmt::Debug, N: fmt::Debug, T: fmt::Debug> dot::Format for Op<I, N, T> {
 
 pub type Graph<I, N, T> = egraph::reference::EGraph<Op<I, N, T>, N>;
 pub type ClassMap<N> = BTreeMap<N, ClassId<N>>;
-pub type Output<I, N, T, G = Graph<I, N, T>> = (Dfa<I, usize, T>, G, ClassMap<N>);
+pub type Output<I, N, T, G = Graph<I, N, T>> = (Dfa<I, ClassId<N>, T>, G, ClassMap<N>);
 
 #[inline]
 pub(super) fn run_default<I: Copy + Ord, N: Copy + Ord, T: Clone + Ord>(
@@ -142,18 +142,18 @@ pub fn run<
             let args = node.args();
 
             (
-                c.id(),
+                c,
                 edges
                     .iter()
                     .enumerate()
-                    .map(|(i, &e)| (e, args[i].id()))
+                    .map(|(i, &e)| (e, args[i]))
                     .collect(),
                 accept.clone(),
             )
         });
 
     (
-        Dfa::new(states, eg.find(classes[&dfa.start]).unwrap().id()),
+        Dfa::new(states, eg.find(classes[&dfa.start]).unwrap()),
         eg,
         classes,
     )
@@ -167,8 +167,9 @@ mod test {
 
     use super::EGraphUpgrade;
     use crate::{
-        egraph::{congr, fast, reference},
+        egraph::{self, congr, fast, reference, test_tools::EGraphParts},
         re::kleene,
+        union_find::ClassId,
     };
 
     // fn print_snap(dot::Snapshot { graph }: dot::Snapshot) { println!("{graph}") }
@@ -206,6 +207,62 @@ mod test {
         super::run(dfa, &mut ())
     }
 
+    fn assert_equiv<
+        I: fmt::Debug + Clone + Ord,
+        N: fmt::Debug + Ord,
+        T: fmt::Debug + Clone + Ord,
+        L: Into<EGraphParts<super::Op<I, N, T>, N>>,
+        R: Into<EGraphParts<super::Op<I, N, T>, N>>,
+    >(
+        lhs: &super::Dfa<I, ClassId<N>, T>,
+        lhs_graph: L,
+        rhs: &super::Dfa<I, ClassId<N>, T>,
+        rhs_graph: R,
+    ) {
+        let mapping = egraph::test_tools::assert_equiv(lhs_graph, rhs_graph);
+
+        let lhs_mapped = super::Dfa {
+            states: lhs
+                .states
+                .iter()
+                .map(|(s, n)| {
+                    (
+                        *mapping.image(s).unwrap(),
+                        super::Node(
+                            n.0.iter()
+                                .map(|(i, n)| (i.clone(), *mapping.image(n).unwrap()))
+                                .collect(),
+                            n.1.clone(),
+                        ),
+                    )
+                })
+                .collect(),
+            start: *mapping.image(&lhs.start).unwrap(),
+        };
+
+        let rhs_mapped = super::Dfa {
+            states: rhs
+                .states
+                .iter()
+                .map(|(s, n)| {
+                    (
+                        *mapping.preimage(s).unwrap(),
+                        super::Node(
+                            n.0.iter()
+                                .map(|(i, n)| (i.clone(), *mapping.preimage(n).unwrap()))
+                                .collect(),
+                            n.1.clone(),
+                        ),
+                    )
+                })
+                .collect(),
+            start: *mapping.preimage(&rhs.start).unwrap(),
+        };
+
+        assert_eq!(*lhs, rhs_mapped);
+        assert_eq!(lhs_mapped, *rhs);
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig {
             // cases: 2 << 16,
@@ -241,8 +298,9 @@ mod test {
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
             // let mut t = FlushOnDrop::new();
 
-            let (opt, ..) = run::<congr::EGraph<_, _>, _, _, _>(&dfa);
-            assert_eq!(opt, run_ref(&dfa).0);
+            let (opt, graph, _) = run::<congr::EGraph<_, _>, _, _, _>(&dfa);
+            let (ref_opt, ref_graph, _) = run_ref(&dfa);
+            assert_equiv(&opt, graph, &ref_opt, ref_graph);
         }
 
         #[test]
@@ -257,8 +315,9 @@ mod test {
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
             // let mut t = FlushOnDrop::new();
 
-            let (opt, ..) = run::<fast::EGraph<_, _>, _, _, _>(&dfa);
-            assert_eq!(opt, run_ref(&dfa).0);
+            let (opt, graph, _) = run::<fast::EGraph<_, _>, _, _, _>(&dfa);
+            let (ref_opt, ref_graph, _) = run_ref(&dfa);
+            assert_equiv(&opt, graph, &ref_opt, ref_graph);
         }
     }
 }
