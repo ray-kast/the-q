@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, mem};
 
 use super::ENode;
 use crate::union_find::ClassId;
@@ -8,11 +8,29 @@ pub trait EGraphTrace<F: ?Sized, C: ?Sized> {
 
     fn graph<G: FnOnce(&mut Self::Graph)>(&mut self, f: G);
 
-    fn pop_graph(&mut self);
-
     fn hl_class(&mut self, root: ClassId<C>);
 
+    fn hl_classes<I: IntoIterator<Item = ClassId<C>>>(&mut self, it: I);
+
     fn hl_merges<I: IntoIterator<Item = (ClassId<C>, ClassId<C>)>>(&mut self, it: I);
+}
+
+impl<T: EGraphTrace<F, C>, F, C> EGraphTrace<F, C> for &mut T {
+    type Graph = T::Graph;
+
+    #[inline]
+    fn graph<G: FnOnce(&mut Self::Graph)>(&mut self, f: G) { T::graph(self, f) }
+
+    #[inline]
+    fn hl_class(&mut self, root: ClassId<C>) { T::hl_class(self, root) }
+
+    #[inline]
+    fn hl_classes<I: IntoIterator<Item = ClassId<C>>>(&mut self, it: I) { T::hl_classes(self, it) }
+
+    #[inline]
+    fn hl_merges<I: IntoIterator<Item = (ClassId<C>, ClassId<C>)>>(&mut self, it: I) {
+        T::hl_merges(self, it);
+    }
 }
 
 pub trait SnapshotEGraph<F: ?Sized, C: ?Sized> {
@@ -86,10 +104,10 @@ impl<F: ?Sized, C: ?Sized> EGraphTrace<F, C> for () {
     fn graph<G: FnOnce(&mut Self::Graph)>(&mut self, _: G) {}
 
     #[inline]
-    fn pop_graph(&mut self) {}
+    fn hl_class(&mut self, _: ClassId<C>) {}
 
     #[inline]
-    fn hl_class(&mut self, _: ClassId<C>) {}
+    fn hl_classes<I: IntoIterator<Item = ClassId<C>>>(&mut self, _: I) {}
 
     #[inline]
     fn hl_merges<I: IntoIterator<Item = (ClassId<C>, ClassId<C>)>>(&mut self, _: I) {}
@@ -451,74 +469,71 @@ pub mod dot {
 }
 
 #[derive(Debug)]
-pub struct DotTracer<M>(Vec<dot::Snapshot>, M);
-
-impl Default for DotTracer<dot::DebugFormatter> {
-    #[inline]
-    fn default() -> Self { Self::debug() }
-}
-
-impl Default for DotTracer<dot::RichFormatter> {
-    #[inline]
-    fn default() -> Self { Self::rich() }
-}
+pub struct DotTracer<M, F>(Option<dot::Snapshot>, M, F);
 
 impl<
         F,
         N: Fn(&F, &mut fmt::Formatter) -> fmt::Result + Copy,
         E: Fn(&F, usize, &mut fmt::Formatter) -> fmt::Result + Copy,
-    > DotTracer<dot::ClosureFormatter<F, N, E>>
+        G,
+    > DotTracer<dot::ClosureFormatter<F, N, E>, G>
 {
     #[must_use]
-    pub fn new(fmt_node: N, fmt_edge: E) -> Self {
-        Self(vec![], dot::ClosureFormatter::new(fmt_node, fmt_edge))
+    pub fn new(fmt_node: N, fmt_edge: E, f: G) -> Self {
+        Self(None, dot::ClosureFormatter::new(fmt_node, fmt_edge), f)
     }
 }
 
-impl<M> DotTracer<M> {
-    pub fn flush<F: FnMut(dot::Snapshot)>(&mut self, mut f: F) {
-        for snap in self.0.drain(..) {
-            f(snap);
+impl<M, F: FnMut(dot::Snapshot)> DotTracer<M, F> {
+    pub fn flush(&mut self) {
+        if let Some(snap) = self.0.take() {
+            self.2(snap);
         }
     }
 }
 
-impl DotTracer<dot::DebugFormatter> {
+impl<F> DotTracer<dot::DebugFormatter, F> {
     #[inline]
     #[must_use]
-    pub fn debug() -> Self { Self(vec![], dot::DebugFormatter) }
+    pub fn debug(f: F) -> Self { Self(None, dot::DebugFormatter, f) }
 }
 
-impl DotTracer<dot::RichFormatter> {
+impl<F> DotTracer<dot::RichFormatter, F> {
     #[inline]
     #[must_use]
-    pub fn rich() -> Self { Self(vec![], dot::RichFormatter) }
+    pub fn rich(f: F) -> Self { Self(None, dot::RichFormatter, f) }
 }
 
-impl<F: ?Sized, C: ?Sized, M: dot::Formatter<F>> EGraphTrace<F, C> for DotTracer<M> {
+impl<F: ?Sized, C: ?Sized, M: dot::Formatter<F>, G: FnMut(dot::Snapshot)> EGraphTrace<F, C>
+    for DotTracer<M, G>
+{
     type Graph = dot::Graph<M>;
 
     #[inline]
-    fn graph<G: FnOnce(&mut Self::Graph)>(&mut self, f: G) {
+    fn graph<H: FnOnce(&mut Self::Graph)>(&mut self, f: H) {
         let mut graph = dot::Graph::new(self.1);
         f(&mut graph);
-        self.0.push(dot::Snapshot { graph: graph.0 });
+        if let Some(snap) = mem::replace(&mut self.0, Some(dot::Snapshot { graph: graph.0 })) {
+            self.2(snap);
+        }
     }
-
-    #[inline]
-    fn pop_graph(&mut self) { self.0.pop(); }
 
     fn hl_class(&mut self, root: ClassId<C>) {
         self.0
-            .last_mut()
+            .as_mut()
             .unwrap()
             .graph
             .subgraph(format!("cluster_{}", root.id()))
             .penwidth("4.0");
     }
 
+    #[inline]
+    fn hl_classes<I: IntoIterator<Item = ClassId<C>>>(&mut self, it: I) {
+        it.into_iter().for_each(|c| self.hl_class(c));
+    }
+
     fn hl_merges<I: IntoIterator<Item = (ClassId<C>, ClassId<C>)>>(&mut self, it: I) {
-        let graph = &mut self.0.last_mut().unwrap().graph;
+        let graph = &mut self.0.as_mut().unwrap().graph;
 
         for (a, b) in it {
             let edge = graph.edge(format!("class_{}", a.id()), format!("class_{}", b.id()));

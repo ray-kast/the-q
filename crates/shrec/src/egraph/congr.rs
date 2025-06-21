@@ -8,8 +8,8 @@ use hashbrown::HashSet;
 use super::{
     prelude::*,
     test_tools::EGraphParts,
-    trace::{self, SnapshotEGraph},
-    ClassNodes, EGraphTrace, ENode,
+    trace::{self, SnapshotEGraph, SnapshotEquivClass},
+    ClassNodes, EGraphTrace, EGraphWriteTrace, ENode,
 };
 use crate::{
     dot,
@@ -102,7 +102,7 @@ impl<F: fmt::Debug, C> fmt::Debug for EGraph<F, C> {
     }
 }
 
-impl<F: Ord, C> Clone for EGraph<F, C> {
+impl<F, C> Clone for EGraph<F, C> {
     fn clone(&self) -> Self {
         Self {
             eq_uf: self.eq_uf.clone(),
@@ -200,19 +200,15 @@ impl<F: Ord, C> EGraphRead for EGraph<F, C> {
     fn find(&self, class: ClassId<C>) -> Result<ClassId<C>, NoNode> { self.eq_uf.find(class) }
 
     #[inline]
-    fn canonicalize(
-        &self,
-        node: &mut ENode<Self::FuncSymbol, Self::Class>,
-    ) -> Result<bool, NoNode> {
+    fn canonicalize(&self, node: &mut ENode<F, C>) -> Result<bool, NoNode> {
         node.canonicalize_classes(&self.eq_uf)
     }
 
     #[inline]
-    fn is_canonical(&self, node: &ENode<Self::FuncSymbol, Self::Class>) -> Result<bool, NoNode> {
+    fn is_canonical(&self, node: &ENode<F, C>) -> Result<bool, NoNode> {
         node.classes_canonical(&self.eq_uf)
     }
 
-    #[must_use]
     fn class_nodes(&self) -> ClassNodes<Self> {
         self.node_data.values().fold(BTreeMap::new(), |mut m, d| {
             assert!(m
@@ -224,13 +220,12 @@ impl<F: Ord, C> EGraphRead for EGraph<F, C> {
     }
 
     #[inline]
-    #[must_use]
     fn dot<M: trace::dot::Formatter<F>>(&self, f: M) -> dot::Graph<'static> {
         trace::dot_graph(f, self.class_nodes())
     }
 }
 
-impl<F: Ord, C> EGraphWrite for EGraph<F, C> {
+impl<F: Ord, C> EGraphWriteTrace for EGraph<F, C> {
     fn merge_trace<T: EGraphTrace<F, C>>(
         &mut self,
         a: ClassId<C>,
@@ -251,7 +246,7 @@ impl<F: Ord, C> EGraph<F, C> {
         current: G,
     ) {
         t.graph(|g| {
-            let nodes = trace::snapshot_graph(
+            let mut nodes = trace::snapshot_graph(
                 g,
                 self.node_data.values().fold(
                     BTreeMap::new(),
@@ -274,6 +269,13 @@ impl<F: Ord, C> EGraph<F, C> {
 
                     if !seen.insert((class, parent, par_id)) {
                         continue;
+                    }
+
+                    for class in [class, par_id] {
+                        nodes
+                            .class_reps
+                            .entry(class)
+                            .or_insert_with(|| g.equiv_class(class).id().clone());
                     }
 
                     g.parent_edge(
@@ -359,8 +361,8 @@ impl<F: Ord, C> EGraph<F, C> {
                 let mut new_par = old_par.get().node.clone();
                 let was_not_canon = new_par.canonicalize_classes(&self.eq_uf).unwrap();
 
-                let new_par_data;
                 let new_congr_class;
+                let new_par_data;
                 if was_not_canon {
                     let old_par = old_par.remove();
 

@@ -114,18 +114,13 @@ impl<L: Clone + Eq + Hash, R: Clone + Eq + Hash> Bijection<L, R> {
                 b.insert(l);
                 Ok(true)
             },
-            (Entry::Occupied(f), Entry::Vacant(_)) => {
-                Err(InsertError::RhsClash(f.get().clone(), (l, r)))
+            (Entry::Occupied(ol), Entry::Occupied(or)) if *ol.get() == r => {
+                debug_assert!(*or.get() == l);
+                Ok(false)
             },
+            (Entry::Occupied(f), _) => Err(InsertError::RhsClash(f.get().clone(), (l, r))),
             (Entry::Vacant(_), Entry::Occupied(b)) => {
                 Err(InsertError::LhsClash(b.get().clone(), (l, r)))
-            },
-            (Entry::Occupied(ol), Entry::Occupied(or)) => {
-                if *ol.get() == r && *or.get() == l {
-                    Ok(false)
-                } else {
-                    Err(InsertError::RhsClash(ol.get().clone(), (l, r)))
-                }
             },
         }
     }

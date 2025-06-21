@@ -11,25 +11,28 @@ use shrec::{
 
 struct Tracer(
     #[cfg(not(feature = "trace"))] (),
-    #[cfg(feature = "trace")] DotTracer<dot::DebugFormatter>,
+    #[cfg(feature = "trace")] DotTracer<dot::DebugFormatter, fn(dot::Snapshot)>,
 );
 
 impl Tracer {
+    #[cfg(feature = "trace")]
+    fn print(dot::Snapshot { graph }: dot::Snapshot) { println!("{graph}") }
+
     #[cfg(not(feature = "trace"))]
     fn new() -> Self { Self(()) }
 
     #[cfg(feature = "trace")]
-    fn new() -> Self { Self(DotTracer::debug()) }
+    fn new() -> Self { Self(DotTracer::debug(Self::print)) }
 
     #[cfg(not(feature = "trace"))]
     fn flush(&mut self) {}
 
     #[cfg(feature = "trace")]
-    fn flush(&mut self) { self.0.flush(|dot::Snapshot { graph }| println!("{graph}")); }
+    fn flush(&mut self) { self.0.flush() }
 }
 
 impl Drop for Tracer {
-    fn drop(&mut self) { self.flush(); }
+    fn drop(&mut self) { self.flush() }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Arbitrary)]
@@ -122,95 +125,132 @@ fn assert_equiv<A: Clone + Into<Parts>, B: Clone + Into<Parts>>(a: &A, b: &B) {
     assert_eq!(a_node_classes_mapped, b_node_classes);
 }
 
-// TODO: test adding after merging
-pub fn run_reference<
-    G: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
->(tree: &Tree, merges: &Vec<(usize, usize)>) {
-    let mut graph = G::default();
-    let mut t = Tracer::new();
-    let mut classes = BTreeMap::new();
-    let mut class_list = vec![];
+#[derive(Arbitrary)]
+pub struct Input(Tree, Vec<(usize, usize)>, bool);
 
-    let root = tree.clone().fold(|sym, args| {
-        let node = Node::new(sym.into(), args.into());
-        let klass = graph.add(node.clone()).unwrap();
+impl Input {
+    // TODO: test adding after merging
+    pub fn run_reference<
+        G: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
+    >(
+        self,
+    ) {
+        let Self(tree, merges, _) = self;
+        let len = tree.count();
 
-        class_list.push(klass);
+        if len == 0 {
+            return;
+        }
 
-        assert_eq!(*classes.entry(node).or_insert(klass), klass);
+        let merges: Vec<_> = merges
+            .into_iter()
+            .map(|(a, b)| (a % len, b % len))
+            .collect();
 
-        klass
-    });
+        let mut graph = G::default();
+        let mut t = Tracer::new();
+        let mut classes = BTreeMap::new();
+        let mut class_list = vec![];
 
-    graph.find(root).unwrap();
+        let root = tree.clone().fold(|sym, args| {
+            let node = Node::new(sym.into(), args.into());
+            let klass = graph.add(node.clone()).unwrap();
 
-    for &(a, b) in merges {
-        let a = class_list[a];
-        let b = class_list[b];
-        graph.write().merge_trace(a, b, &mut t.0).unwrap();
+            class_list.push(klass);
+
+            assert_eq!(*classes.entry(node).or_insert(klass), klass);
+
+            klass
+        });
+
+        graph.find(root).unwrap();
+
+        for (a, b) in merges {
+            let a = class_list[a];
+            let b = class_list[b];
+            graph.write_trace(&mut t.0).merge(a, b).unwrap();
+        }
+
+        t.flush();
     }
 
-    t.flush();
-}
+    // TODO: test adding after merging
+    pub fn run_differential<
+        A: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
+        B: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
+    >(
+        self,
+    ) {
+        let Self(tree, merges, stepwise) = self;
+        let len = tree.count();
 
-// TODO: test adding after merging
-pub fn run_differential<
-    A: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
-    B: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
->(
-    tree: &Tree,
-    merges: &Vec<(usize, usize)>,
-    stepwise: bool,
-) {
-    let mut a = A::default();
-    let mut b = B::default();
-    let mut t = Tracer::new();
-    let mut classes = BTreeMap::new();
-    let mut class_list = vec![];
+        if len == 0 {
+            return;
+        }
 
-    let root = tree.clone().fold(|sym, args| {
-        let node = Node::new(sym.into(), args.into());
+        let merges: Vec<_> = merges
+            .into_iter()
+            .map(|(a, b)| (a % len, b % len))
+            .collect();
 
-        let klass = a.add(node.clone()).unwrap();
-        assert_eq!(b.add(node.clone()).unwrap(), klass);
+        #[cfg(feature = "trace")]
+        {
+            eprintln!(
+                "Using {} execution",
+                if stepwise { "stepwise" } else { "batched" }
+            );
+        }
 
-        class_list.push(klass);
+        let mut a = A::default();
+        let mut b = B::default();
+        let mut t = Tracer::new();
+        let mut classes = BTreeMap::new();
+        let mut class_list = vec![];
 
-        assert_eq!(*classes.entry(node).or_insert(klass), klass);
+        let root = tree.clone().fold(|sym, args| {
+            let node = Node::new(sym.into(), args.into());
 
-        klass
-    });
+            let klass = a.add(node.clone()).unwrap();
+            assert_eq!(b.add(node.clone()).unwrap(), klass);
 
-    // Sanity assertion that the root ended up in the graphs
-    a.find(root).unwrap();
-    b.find(root).unwrap();
+            class_list.push(klass);
 
-    if stepwise {
-        for &(l, r) in merges {
-            let l = class_list[l];
-            let r = class_list[r];
-            a.write().merge(l, r).unwrap();
-            b.write().merge_trace(l, r, &mut t.0).unwrap();
+            assert_eq!(*classes.entry(node).or_insert(klass), klass);
+
+            klass
+        });
+
+        // Sanity assertion that the root ended up in the graphs
+        a.find(root).unwrap();
+        b.find(root).unwrap();
+
+        if stepwise {
+            for (l, r) in merges {
+                let l = class_list[l];
+                let r = class_list[r];
+                a.write().merge(l, r).unwrap();
+                b.write_trace(&mut t.0).merge(l, r).unwrap();
+
+                t.flush();
+
+                assert_equiv(&a, &b);
+            }
+        } else {
+            {
+                let mut a = a.write();
+                let mut b = b.write_trace(&mut t.0);
+
+                for (l, r) in merges {
+                    let l = class_list[l];
+                    let r = class_list[r];
+                    a.merge(l, r).unwrap();
+                    b.merge(l, r).unwrap();
+                }
+            }
 
             t.flush();
 
             assert_equiv(&a, &b);
         }
-    } else {
-        {
-            let mut a = a.write();
-            let mut b = b.write();
-
-            for &(l, r) in merges {
-                let l = class_list[l];
-                let r = class_list[r];
-                a.merge(l, r).unwrap();
-                b.merge(l, r).unwrap();
-            }
-        }
-
-        t.flush();
-
-        assert_equiv(&a, &b);
     }
 }

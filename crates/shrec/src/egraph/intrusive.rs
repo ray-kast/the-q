@@ -5,7 +5,9 @@ use std::{
     sync::Arc,
 };
 
-use super::{prelude::*, test_tools::EGraphParts, trace, ClassNodes, EGraphTrace, ENode};
+use super::{
+    prelude::*, test_tools::EGraphParts, trace, ClassNodes, EGraphTrace, EGraphWriteTrace, ENode,
+};
 use crate::{
     dot,
     union_find::{
@@ -335,7 +337,7 @@ impl<F: Ord, C> EGraphRead for EGraph<F, C> {
     }
 }
 
-impl<F: Ord, C> EGraphWrite for EGraph<F, C> {
+impl<F: Ord, C> EGraphWriteTrace for EGraph<F, C> {
     fn merge_trace<T: EGraphTrace<F, C>>(
         &mut self,
         a: ClassId<C>,
@@ -459,8 +461,6 @@ impl<F: Ord, C> EGraph<F, C> {
                 self.merge_impl(a, b, t).unwrap();
             }
         } else {
-            t.pop_graph();
-
             self.assert_invariants(false);
         }
 

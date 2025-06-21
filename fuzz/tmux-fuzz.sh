@@ -6,10 +6,12 @@ cd "$(dirname "$0")"
 echo "Spawning worker 1"
 tmux new-session -d -s afl -n afl-main ./afl.sh fuzz "$@" -M0-main
 
+sleep 1
+
 scheds=(exploit coe rare explore)
 
 for (( i=1; i * 2 < "$(nproc)"; i++ )); do
-  sleep 1
+  sleep 0.1
 
   sched="${scheds[$(( (i - 1) % ${#scheds[@]} ))]}"
   echo "Spawning worker $(( i + 1 )) using $sched"

@@ -55,7 +55,7 @@ pub fn run<
     I: Copy + Ord,
     N: Copy + Ord,
     T: Clone + Ord,
-    G: Default + EGraphUpgrade<FuncSymbol = Op<I, N, T>, Class = N>,
+    G: Default + for<'a> EGraphUpgradeTrace<FuncSymbol = Op<I, N, T>, Class = N>,
     R: EGraphTrace<Op<I, N, T>, N>,
 >(
     dfa: &Dfa<I, N, T>,
@@ -119,9 +119,9 @@ pub fn run<
 
     let classes: BTreeMap<_, _> = classes.into_iter().map(|(k, v)| (k, v.unwrap())).collect();
 
-    let mut wr = eg.write();
+    let mut wr = eg.write_trace(t);
     for (node, klass) in impostors {
-        wr.merge_trace(classes[&node], klass, t).unwrap();
+        wr.merge(classes[&node], klass).unwrap();
     }
     drop(wr);
 
@@ -174,17 +174,19 @@ mod test {
         re::kleene,
     };
 
-    struct FlushOnDrop(DotTracer<dot::RichFormatter>);
+    fn print_snap(dot::Snapshot { graph }: dot::Snapshot) { println!("{graph}") }
+
+    struct FlushOnDrop(DotTracer<dot::RichFormatter, fn(dot::Snapshot)>);
 
     impl FlushOnDrop {
-        fn new() -> Self { Self(DotTracer::rich()) }
+        fn new() -> Self { Self(DotTracer::rich(print_snap)) }
     }
 
     impl Drop for FlushOnDrop {
         fn drop(&mut self) {
             if thread::panicking() {
                 println!("================");
-                self.0.flush(|dot::Snapshot { graph }| println!("{graph}"));
+                self.0.flush();
             }
         }
     }
@@ -201,6 +203,7 @@ mod test {
         super::run::<_, _, _, G, _>(dfa, &mut tracer.0)
     }
 
+    #[expect(clippy::type_complexity, reason = "chill out man, it's a test helper")]
     fn run_ref<I: Copy + Ord, N: Copy + Ord, T: Clone + Ord>(
         dfa: &super::Dfa<I, N, T>,
     ) -> super::Output<I, N, T, reference::EGraph<super::Op<I, N, T>, N>> {

@@ -19,7 +19,7 @@ pub mod trace;
 //       for better derive bounds
 
 pub mod prelude {
-    pub use super::{EGraphCore, EGraphRead, EGraphUpgrade, EGraphWrite};
+    pub use super::{EGraphCore, EGraphRead, EGraphUpgrade, EGraphUpgradeTrace, EGraphWrite};
 }
 
 pub trait EGraphCore {
@@ -68,10 +68,10 @@ pub trait EGraphWrite: EGraphCore {
         &mut self,
         a: ClassId<Self::Class>,
         b: ClassId<Self::Class>,
-    ) -> Result<Unioned<Self::Class>, NoNode> {
-        self.merge_trace(a, b, &mut ())
-    }
+    ) -> Result<Unioned<Self::Class>, NoNode>;
+}
 
+pub trait EGraphWriteTrace: EGraphCore {
     fn merge_trace<T: EGraphTrace<Self::FuncSymbol, Self::Class>>(
         &mut self,
         a: ClassId<Self::Class>,
@@ -88,30 +88,80 @@ impl<T: EGraphWrite> EGraphWrite for &mut T {
     ) -> Result<Unioned<Self::Class>, NoNode> {
         T::merge(self, a, b)
     }
+}
 
-    fn merge_trace<U: EGraphTrace<Self::FuncSymbol, Self::Class>>(
+impl<G: EGraphWriteTrace> EGraphWriteTrace for &mut G {
+    fn merge_trace<T: EGraphTrace<Self::FuncSymbol, Self::Class>>(
         &mut self,
         a: ClassId<Self::Class>,
         b: ClassId<Self::Class>,
-        t: &mut U,
+        t: &mut T,
     ) -> Result<Unioned<Self::Class>, NoNode> {
-        T::merge_trace(self, a, b, t)
+        G::merge_trace(self, a, b, t)
     }
 }
 
-pub trait EGraphUpgrade: EGraphRead {
-    type WriteRef<'a>: EGraphWrite<FuncSymbol = Self::FuncSymbol, Class = Self::Class>
+pub trait EGraphUpgradeTrace: EGraphRead {
+    type WriteRef<'a, T: EGraphTrace<Self::FuncSymbol, Self::Class>>: EGraphWrite<
+        FuncSymbol = Self::FuncSymbol,
+        Class = Self::Class,
+    >
     where Self: 'a;
 
-    fn write(&mut self) -> Self::WriteRef<'_>;
+    fn write_trace<T: EGraphTrace<Self::FuncSymbol, Self::Class>>(
+        &mut self,
+        tracer: T,
+    ) -> Self::WriteRef<'_, T>;
 }
 
-impl<T: EGraphRead + EGraphWrite> EGraphUpgrade for T {
-    type WriteRef<'a>
-        = &'a mut Self
+pub trait EGraphUpgrade: EGraphUpgradeTrace {
+    #[inline]
+    fn write(&mut self) -> Self::WriteRef<'_, ()> { self.write_trace(()) }
+}
+
+impl<G: EGraphUpgradeTrace> EGraphUpgrade for G {}
+
+#[derive(Debug)]
+pub struct SimpleWriteRef<'a, G, T>(&'a mut G, T);
+
+impl<G: EGraphRead + EGraphWriteTrace> EGraphUpgradeTrace for G {
+    type WriteRef<'a, T: EGraphTrace<Self::FuncSymbol, Self::Class>>
+        = SimpleWriteRef<'a, G, T>
     where Self: 'a;
 
-    fn write(&mut self) -> Self::WriteRef<'_> { self }
+    #[inline]
+    fn write_trace<T: EGraphTrace<Self::FuncSymbol, Self::Class>>(
+        &mut self,
+        tracer: T,
+    ) -> Self::WriteRef<'_, T> {
+        SimpleWriteRef(self, tracer)
+    }
+}
+
+impl<G: EGraphCore, T> EGraphCore for SimpleWriteRef<'_, G, T> {
+    type Class = G::Class;
+    type FuncSymbol = G::FuncSymbol;
+
+    #[inline]
+    fn add(
+        &mut self,
+        node: ENode<Self::FuncSymbol, Self::Class>,
+    ) -> Result<ClassId<Self::Class>, NoNode> {
+        self.0.add(node)
+    }
+}
+
+impl<G: EGraphWriteTrace, T: EGraphTrace<G::FuncSymbol, G::Class>> EGraphWrite
+    for SimpleWriteRef<'_, G, T>
+{
+    #[inline]
+    fn merge(
+        &mut self,
+        a: ClassId<Self::Class>,
+        b: ClassId<Self::Class>,
+    ) -> Result<Unioned<Self::Class>, NoNode> {
+        self.0.merge_trace(a, b, &mut self.1)
+    }
 }
 
 pub mod test_tools {
@@ -222,7 +272,7 @@ mod test {
         for &(a, b) in merges {
             let a = class_list[a];
             let b = class_list[b];
-            graph.merge(a, b).unwrap();
+            graph.write().merge(a, b).unwrap();
         }
     }
 

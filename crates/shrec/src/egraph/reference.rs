@@ -7,7 +7,7 @@ use super::{
     prelude::*,
     test_tools::EGraphParts,
     trace::{self, SnapshotEGraph},
-    ClassNodes, EGraphTrace, ENode,
+    ClassNodes, EGraphTrace, EGraphWriteTrace, ENode,
 };
 use crate::{
     dot,
@@ -168,7 +168,7 @@ impl<F: Ord, C> EGraphRead for EGraph<F, C> {
     }
 }
 
-impl<F: Ord, C> EGraphWrite for EGraph<F, C> {
+impl<F: Ord, C> EGraphWriteTrace for EGraph<F, C> {
     fn merge_trace<T: EGraphTrace<F, C>>(
         &mut self,
         a: ClassId<C>,
