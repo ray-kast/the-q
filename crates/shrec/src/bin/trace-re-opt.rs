@@ -1,3 +1,15 @@
+//! Print a trace of the DFA minimization for a regex
+
+#![deny(
+    clippy::disallowed_methods,
+    clippy::suspicious,
+    clippy::style,
+    clippy::clone_on_ref_ptr,
+    missing_debug_implementations,
+    missing_copy_implementations
+)]
+#![warn(clippy::pedantic, missing_docs)]
+
 use shrec::{
     dfa::optimize,
     egraph::{
