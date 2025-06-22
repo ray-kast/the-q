@@ -164,6 +164,8 @@ seed() {
 
         found="$(( found + 1 ))"
         if (( found >= 8 )); then break; fi
+      else
+        echo -n 'x'
       fi
     done
 
