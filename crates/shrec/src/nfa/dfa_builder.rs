@@ -2,7 +2,6 @@ use std::{
     borrow::BorrowMut,
     collections::{BTreeMap, BTreeSet, VecDeque},
     hash::Hash,
-    mem,
     sync::Arc,
 };
 
@@ -82,7 +81,7 @@ impl<'a, I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> DfaBuilder<
                 .filter_map(|(n, Node(_, a))| state_set.contains(n).then_some(a.clone()).flatten())
                 .collect();
             if !toks.is_empty() {
-                assert!(mem::replace(&mut node.1, Some(memo_tok.memoize(toks))).is_none());
+                assert!(node.1.replace(memo_tok.memoize(toks)).is_none());
             }
 
             // Drop the mutable borrow created by calling BTreeMap::entry

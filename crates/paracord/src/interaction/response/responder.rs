@@ -582,7 +582,7 @@ impl<'a, S, I> BorrowedResponder<'a, S, I> {
     }
 }
 
-impl<'a, S: Schema, I: private::Interaction> BorrowedResponder<'a, S, I> {
+impl<S: Schema, I: private::Interaction> BorrowedResponder<'_, S, I> {
     /// Create a response message if this responder is in its initial state, or
     /// create a followup message if a response has already been created
     ///
@@ -661,7 +661,7 @@ impl<'a, 'b, S, I> BorrowingResponder<'a, 'b, S, I> {
     }
 }
 
-impl<'a, 'b, S: Schema, I: private::Interaction> BorrowingResponder<'a, 'b, S, I> {
+impl<'b, S: Schema, I: private::Interaction> BorrowingResponder<'_, 'b, S, I> {
     /// Create a channel message response
     ///
     /// # Errors
@@ -690,7 +690,7 @@ impl<'a, 'b, S: Schema, I: private::Interaction> BorrowingResponder<'a, 'b, S, I
     }
 }
 
-impl<'a, 'b, S: Schema, I: private::CreateUpdate> BorrowingResponder<'a, 'b, S, I> {
+impl<'b, S: Schema, I: private::CreateUpdate> BorrowingResponder<'_, 'b, S, I> {
     /// Create a message update response
     ///
     /// # Errors
@@ -718,7 +718,7 @@ impl<'a, 'b, S: Schema, I: private::CreateUpdate> BorrowingResponder<'a, 'b, S, 
 
 impl<S: Schema, I: private::TryCreateUpdate> BorrowingResponder<'_, '_, S, I> {}
 
-impl<'a, 'b, S: Schema, I: private::CreateModal> BorrowingResponder<'a, 'b, S, I> {
+impl<'b, S: Schema, I: private::CreateModal> BorrowingResponder<'_, 'b, S, I> {
     /// Create a modal dialog response
     ///
     /// # Errors

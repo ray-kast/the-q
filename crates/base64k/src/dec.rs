@@ -31,10 +31,12 @@ unsafe fn split_mut<T>(arr: &mut [T], i: usize) -> (&mut [T], &mut [T]) {
     } else {
         let len = arr.len();
         let ptr = arr.as_mut_ptr();
-        (
-            std::slice::from_raw_parts_mut(ptr, i),
-            std::slice::from_raw_parts_mut(ptr.add(i), len - i),
-        )
+        unsafe {
+            (
+                std::slice::from_raw_parts_mut(ptr, i),
+                std::slice::from_raw_parts_mut(ptr.add(i), len - i),
+            )
+        }
     }
 }
 

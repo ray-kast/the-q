@@ -45,7 +45,7 @@ pub trait Schema: fmt::Debug {
 }
 
 /// A valid message for encoding into custom component IDs
-pub trait ComponentId: Default + prost::Message {
+pub trait ComponentId: fmt::Debug + Default + prost::Message {
     /// The key type identifying the kind of this message
     type Key: Key<Payload = Self::Payload>;
     /// The payload type of this message
@@ -59,7 +59,7 @@ pub trait ComponentId: Default + prost::Message {
 }
 
 /// A valid message for encoding into modal custom IDs
-pub trait ModalId: Default + prost::Message {
+pub trait ModalId: fmt::Debug + Default + prost::Message {
     /// The key type identifying the kind of this message
     type Key: Key<Payload = Self::Payload>;
     /// The payload type of this message

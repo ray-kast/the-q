@@ -120,13 +120,13 @@ impl CheckCompat for Type {
         log: &mut CompatLog,
     ) {
         match ck.map(|t| &t.0).into_inner() {
-            (Kind::Service(ref reader), Kind::Service(ref writer)) => {
+            (Kind::Service(reader), Kind::Service(writer)) => {
                 CompatPair::new_var(reader, writer).check(cx, log);
             },
-            (Kind::Message(ref reader), Kind::Message(ref writer)) => {
+            (Kind::Message(reader), Kind::Message(writer)) => {
                 CompatPair::new_var(reader, writer).check(cx, log);
             },
-            (Kind::Enum(ref reader), Kind::Enum(ref writer)) => {
+            (Kind::Enum(reader), Kind::Enum(writer)) => {
                 CompatPair::new_var(reader, writer).check(cx, log);
             },
             (rd, wr) => CompatError::new_var(

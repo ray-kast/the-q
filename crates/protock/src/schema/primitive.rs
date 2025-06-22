@@ -108,14 +108,14 @@ impl CheckCompat for WireType {
         log: &mut CompatLog,
     ) {
         match ck.into_inner() {
-            (WireType::VarInt(ref reader), WireType::VarInt(ref writer)) => {
+            (WireType::VarInt(reader), WireType::VarInt(writer)) => {
                 CompatPair::new_var(reader, writer).check(cx, log);
             },
-            (WireType::Fix32(ref reader), WireType::Fix32(ref writer))
-            | (WireType::Fix64(ref reader), WireType::Fix64(ref writer)) => {
+            (WireType::Fix32(reader), WireType::Fix32(writer))
+            | (WireType::Fix64(reader), WireType::Fix64(writer)) => {
                 CompatPair::new_var(reader, writer).check(cx, log);
             },
-            (WireType::Bytes(ref reader), WireType::Bytes(ref writer)) => {
+            (WireType::Bytes(reader), WireType::Bytes(writer)) => {
                 CompatPair::new_var(reader, writer).check(cx, log);
             },
             (rd, wr) => CompatError::new_var(

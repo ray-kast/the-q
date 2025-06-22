@@ -57,32 +57,32 @@ pub fn check<'a, V: Variance>(
         use std::collections::btree_map::Entry;
 
         let (side, (id, name, oneof)) = side.split();
-        let klass = match field_classes.entry(id) {
+        let class = match field_classes.entry(id) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
-                let klass = uf.add();
-                v.insert(klass);
-                klass
+                let class = uf.add();
+                v.insert(class);
+                class
             },
         };
-        let group = oneof.map_or(Group::Uniq(klass), Group::Oneof);
+        let group = oneof.map_or(Group::Uniq(class), Group::Oneof);
 
         assert!(class_fields
-            .entry(klass)
+            .entry(class)
             .or_default()
             .insert(side, FieldInfo { name, group })
             .is_none());
 
-        if let Some(prev) = group_classes.insert(side.then(group), klass) {
+        if let Some(prev) = group_classes.insert(side.then(group), class) {
             assert!(!matches!(group, Group::Uniq(_)));
-            uf.union(prev, klass).unwrap();
+            uf.union(prev, class).unwrap();
         }
     }
 
     let mut clashes: BTreeMap<usize, BTreeSet<Side<Group>>> = BTreeMap::new();
 
-    for (&klass, fields) in &class_fields {
-        let root = uf.find(klass).unwrap();
+    for (&class, fields) in &class_fields {
+        let root = uf.find(class).unwrap();
 
         for (side, field) in fields {
             clashes

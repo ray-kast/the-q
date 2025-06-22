@@ -89,7 +89,7 @@ pub fn read<M: prost::Message + Default>(i: &Id<'_>) -> Result<M, Error> {
 /// # Errors
 /// This function fails if an unrecoverable format error occurs while writing
 /// the output string.
-pub fn write(id: &impl prost::Message) -> Result<Id<'static>, Error> {
+pub fn write<I: fmt::Debug + prost::Message>(id: &I) -> Result<Id<'static>, Error> {
     let raw = id.encode_to_vec();
 
     let mut z_enc = zstd::stream::Encoder::new(vec![], 22)?; // TODO

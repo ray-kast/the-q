@@ -11,7 +11,7 @@ impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for RangeMap<K, V> {
         self.0
             .partitions()
             .fold(&mut f.debug_map(), |d, s| {
-                if let Some(ref value) = s.value {
+                if let Some(value) = s.value {
                     s.debug_range(|r| d.entry(r, value))
                 } else {
                     d

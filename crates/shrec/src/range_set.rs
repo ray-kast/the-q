@@ -154,7 +154,7 @@ mod test {
             value: _,
         }: &Part,
     ) -> bool {
-        start.zip(*end).map_or(true, |(s, e)| e >= s)
+        start.zip(*end).is_none_or(|(s, e)| e >= s)
     }
 
     fn prop_idx() -> impl Strategy<Value = usize> { 0..MAX }

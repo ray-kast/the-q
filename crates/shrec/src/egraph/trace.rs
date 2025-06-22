@@ -1,4 +1,4 @@
-use std::{fmt, hash::Hash, mem};
+use std::{fmt, hash::Hash};
 
 use hashbrown::HashMap;
 
@@ -515,7 +515,7 @@ impl<F: ?Sized, C: ?Sized, M: dot::Formatter<F>, G: FnMut(dot::Snapshot)> EGraph
     fn graph<H: FnOnce(&mut Self::Graph)>(&mut self, f: H) {
         let mut graph = dot::Graph::new(self.1);
         f(&mut graph);
-        if let Some(snap) = mem::replace(&mut self.0, Some(dot::Snapshot { graph: graph.0 })) {
+        if let Some(snap) = self.0.replace(dot::Snapshot { graph: graph.0 }) {
             self.2(snap);
         }
     }

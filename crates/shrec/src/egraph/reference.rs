@@ -116,12 +116,12 @@ impl<F: Ord, C> EGraphCore for EGraph<F, C> {
 
     fn add(&mut self, mut node: ENode<F, C>) -> Result<ClassId<C>, NoNode> {
         node.canonicalize_classes(&self.uf)?;
-        Ok(if let Some(&klass) = self.node_classes.get(&node) {
-            assert_eq!(klass, self.uf.find(klass).unwrap());
-            klass
+        Ok(if let Some(&class) = self.node_classes.get(&node) {
+            assert_eq!(class, self.uf.find(class).unwrap());
+            class
         } else {
-            let klass = self.uf.add();
-            assert!(self.class_data.insert(klass, EClassData::new()).is_none());
+            let class = self.uf.add();
+            assert!(self.class_data.insert(class, EClassData::new()).is_none());
 
             for &arg in node.args() {
                 assert!(self
@@ -129,12 +129,12 @@ impl<F: Ord, C> EGraphCore for EGraph<F, C> {
                     .get_mut(&arg)
                     .unwrap()
                     .parents
-                    .insert(node.clone(), klass)
-                    .is_none_or(|c| klass == c));
+                    .insert(node.clone(), class)
+                    .is_none_or(|c| class == c));
             }
 
-            self.node_classes.insert(node, klass);
-            klass
+            self.node_classes.insert(node, class);
+            class
         })
     }
 }
@@ -143,7 +143,7 @@ impl<F: Ord + Hash, C> EGraphRead for EGraph<F, C> {
     type Hasher = hashbrown::DefaultHashBuilder;
 
     #[inline]
-    fn find(&self, klass: ClassId<C>) -> Result<ClassId<C>, NoNode> { self.uf.find(klass) }
+    fn find(&self, class: ClassId<C>) -> Result<ClassId<C>, NoNode> { self.uf.find(class) }
 
     #[inline]
     fn canonicalize(&self, node: &mut ENode<F, C>) -> Result<bool, NoNode> {
@@ -155,7 +155,6 @@ impl<F: Ord + Hash, C> EGraphRead for EGraph<F, C> {
         node.classes_canonical(&self.uf)
     }
 
-    #[must_use]
     fn class_nodes(&self) -> ClassNodes<Self, Self::Hasher> {
         self.node_classes
             .iter()
@@ -167,7 +166,6 @@ impl<F: Ord + Hash, C> EGraphRead for EGraph<F, C> {
     }
 
     #[inline]
-    #[must_use]
     fn dot<M: trace::dot::Formatter<Self::FuncSymbol>>(&self, f: M) -> dot::Graph<'static> {
         trace::dot_graph(f, self.class_nodes())
     }
@@ -314,17 +312,17 @@ impl<F: Ord + Hash, C> EGraph<F, C> {
             assert!(node.classes_canonical(&self.uf).unwrap());
         }
 
-        for (&klass, EClassData { parents }) in &self.class_data {
-            assert_eq!(klass, self.uf.find(klass).unwrap());
+        for (&class, EClassData { parents }) in &self.class_data {
+            assert_eq!(class, self.uf.find(class).unwrap());
 
             if merged {
                 let mut seen = BTreeMap::new();
-                for (par, &klass) in parents {
+                for (par, &class) in parents {
                     let canon = par.to_canonical(self).unwrap();
-                    let klass = self.uf.find(klass).unwrap();
+                    let class = self.uf.find(class).unwrap();
 
                     assert_eq!(
-                        klass,
+                        class,
                         self.uf
                             .find(*self.node_classes.get(&canon).unwrap())
                             .unwrap(),
@@ -333,11 +331,11 @@ impl<F: Ord + Hash, C> EGraph<F, C> {
 
                     if let Some(&other) = seen.get(&canon) {
                         assert_eq!(
-                            other, klass,
+                            other, class,
                             "Class referents canonicalize to multiple duplicate classes"
                         );
                     } else {
-                        seen.insert(canon, klass);
+                        seen.insert(canon, class);
                     }
                 }
             }

@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     hash::Hash,
-    mem,
 };
 
 use super::Dfa;
@@ -111,8 +110,8 @@ pub fn run<
                         .collect(),
                 );
 
-                let klass = eg.add(enode.clone()).unwrap();
-                assert!(mem::replace(classes.get_mut(&n).unwrap(), Some(klass)).is_none());
+                let class = eg.add(enode.clone()).unwrap();
+                assert!(classes.get_mut(&n).unwrap().replace(class).is_none());
             },
         }
     }
@@ -120,8 +119,8 @@ pub fn run<
     let classes: BTreeMap<_, _> = classes.into_iter().map(|(k, v)| (k, v.unwrap())).collect();
 
     let mut wr = eg.write_trace(t);
-    for (node, klass) in impostors {
-        wr.merge(classes[&node], klass).unwrap();
+    for (node, class) in impostors {
+        wr.merge(classes[&node], class).unwrap();
     }
     drop(wr);
 

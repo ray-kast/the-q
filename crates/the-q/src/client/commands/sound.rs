@@ -86,10 +86,8 @@ impl SoundCommand {
                             .into_iter()
                             .filter_map(|f| {
                                 f.map(|f| {
-                                    (f.file_name()
-                                        .to_str()
-                                        .map_or(false, |s| !s.starts_with('.'))
-                                        && f.metadata().map_or(false, |m| m.is_file()))
+                                    (f.file_name().to_str().is_some_and(|s| !s.starts_with('.'))
+                                        && f.metadata().is_ok_and(|m| m.is_file()))
                                     .then(|| {
                                         let f = f.into_path();
                                         let s = f.display().to_string();
@@ -133,7 +131,7 @@ impl SoundCommand {
         Ok(files)
     }
 
-    async fn play_impl<'a, X, E: From<Error>, F: Future<Output = E>>(
+    async fn play_impl<X, E: From<Error>, F: Future<Output = E>>(
         &self,
         ctx: &Context,
         gid: GuildId,
@@ -183,7 +181,7 @@ impl SoundCommand {
         let input = songbird::input::Input::from(songbird::input::File::new(path.clone()))
             .make_live_async()
             .await
-            .with_context(|| format!("Error opening sample {path:?}"))?;
+            .with_context(|| format!("Error opening sample {}", path.display()))?;
 
         let call = match sb.join(gid, voice_chan).await {
             Ok(l) => l,

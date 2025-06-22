@@ -27,7 +27,7 @@ impl<C: Extend<char>> Encoder<C> {
             if cfg!(debug_assertions) {
                 char::from_u32(i).unwrap_or_else(|| unreachable!())
             } else {
-                char::from_u32_unchecked(i)
+                unsafe { char::from_u32_unchecked(i) }
             }
         }));
     }
@@ -94,7 +94,7 @@ unsafe fn split<T>(arr: &[T], i: usize) -> (&[T], &[T]) {
     if cfg!(debug_assertions) {
         arr.split_at(i)
     } else {
-        (arr.get_unchecked(..i), arr.get_unchecked(i..))
+        unsafe { (arr.get_unchecked(..i), arr.get_unchecked(i..)) }
     }
 }
 

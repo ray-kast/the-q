@@ -207,7 +207,10 @@ fn aci_issuer(cache: &Cache, aci: &CommandInteraction) -> String {
 }
 
 #[inline]
-fn write_custom_id<T: prost::Message + Default>(w: &mut impl Write, id: &str) -> fmt::Result {
+fn write_custom_id<T: fmt::Debug + prost::Message + Default>(
+    w: &mut impl Write,
+    id: &str,
+) -> fmt::Result {
     let parsed = unsafe { id::Id::from_inner(id.into()) };
     let parsed = id::read::<T>(&parsed).ok();
 
@@ -650,9 +653,8 @@ impl<S: Schema> Registry<S> {
 
         let map = self.components.read().await;
         let responder = InitResponder::new(&ctx.http, &mc);
-        let (handler, payload) = match Self::resolve_component(&map, unsafe {
-            &id::Id::from_inner(mc.data.custom_id.as_str().into())
-        }) {
+        let id = unsafe { &id::Id::from_inner(mc.data.custom_id.as_str().into()) };
+        let (handler, payload) = match Self::resolve_component(&map, id) {
             Ok(h) => h,
             Err(e) => {
                 return responder
@@ -742,9 +744,8 @@ impl<S: Schema> Registry<S> {
 
         let map = self.modals.read().await;
         let responder = InitResponder::new(&ctx.http, &ms);
-        let (handler, src, payload) = match Self::resolve_modal(&map, unsafe {
-            &id::Id::from_inner(ms.data.custom_id.as_str().into())
-        }) {
+        let id = unsafe { &id::Id::from_inner(ms.data.custom_id.as_str().into()) };
+        let (handler, src, payload) = match Self::resolve_modal(&map, id) {
             Ok(p) => p,
             Err(e) => {
                 return responder

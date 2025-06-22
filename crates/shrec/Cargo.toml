@@ -3,17 +3,17 @@ name = "shrec"
 description = "the Simple Human-readable Regular Expression Compiler"
 authors = ["raykast <me@june-s.net>"]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
 clap.workspace = true
 hashbrown.workspace = true
-indexmap = "2.7.1"
+indexmap = "2.9.0"
 proptest = { workspace = true, optional = true }
 spin = "0.10.0"
-thiserror = "2.0.11"
+thiserror = "2.0.12"
 
 [dev-dependencies]
 foldhash = "0.1.5"

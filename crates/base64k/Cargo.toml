@@ -3,13 +3,13 @@ name = "base64k"
 description = "Convert binary data to Unicode code points"
 authors = ["raykast <me@june-s.net>"]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
 arrayvec = "0.7.6"
-wide = "0.7.32"
+wide = "0.7.33"
 
 [dev-dependencies]
 proptest.workspace = true

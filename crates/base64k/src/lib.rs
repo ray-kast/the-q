@@ -60,7 +60,7 @@ mod test {
         let a_len = a.len();
         let b_len = b.len();
 
-        for (i, (a, b)) in a.map(Into::into).zip(b.map(Into::into)).enumerate() {
+        for (i, (a, b)) in a.map(Into::into).zip(b).enumerate() {
             assert_eq!(a, b, "Mismatch at index {i}: {a:#08x} vs {b:#08x}");
         }
 

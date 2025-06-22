@@ -523,7 +523,7 @@ impl<'a, K, V> Iterator for Partitions<'a, K, V> {
         let this = self.0.as_mut()?;
 
         Some(if let Some((end, next_val)) = this.iter.next() {
-            let start = mem::replace(&mut this.start, Some(end));
+            let start = this.start.replace(end);
             let value = mem::replace(&mut this.value, next_val);
             Partition {
                 start,
@@ -574,7 +574,7 @@ impl<K: Clone, V> Iterator for IntoPartitions<K, V> {
         let this = self.0.as_mut()?;
 
         Some(if let Some((end, next_val)) = this.iter.next() {
-            let start = mem::replace(&mut this.start, Some(end.clone()));
+            let start = this.start.replace(end.clone());
             let value = mem::replace(&mut this.value, next_val);
             Partition {
                 start,
@@ -1079,7 +1079,7 @@ mod test {
             value: _,
         }: &Part,
     ) -> bool {
-        start.zip(*end).map_or(true, |(s, e)| e >= s)
+        start.zip(*end).is_none_or(|(s, e)| e >= s)
     }
 
     fn test_extend_impl(c: char, v: Vec<Part>) {

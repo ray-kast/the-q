@@ -407,7 +407,7 @@ impl<T> Side<T> {
 impl<T: Copy> Side<&T> {
     #[inline]
     pub const fn copied(&self) -> Side<T> {
-        match self {
+        match *self {
             Self::Reader(&r) => Side::Reader(r),
             Self::Writer(&w) => Side::Writer(w),
         }
@@ -524,7 +524,7 @@ impl<T, V: Variance> SideInclusive<T, V> {
     pub unsafe fn force_covar(self) -> SideInclusive<T> {
         match self {
             Self::One(s) => SideInclusive::One(s),
-            Self::Both(p) => SideInclusive::Both(p.force_covar()),
+            Self::Both(p) => SideInclusive::Both(unsafe { p.force_covar() }),
         }
     }
 

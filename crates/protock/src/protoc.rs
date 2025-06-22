@@ -17,7 +17,7 @@ pub fn get_descriptor_set<I: IntoIterator<Item: AsRef<Path>>>(
         let f = f.as_ref();
         let dir = f
             .parent()
-            .with_context(|| format!("Couldn't find parent dir for {f:?}"))?;
+            .with_context(|| format!("Couldn't find parent dir for {}", f.display()))?;
         Result::<_>::Ok(c.args([format!("-I{}", dir.display()).into(), f.to_owned()]))
     })?;
 

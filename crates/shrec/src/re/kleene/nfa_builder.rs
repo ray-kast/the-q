@@ -1,5 +1,3 @@
-use std::mem;
-
 use super::Regex;
 use crate::{free::Free, nfa::Nfa};
 
@@ -85,7 +83,7 @@ impl<I: Ord, T: Ord> NfaBuilder<I, T> {
         let mut h = head;
         let mut prev = None;
         for el in it {
-            if let Some(el) = mem::replace(&mut prev, Some(el)) {
+            if let Some(el) = prev.replace(el) {
                 let t = self.fresh_node();
                 f(self, el, h, t);
                 h = t;

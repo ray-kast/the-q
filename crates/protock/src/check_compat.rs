@@ -27,7 +27,11 @@ impl CompatLog {
             tracing::error!("{err}");
         }
 
-        err.then(|| Err(error())).unwrap_or(Ok(()))
+        if err {
+            Err(error())
+        } else {
+            Ok(())
+        }
     }
 }
 

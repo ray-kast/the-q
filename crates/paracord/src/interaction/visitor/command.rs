@@ -299,7 +299,7 @@ impl<'a, I: super::private::Interaction<Data = CommandData>> CommandVisitor<'a, 
                     return Err(Error::Trailing(m.into_keys().map(Into::into).collect()));
                 }
             },
-        };
+        }
 
         Ok(())
     }

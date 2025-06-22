@@ -263,7 +263,7 @@ fn sample_edit_response() -> serenity::builder::EditInteractionResponse {
         ])])
 }
 
-async fn create_response<'a>(
+async fn create_response(
     int: &Interaction,
     http: impl CacheHttp,
     res: serenity::builder::CreateInteractionResponse,
@@ -315,7 +315,7 @@ async fn delete_response(
     }
 }
 
-async fn create_followup<'a>(
+async fn create_followup(
     int: &Interaction,
     http: impl CacheHttp,
     res: serenity::builder::CreateInteractionResponseFollowup,
@@ -717,7 +717,7 @@ impl EventHandler for Handler {
 
                     let ok = res.is_ok();
                     let last_ok = results.insert((flow, ops), ok);
-                    assert!(last_ok.map_or(true, |o| ok == o));
+                    assert!(last_ok.is_none_or(|o| ok == o));
 
                     let mut mb = print_crud_results(results);
 

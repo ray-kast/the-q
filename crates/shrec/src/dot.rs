@@ -87,7 +87,7 @@ impl<'a> Graph<'a> {
             },
         };
 
-        if let NodeLike::Node(ref mut n) = entry {
+        if let NodeLike::Node(n) = entry {
             n
         } else {
             unreachable!()
@@ -110,7 +110,7 @@ impl<'a> Graph<'a> {
             },
         };
 
-        if let NodeLike::Subgraph(ref mut g) = entry {
+        if let NodeLike::Subgraph(g) = entry {
             g
         } else {
             unreachable!()

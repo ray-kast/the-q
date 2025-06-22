@@ -1,5 +1,5 @@
 # Image containing dev dependencies
-FROM rust:slim-bullseye AS tools
+FROM rust:slim-bookworm AS tools
 WORKDIR /build
 
 # Remove the default, let the repo override choose its own
@@ -66,7 +66,7 @@ RUN scripts/install-skeleton.sh -t .
 RUN cargo build --locked --profile=docker --bin the-q
 
 # Base image for any output containers, to save space with common layers
-FROM debian:bullseye-slim AS base
+FROM debian:bookworm-slim AS base
 WORKDIR /opt/the-q
 
 RUN apt-get update -y && \

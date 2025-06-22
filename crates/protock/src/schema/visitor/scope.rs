@@ -2,7 +2,6 @@ use std::{
     borrow::{Borrow, Cow},
     collections::HashMap,
     hash::Hash,
-    mem,
 };
 
 use prost_types::{
@@ -137,9 +136,9 @@ impl<'a> Scope<'a> {
 
     fn package(&mut self, fildes: &'a FileDescriptorProto) {
         let kind = ScopeKind::Package(fildes.package.as_deref());
-        let prev = mem::replace(&mut self.kind, Some(kind));
+        let prev = self.kind.replace(kind);
         assert!(
-            prev.map_or(true, |k| k == kind),
+            prev.is_none_or(|k| k == kind),
             "Package scope {:?} conflicts with existing definition {prev:?}",
             fildes.package
         );

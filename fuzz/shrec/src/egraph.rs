@@ -71,7 +71,7 @@ type Parts = egraph::test_tools::EGraphParts<Symbol, Expr>;
 // TODO: track that only merged and originally-equivalent nodes are still equivalent
 // fn assert_merges<G: EGraphRead>(
 //     merges: &[(usize, usize)],
-//     klass: impl Fn(usize) -> ClassId<G::Class>,
+//     class: impl Fn(usize) -> ClassId<G::Class>,
 // ) {
 // }
 
@@ -118,13 +118,13 @@ impl Input {
 
         let root = tree.clone().fold(|sym, args| {
             let node = Node::new(sym.into(), args.into());
-            let klass = graph.add(node.clone()).unwrap();
+            let class = graph.add(node.clone()).unwrap();
 
-            class_list.push(klass);
+            class_list.push(class);
 
-            assert_eq!(*classes.entry(node).or_insert(klass), klass);
+            assert_eq!(*classes.entry(node).or_insert(class), class);
 
-            klass
+            class
         });
 
         graph.find(root).unwrap();
@@ -176,14 +176,14 @@ impl Input {
         let root = tree.clone().fold(|sym, args| {
             let node = Node::new(sym.into(), args.into());
 
-            let klass = a.add(node.clone()).unwrap();
-            assert_eq!(b.add(node.clone()).unwrap(), klass);
+            let class = a.add(node.clone()).unwrap();
+            assert_eq!(b.add(node.clone()).unwrap(), class);
 
-            class_list.push(klass);
+            class_list.push(class);
 
-            assert_eq!(*classes.entry(node).or_insert(klass), klass);
+            assert_eq!(*classes.entry(node).or_insert(class), class);
 
-            klass
+            class
         });
 
         // Sanity assertion that the root ended up in the graphs

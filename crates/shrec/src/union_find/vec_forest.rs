@@ -29,7 +29,7 @@ impl fmt::Debug for VecForestSet {
         let Self(nodes) = self;
         let mut f = f.debug_map();
 
-        for (klass, node) in nodes.iter().enumerate() {
+        for (class, node) in nodes.iter().enumerate() {
             let mut root = node.parent.load(atomic::Ordering::Relaxed);
             loop {
                 let par = nodes.get(root).unwrap_or_else(|| unreachable!());
@@ -41,7 +41,7 @@ impl fmt::Debug for VecForestSet {
                 root = gpar;
             }
 
-            f.entry(&klass, &(root != klass).then_some(root));
+            f.entry(&class, &(root != class).then_some(root));
         }
 
         f.finish()
