@@ -2,6 +2,7 @@ use std::mem;
 
 use super::kleene;
 
+mod derivative;
 mod dfa_builder;
 
 #[derive(Debug, Clone, PartialEq)]

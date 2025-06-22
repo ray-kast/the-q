@@ -29,6 +29,47 @@ impl<L> Regex<L> {
 
     #[inline]
     pub fn map<M, F: FnMut(L) -> M>(self, mut f: F) -> Regex<M> { self.map_impl(&mut f) }
+
+    #[must_use]
+    pub fn alt<I: IntoIterator<Item = Self>>(self, it: I) -> Self {
+        match self {
+            Self::Alt(mut v) => {
+                v.extend(it);
+                Self::Alt(v)
+            },
+            r => Self::Alt([r].into_iter().chain(it).collect()),
+        }
+    }
+
+    #[must_use]
+    pub fn cat<I: IntoIterator<Item = Self>>(self, it: I) -> Self {
+        match self {
+            Self::Cat(mut v) => {
+                v.extend(it);
+                Self::Cat(v)
+            },
+            r => Self::Cat([r].into_iter().chain(it).collect()),
+        }
+    }
+
+    #[must_use]
+    pub fn star(self) -> Self {
+        match self {
+            r @ Self::Star(_) => r,
+            r => Self::Star(r.into()),
+        }
+    }
+}
+
+impl<L: IntoIterator> Regex<L> {
+    pub fn flatten(self) -> Regex<L::Item> {
+        match self {
+            Self::Alt(v) => Regex::Alt(v.into_iter().map(Self::flatten).collect()),
+            Self::Cat(v) => Regex::Cat(v.into_iter().map(Self::flatten).collect()),
+            Self::Star(r) => Regex::Star(r.flatten().into()),
+            Self::Lit(l) => Regex::Cat(l.into_iter().map(Regex::Lit).collect()),
+        }
+    }
 }
 
 impl<L: IntoIterator<Item: Ord>> Regex<L> {
