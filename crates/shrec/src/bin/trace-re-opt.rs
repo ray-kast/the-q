@@ -24,7 +24,11 @@ fn main() {
     );
 
     let mut t = DotTracer::rich(|dot::Snapshot { graph }| println!("{graph}"));
-    let (dfa, ..) = optimize::run::<_, _, _, reference::EGraph<_, _>, _>(&dfa, &mut t);
+    let (dfa, ..) = optimize::run::<_, _, _, reference::EGraph<_, _>, _>(
+        &dfa,
+        reference::EGraph::new(),
+        &mut t,
+    );
 
     t.flush();
 

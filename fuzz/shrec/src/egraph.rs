@@ -1,12 +1,10 @@
 use std::collections::BTreeMap;
 
 use arbitrary::Arbitrary;
+use foldhash::fast::FixedState;
 #[cfg(feature = "trace")]
 use shrec::egraph::trace::{dot, DotTracer};
-use shrec::{
-    egraph::{self, prelude::*, test_tools},
-    union_find::ClassId,
-};
+use shrec::egraph::{self, prelude::*, test_tools};
 
 struct Tracer(
     #[cfg(not(feature = "trace"))] (),
@@ -15,36 +13,26 @@ struct Tracer(
 
 impl Tracer {
     #[cfg(feature = "trace")]
-    fn print(dot::Snapshot { graph }: dot::Snapshot) {
-        println!("{graph}")
-    }
+    fn print(dot::Snapshot { graph }: dot::Snapshot) { println!("{graph}") }
 
     #[cfg(not(feature = "trace"))]
-    fn new() -> Self {
-        Self(())
-    }
+    fn new() -> Self { Self(()) }
 
     #[cfg(feature = "trace")]
-    fn new() -> Self {
-        Self(DotTracer::debug(Self::print))
-    }
+    fn new() -> Self { Self(DotTracer::debug(Self::print)) }
 
     #[cfg(not(feature = "trace"))]
     fn flush(&mut self) {}
 
     #[cfg(feature = "trace")]
-    fn flush(&mut self) {
-        self.0.flush()
-    }
+    fn flush(&mut self) { self.0.flush() }
 }
 
 impl Drop for Tracer {
-    fn drop(&mut self) {
-        self.flush()
-    }
+    fn drop(&mut self) { self.flush() }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Arbitrary)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Arbitrary)]
 pub struct Symbol(char);
 #[derive(Debug, Clone, Arbitrary)]
 pub struct Tree(Symbol, Vec<Tree>);
@@ -60,9 +48,7 @@ impl Tree {
     }
 
     #[inline]
-    fn fold<T>(self, mut f: impl FnMut(Symbol, Vec<T>) -> T) -> T {
-        self.fold_impl(&mut f)
-    }
+    fn fold<T>(self, mut f: impl FnMut(Symbol, Vec<T>) -> T) -> T { self.fold_impl(&mut f) }
 
     pub fn count(&self) -> usize {
         self.1
@@ -78,7 +64,7 @@ impl Tree {
 type Node = egraph::ENode<Symbol, Expr>;
 pub type SlowGraph = egraph::reference::EGraph<Symbol, Expr>;
 pub type CongrGraph = egraph::congr::EGraph<Symbol, Expr>;
-pub type FastGraph = egraph::fast::EGraph<Symbol, Expr>;
+pub type FastGraph<S> = egraph::fast::EGraph<Symbol, Expr, S>;
 
 type Parts = egraph::test_tools::EGraphParts<Symbol, Expr>;
 
@@ -104,7 +90,7 @@ fn assert_equiv<A: Into<Parts>, B: Into<Parts>>(a: A, b: B) {
 }
 
 #[derive(Arbitrary)]
-pub struct Input(Tree, Vec<(usize, usize)>, bool);
+pub struct Input(Tree, Vec<(usize, usize)>, bool, u64);
 
 impl Input {
     // TODO: test adding after merging
@@ -113,7 +99,7 @@ impl Input {
     >(
         self,
     ) {
-        let Self(tree, merges, _) = self;
+        let Self(tree, merges, ..) = self;
         let len = tree.count();
 
         if len == 0 {
@@ -155,11 +141,13 @@ impl Input {
     // TODO: test adding after merging
     pub fn run_differential<
         A: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
-        B: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
+        B: Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
+        F: FnOnce(FixedState) -> B,
     >(
         self,
+        f: F,
     ) {
-        let Self(tree, merges, stepwise) = self;
+        let Self(tree, merges, stepwise, seed) = self;
         let len = tree.count();
 
         if len == 0 {
@@ -180,7 +168,7 @@ impl Input {
         }
 
         let mut a = A::default();
-        let mut b = B::default();
+        let mut b = f(FixedState::with_seed(seed));
         let mut t = Tracer::new();
         let mut classes = BTreeMap::new();
         let mut class_list = vec![];

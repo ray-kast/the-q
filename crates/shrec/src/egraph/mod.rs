@@ -1,5 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
-
+use hashbrown::{HashMap, HashSet};
 pub use node::*;
 pub use trace::EGraphTrace;
 
@@ -43,12 +42,15 @@ impl<T: ?Sized + EGraphCore> EGraphCore for &mut T {
     }
 }
 
-pub type ClassNodes<'a, G> = BTreeMap<
+pub type ClassNodes<'a, G, S = hashbrown::DefaultHashBuilder> = HashMap<
     ClassId<<G as EGraphCore>::Class>,
-    BTreeSet<&'a ENode<<G as EGraphCore>::FuncSymbol, <G as EGraphCore>::Class>>,
+    HashSet<&'a ENode<<G as EGraphCore>::FuncSymbol, <G as EGraphCore>::Class>, S>,
+    S,
 >;
 
 pub trait EGraphRead: EGraphCore {
+    type Hasher;
+
     fn find(&self, class: ClassId<Self::Class>) -> Result<ClassId<Self::Class>, NoNode>;
 
     /// Returns true if the node was modified
@@ -57,7 +59,7 @@ pub trait EGraphRead: EGraphCore {
 
     fn is_canonical(&self, node: &ENode<Self::FuncSymbol, Self::Class>) -> Result<bool, NoNode>;
 
-    fn class_nodes(&self) -> ClassNodes<Self>;
+    fn class_nodes(&self) -> ClassNodes<Self, Self::Hasher>;
 
     fn dot<M: trace::dot::Formatter<Self::FuncSymbol>>(&self, f: M) -> dot::Graph<'static>;
 }
@@ -166,13 +168,15 @@ impl<G: EGraphWriteTrace, T: EGraphTrace<G::FuncSymbol, G::Class>> EGraphWrite
 pub mod test_tools {
     use std::{collections::BTreeMap, fmt};
 
+    use hashbrown::HashMap;
+
     use super::ENode;
     use crate::{bijection::Bijection, union_find::ClassId};
 
     #[derive(Debug)]
     pub struct EGraphParts<F, C> {
         pub uf: crate::union_find::UnionFind<C>,
-        pub node_classes: BTreeMap<ENode<F, C>, ClassId<C>>,
+        pub node_classes: HashMap<ENode<F, C>, ClassId<C>>,
     }
 
     pub fn assert_equiv<
@@ -220,8 +224,14 @@ pub mod test_tools {
             })
             .collect();
 
-        assert_eq!(a_node_classes, b_node_classes_mapped);
-        assert_eq!(a_node_classes_mapped, b_node_classes);
+        assert_eq!(
+            a_node_classes.into_iter().collect::<BTreeMap<_, _>>(),
+            b_node_classes_mapped
+        );
+        assert_eq!(
+            a_node_classes_mapped,
+            b_node_classes.into_iter().collect::<BTreeMap<_, _>>()
+        );
 
         mapping
     }
@@ -231,12 +241,13 @@ pub mod test_tools {
 mod test {
     use std::collections::BTreeMap;
 
+    use foldhash::fast::FixedState;
     use prop::sample::SizeRange;
     use proptest::prelude::*;
 
     use super::{prelude::*, test_tools::assert_equiv};
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     struct Symbol(char);
     #[derive(Debug, Clone)]
     struct Tree(Symbol, Vec<Tree>);
@@ -268,7 +279,7 @@ mod test {
     type Node = super::ENode<Symbol, Expr>;
     type SlowGraph = super::reference::EGraph<Symbol, Expr>;
     type CongrGraph = super::congr::EGraph<Symbol, Expr>;
-    type FastGraph = super::fast::EGraph<Symbol, Expr>;
+    type FastGraph<S> = super::fast::EGraph<Symbol, Expr, S>;
 
     type Parts = super::test_tools::EGraphParts<Symbol, Expr>;
 
@@ -308,14 +319,14 @@ mod test {
     // TODO: test adding after merging
     fn run<
         A: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
-        B: Default + Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
+        B: Clone + EGraphUpgrade<FuncSymbol = Symbol, Class = Expr> + Into<Parts>,
     >(
+        mut b: B,
         tree: &Tree,
         merges: &Vec<(usize, usize)>,
         stepwise: bool,
     ) {
         let mut a = A::default();
-        let mut b = B::default();
         let mut classes = BTreeMap::new();
         let mut class_list = vec![];
 
@@ -419,8 +430,14 @@ mod test {
                 6,
                 1..=128,
             ),
+            seed in any::<u64>(),
         ) {
-            run::<SlowGraph, FastGraph>(&nodes, &merges, false);
+            run::<SlowGraph, FastGraph<_>>(
+                FastGraph::with_hasher(FixedState::with_seed(seed)),
+                &nodes,
+                &merges,
+                false,
+            );
         }
 
         #[test]
@@ -432,8 +449,14 @@ mod test {
                 6,
                 1..=128,
             ),
+            seed in any::<u64>(),
         ) {
-            run::<SlowGraph, FastGraph>(&nodes, &merges, true);
+            run::<SlowGraph, FastGraph<_>>(
+                FastGraph::with_hasher(FixedState::with_seed(seed)),
+                &nodes,
+                &merges,
+                true,
+            );
         }
 
         #[test]
@@ -446,7 +469,7 @@ mod test {
                 1..=128,
             ),
         ) {
-            run::<SlowGraph, CongrGraph>(&nodes, &merges, true);
+            run::<SlowGraph, CongrGraph>(CongrGraph::default(), &nodes, &merges, true);
         }
     }
 }

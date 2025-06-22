@@ -1,9 +1,11 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt, mem,
+    fmt,
+    hash::Hash,
+    mem,
 };
 
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 
 use super::{
     prelude::*,
@@ -132,7 +134,7 @@ impl<F, C> EGraph<F, C> {
     }
 }
 
-impl<F: Ord, C> From<EGraph<F, C>> for EGraphParts<F, C> {
+impl<F: Eq + Hash, C> From<EGraph<F, C>> for EGraphParts<F, C> {
     fn from(eg: EGraph<F, C>) -> Self {
         let EGraph {
             eq_uf,
@@ -195,7 +197,9 @@ impl<F: Ord, C> EGraphCore for EGraph<F, C> {
     }
 }
 
-impl<F: Ord, C> EGraphRead for EGraph<F, C> {
+impl<F: Ord + Hash, C> EGraphRead for EGraph<F, C> {
+    type Hasher = hashbrown::DefaultHashBuilder;
+
     #[inline]
     fn find(&self, class: ClassId<C>) -> Result<ClassId<C>, NoNode> { self.eq_uf.find(class) }
 
@@ -210,7 +214,7 @@ impl<F: Ord, C> EGraphRead for EGraph<F, C> {
     }
 
     fn class_nodes(&self) -> ClassNodes<Self> {
-        self.node_data.values().fold(BTreeMap::new(), |mut m, d| {
+        self.node_data.values().fold(HashMap::new(), |mut m, d| {
             assert!(m
                 .entry(self.eq_uf.find(d.class).unwrap())
                 .or_default()
@@ -225,7 +229,7 @@ impl<F: Ord, C> EGraphRead for EGraph<F, C> {
     }
 }
 
-impl<F: Ord, C> EGraphWriteTrace for EGraph<F, C> {
+impl<F: Ord + Hash, C> EGraphWriteTrace for EGraph<F, C> {
     fn merge_trace<T: EGraphTrace<F, C>>(
         &mut self,
         a: ClassId<C>,
@@ -238,7 +242,7 @@ impl<F: Ord, C> EGraphWriteTrace for EGraph<F, C> {
     }
 }
 
-impl<F: Ord, C> EGraph<F, C> {
+impl<F: Ord + Hash, C> EGraph<F, C> {
     #[inline]
     fn trace<T: EGraphTrace<F, C>, G: FnOnce() -> I, I: IntoIterator<Item = ClassId<C>>>(
         &self,

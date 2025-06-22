@@ -40,25 +40,26 @@ impl<I: fmt::Debug, N: fmt::Debug, T: fmt::Debug> dot::Format for Op<I, N, T> {
     }
 }
 
-pub type Graph<I, N, T> = egraph::reference::EGraph<Op<I, N, T>, N>;
+pub type Graph<I, N, T> = egraph::fast::EGraph<Op<I, N, T>, N>;
 pub type ClassMap<N> = BTreeMap<N, ClassId<N>>;
 pub type Output<I, N, T, G = Graph<I, N, T>> = (Dfa<I, ClassId<N>, T>, G, ClassMap<N>);
 
 #[inline]
-pub(super) fn run_default<I: Copy + Ord, N: Copy + Ord, T: Clone + Ord>(
+pub(super) fn run_default<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash>(
     dfa: &Dfa<I, N, T>,
 ) -> Output<I, N, T> {
-    run::<I, N, T, Graph<I, N, T>, ()>(dfa, &mut ())
+    run::<I, N, T, Graph<I, N, T>, ()>(dfa, Graph::default(), &mut ())
 }
 
 pub fn run<
-    I: Copy + Ord,
-    N: Copy + Ord,
-    T: Clone + Ord,
-    G: Default + for<'a> EGraphUpgradeTrace<FuncSymbol = Op<I, N, T>, Class = N>,
+    I: Copy + Ord + Hash,
+    N: Copy + Ord + Hash,
+    T: Clone + Ord + Hash,
+    G: EGraphUpgradeTrace<FuncSymbol = Op<I, N, T>, Class = N>,
     R: EGraphTrace<Op<I, N, T>, N>,
 >(
     dfa: &Dfa<I, N, T>,
+    mut eg: G,
     t: &mut R,
 ) -> Output<I, N, T, G> {
     enum Command<N> {
@@ -66,7 +67,6 @@ pub fn run<
         Add(N),
     }
 
-    let mut eg = G::default();
     let mut stk = Vec::new();
     let mut classes = BTreeMap::new();
     let mut impostors = BTreeMap::new();
@@ -161,8 +161,9 @@ pub fn run<
 
 #[cfg(test)]
 mod test {
-    use std::fmt;
+    use std::{fmt, hash::Hash};
 
+    use foldhash::fast::FixedState;
     use proptest::prelude::*;
 
     use super::EGraphUpgrade;
@@ -190,21 +191,22 @@ mod test {
     // }
 
     fn run<
-        G: Default + EGraphUpgrade<FuncSymbol = super::Op<I, N, T>, Class = N>,
-        I: Copy + Ord + fmt::Debug,
-        N: Copy + Ord + fmt::Debug,
-        T: Clone + Ord + fmt::Debug,
+        G: EGraphUpgrade<FuncSymbol = super::Op<I, N, T>, Class = N>,
+        I: Copy + Ord + Hash + fmt::Debug,
+        N: Copy + Ord + Hash + fmt::Debug,
+        T: Clone + Ord + Hash + fmt::Debug,
     >(
         dfa: &super::Dfa<I, N, T>,
+        egraph: G,
     ) -> super::Output<I, N, T, G> {
-        super::run::<_, _, _, G, _>(dfa, &mut ())
+        super::run::<_, _, _, G, _>(dfa, egraph, &mut ())
     }
 
     #[expect(clippy::type_complexity, reason = "chill out man, it's a test helper")]
-    fn run_ref<I: Copy + Ord, N: Copy + Ord, T: Clone + Ord>(
+    fn run_ref<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash>(
         dfa: &super::Dfa<I, N, T>,
     ) -> super::Output<I, N, T, reference::EGraph<super::Op<I, N, T>, N>> {
-        super::run(dfa, &mut ())
+        super::run(dfa, reference::EGraph::default(), &mut ())
     }
 
     fn assert_equiv<
@@ -265,7 +267,7 @@ mod test {
 
     proptest! {
         #![proptest_config(ProptestConfig {
-            // cases: 2 << 16,
+            // cases: 1 << 17,
             max_shrink_time: 0,
             max_shrink_iters: 16384,
             ..ProptestConfig::default()
@@ -283,7 +285,7 @@ mod test {
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
             // let mut t = FlushOnDrop::new();
 
-            run::<reference::EGraph<_, _>, _, _, _>(&dfa);
+            run::<reference::EGraph<_, _>, _, _, _>(&dfa, reference::EGraph::default());
         }
 
         #[test]
@@ -298,24 +300,33 @@ mod test {
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
             // let mut t = FlushOnDrop::new();
 
-            let (opt, graph, _) = run::<congr::EGraph<_, _>, _, _, _>(&dfa);
+            let (opt, graph, _) = run::<congr::EGraph<_, _>, _, _, _>(
+                &dfa,
+                congr::EGraph::default(),
+            );
             let (ref_opt, ref_graph, _) = run_ref(&dfa);
             assert_equiv(&opt, graph, &ref_opt, ref_graph);
         }
 
         #[test]
-        fn fast(r in kleene::re(
-            8,
-            64,
-            8,
-            0..16,
-            crate::prop::symbol(),
-        )) {
+        fn fast(
+            r in kleene::re(
+                8,
+                64,
+                8,
+                0..16,
+                crate::prop::symbol(),
+            ),
+            seed in any::<u64>(),
+        ) {
             let nfa = r.compile_atomic();
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
             // let mut t = FlushOnDrop::new();
 
-            let (opt, graph, _) = run::<fast::EGraph<_, _>, _, _, _>(&dfa);
+            let (opt, graph, _) = run::<fast::EGraph<_, _, _>, _, _, _>(
+                &dfa,
+                fast::EGraph::with_hasher(FixedState::with_seed(seed)),
+            );
             let (ref_opt, ref_graph, _) = run_ref(&dfa);
             assert_equiv(&opt, graph, &ref_opt, ref_graph);
         }

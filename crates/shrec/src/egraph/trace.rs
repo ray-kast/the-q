@@ -1,4 +1,6 @@
-use std::{collections::BTreeMap, fmt, mem};
+use std::{fmt, hash::Hash, mem};
+
+use hashbrown::HashMap;
 
 use super::ENode;
 use crate::union_find::ClassId;
@@ -547,7 +549,7 @@ impl<F: ?Sized, C: ?Sized, M: dot::Formatter<F>, G: FnMut(dot::Snapshot)> EGraph
 pub fn dot_graph<
     'a,
     'b,
-    F: Ord + 'b,
+    F: Eq + Hash + 'b,
     C: 'b,
     M: dot::Formatter<F>,
     IR: IntoIterator<Item = (ClassId<C>, IN)> + Clone,
@@ -563,14 +565,14 @@ pub fn dot_graph<
 
 #[derive(Debug)]
 pub struct SnapshotGraphNodes<'a, F, C, IC, IN> {
-    pub class_reps: BTreeMap<ClassId<C>, IC>,
-    pub node_ids: BTreeMap<&'a ENode<F, C>, IN>,
+    pub class_reps: HashMap<ClassId<C>, IC>,
+    pub node_ids: HashMap<&'a ENode<F, C>, IN>,
 }
 
 pub fn snapshot_graph<
     'a,
     'b,
-    F: Ord + 'b,
+    F: Eq + Hash + 'b,
     C: 'b,
     S: SnapshotEGraph<F, C>,
     IR: IntoIterator<Item = (ClassId<C>, IN)> + Clone,
@@ -579,8 +581,8 @@ pub fn snapshot_graph<
     graph: &mut S,
     roots: IR,
 ) -> SnapshotGraphNodes<'b, F, C, S::ClassId, S::NodeId> {
-    let mut class_reps = BTreeMap::new();
-    let mut node_ids = BTreeMap::new();
+    let mut class_reps = HashMap::new();
+    let mut node_ids = HashMap::new();
 
     for (root, enodes) in roots.clone() {
         let mut cls = graph.equiv_class(root);

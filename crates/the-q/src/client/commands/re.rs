@@ -1,6 +1,7 @@
 use std::{process::Stdio, str::Chars};
 
 use serenity::{builder::CreateAttachment, utils::MessageBuilder};
+use shrec::union_find::ClassId;
 use tokio::{fs::File, io::AsyncWriteExt, process};
 
 use super::prelude::*;
@@ -611,7 +612,7 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
         "{}",
         dfa.dot(
             |i| format!("{i:?}").into(),
-            |_: &usize| "".into(),
+            |_: &ClassId<_>| "".into(),
             |t| {
                 let () = t.iter().copied().collect();
                 None

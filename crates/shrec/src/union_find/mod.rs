@@ -240,7 +240,7 @@ mod test {
 
     proptest! {
         // #![proptest_config(ProptestConfig {
-        //     cases: 2 << 16,
+        //     cases: 1 << 17,
         //     ..ProptestConfig::default()
         // })]
 
