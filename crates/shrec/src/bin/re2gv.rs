@@ -117,39 +117,70 @@ fn main() {
     //         Proto::Proot,
     //     ),
     // ]);
-    let re = Cat(vec![
-        Lit(vec!['b']),
+    let re = Alt(vec![
         Cat(vec![
-            Alt(vec![
-                Cat(vec![Cat(vec![
-                    Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]),
-                    Star(Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]).into()),
-                ])]),
-                Cat(vec![
-                    Lit(vec![]),
-                    Cat(vec![Lit(vec!['n']), Star(Lit(vec!['n']).into())]),
-                    Star(Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]).into()),
-                ]),
-            ]),
-            Cat(vec![
-                Lit(vec![]),
-                Alt(vec![Cat(vec![]), Lit(vec!['u'])]),
-                Lit(vec!['y']),
-            ]),
+            Lit(vec!['b']),
+            Lit(vec!['n']),
+            Star(Lit(vec!['n']).into()),
+            Star(Lit(vec!['u']).into()),
+            Lit(vec!['y']),
+        ]),
+        Cat(vec![
+            Lit(vec!['b']),
+            Alt(vec![Cat(vec![]), Lit(vec!['n'])]),
+            Lit(vec!['u']),
+            Star(Lit(vec!['u']).into()),
+            Lit(vec!['n']),
+            Star(Lit(vec!['n']).into()),
+            Lit(vec!['y']),
+        ]),
+        Cat(vec![
+            Lit(vec!['b']),
+            Lit(vec!['u']),
+            Star(Lit(vec!['u']).into()),
+            Lit(vec!['n']),
+            Star(Lit(vec!['n']).into()),
+            Lit(vec!['b', 'y']),
+        ]),
+        Cat(vec![
+            Lit(vec!['b', 'o']),
+            Lit(vec!['u']),
+            Star(Lit(vec!['u']).into()),
+            Lit(vec!['n']),
+            Star(Lit(vec!['n']).into()),
+            Lit(vec!['y']),
         ]),
     ]);
+    // let re = Cat(vec![
+    //     Lit(vec!['b']),
+    //     Cat(vec![
+    //         Alt(vec![
+    //             Cat(vec![Cat(vec![
+    //                 Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]),
+    //                 Star(Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]).into()),
+    //             ])]),
+    //             Cat(vec![
+    //                 Lit(vec![]),
+    //                 Cat(vec![Lit(vec!['n']), Star(Lit(vec!['n']).into())]),
+    //                 Star(Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]).into()),
+    //             ]),
+    //         ]),
+    //         Cat(vec![
+    //             Lit(vec![]),
+    //             Alt(vec![Cat(vec![]), Lit(vec!['u'])]),
+    //             Lit(vec!['y']),
+    //         ]),
+    //     ]),
+    // ]);
 
     let non_dfa = re.compile_atomic();
-    let dfa = non_dfa.compile();
-    let (dfa, _) = dfa.atomize_nodes::<u64>();
-    let (dfa_opt, eg, cm) = dfa.optimize();
 
-    let cm = cm.into_iter().fold(HashMap::new(), |mut m, (k, v)| {
-        m.entry(eg.find(v).unwrap())
-            .or_insert_with(HashSet::new)
-            .insert(k);
-        m
-    });
+    // let cm = cm.into_iter().fold(HashMap::new(), |mut m, (k, v)| {
+    //     m.entry(eg.find(v).unwrap())
+    //         .or_insert_with(HashSet::new)
+    //         .insert(k);
+    //     m
+    // });
 
     match output {
         Output::Nfa => println!(
@@ -160,32 +191,48 @@ fn main() {
                 |t| Some(format!("{t:?}").into()),
             )
         ),
-        Output::Dfa => println!(
-            "{}",
-            dfa_opt.dot(
-                |i| format!("{i:?}").into(),
-                |n| format!("{n:?}").into(),
-                |t| Some(format!("{t:?}").into()),
-            )
-        ),
-        Output::DfaUnopt => println!(
-            "{}",
-            dfa.dot(
-                |i| format!("{i:?}").into(),
-                |n| format!("{n:?}").into(),
-                |t| Some(format!("{t:?}").into()),
-            )
-        ),
-        Output::Eg => println!(
-            "{}",
-            eg.dot(ClosureFormatter::new(
-                |n, f| f.write_fmt(format_args!("{n:?}")),
-                |n, i, f| match n {
-                    shrec::dfa::optimize::Op::Node { accept, edges } =>
-                        f.write_fmt(format_args!("{:?}", edges.iter().nth(i).unwrap())),
-                    shrec::dfa::optimize::Op::Impostor(_) => Ok(()),
-                }
-            )),
-        ),
+        Output::Dfa => {
+            let dfa = non_dfa.compile();
+            let (dfa, _) = dfa.atomize_nodes::<u64>();
+            let (dfa_opt, eg, cm) = dfa.optimize();
+
+            println!(
+                "{}",
+                dfa_opt.dot(
+                    |i| format!("{i:?}").into(),
+                    |n| format!("{n:?}").into(),
+                    |t| Some(format!("{t:?}").into()),
+                )
+            );
+        },
+        Output::DfaUnopt => {
+            let dfa = non_dfa.compile();
+
+            println!(
+                "{}",
+                dfa.dot(
+                    |i| format!("{i:?}").into(),
+                    |n| format!("{n:?}").into(),
+                    |t| Some(format!("{t:?}").into()),
+                )
+            );
+        },
+        Output::Eg => {
+            let dfa = non_dfa.compile();
+            let (dfa, _) = dfa.atomize_nodes::<u64>();
+            let (dfa_opt, eg, cm) = dfa.optimize();
+
+            println!(
+                "{}",
+                eg.dot(ClosureFormatter::new(
+                    |n, f| f.write_fmt(format_args!("{n:?}")),
+                    |n, i, f| match n {
+                        shrec::dfa::optimize::Op::Node { accept: _, edges } =>
+                            f.write_fmt(format_args!("{:?}", edges.iter().nth(i).unwrap())),
+                        shrec::dfa::optimize::Op::Impostor(_) => Ok(()),
+                    }
+                )),
+            );
+        },
     }
 }

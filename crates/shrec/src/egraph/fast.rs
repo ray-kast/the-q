@@ -121,7 +121,8 @@ impl<F, C, S: Clone> Clone for EGraph<F, C, S> {
 
 impl<F, C> EGraph<F, C> {
     #[inline]
-    fn new() -> Self { Self::with_hasher(hashbrown::DefaultHashBuilder::default()) }
+    #[must_use]
+    pub fn new() -> Self { Self::with_hasher(hashbrown::DefaultHashBuilder::default()) }
 }
 
 impl<F, C> Default for EGraph<F, C> {

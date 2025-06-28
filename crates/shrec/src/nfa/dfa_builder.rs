@@ -6,14 +6,17 @@ use std::{
 };
 
 use super::Nfa;
-use crate::{closure_builder::ClosureBuilder, dfa::Dfa, memoize::Memoize, nfa::Node};
+use crate::{
+    closure_builder::ClosureBuilder, dfa::Dfa, memoize::Memoize, nfa::Node,
+    partition_map::PartitionMap,
+};
 
 // Note to future self: Don't attempt to convert the value to an Arc, it needs to
 //                      be mutably borrowed.
-struct State<I, N, T>(BTreeMap<I, BTreeSet<N>>, Option<Arc<BTreeSet<T>>>);
+struct State<I, N, T>(PartitionMap<I, BTreeSet<N>>, Option<Arc<BTreeSet<T>>>);
 
 impl<I, N, T> Default for State<I, N, T> {
-    fn default() -> Self { Self(BTreeMap::new(), None) }
+    fn default() -> Self { Self(PartitionMap::new(BTreeSet::new()), None) }
 }
 
 pub struct DfaBuilder<'a, I, N, T> {
@@ -21,7 +24,7 @@ pub struct DfaBuilder<'a, I, N, T> {
     closure: ClosureBuilder<N>,
 }
 
-impl<'a, I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> DfaBuilder<'a, I, N, T> {
+impl<'a, I: Clone + Ord, N: Clone + Ord + Hash, T: Clone + Ord + Hash> DfaBuilder<'a, I, N, T> {
     pub fn new(nfa: &'a Nfa<I, N, T>) -> Self {
         Self {
             nfa,
@@ -34,9 +37,8 @@ impl<'a, I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> DfaBuilder<
             self.nfa
                 .get(&n)
                 .into_iter()
-                .filter_map(|n| n.get(&None))
-                .flatten()
-                .copied()
+                .flat_map(super::Node::nil_edges)
+                .cloned()
         })
     }
 
@@ -44,8 +46,9 @@ impl<'a, I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> DfaBuilder<
     pub fn build(&mut self) -> Dfa<I, Arc<BTreeSet<N>>, Arc<BTreeSet<T>>> {
         let mut memo_node = Memoize::default();
         let mut memo_tok = Memoize::default();
-        self.closure.init([*self.nfa.start()]);
+        self.closure.init([self.nfa.start().clone()]);
         let start = memo_node.memoize(self.solve_closure(BTreeSet::new()));
+        let trap = memo_node.memoize(BTreeSet::new());
 
         let mut states: BTreeMap<Arc<BTreeSet<N>>, State<I, N, T>> = BTreeMap::default();
         let mut q: VecDeque<_> = [Arc::clone(&start)].into_iter().collect();
@@ -59,18 +62,21 @@ impl<'a, I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> DfaBuilder<
             };
             let node = v.insert(State::default());
 
-            for &state in &*state_set {
+            for state in state_set.iter() {
                 for (inp, nodes) in self
                     .nfa
-                    .get(&state)
+                    .get(state)
                     .into_iter()
                     .flat_map(Node::edges)
                     .filter_map(|(i, n)| i.map(|i| (i, n)))
                 {
-                    let states = node.0.entry(inp).or_default();
+                    let mut states = BTreeSet::new();
 
-                    self.closure.init(nodes.iter().copied());
-                    self.solve_closure(states);
+                    self.closure.init(nodes.iter().cloned());
+                    self.solve_closure(&mut states);
+                    node.0.update(inp.to_owned().bounds(), |_, v| {
+                        states.union(v).cloned().collect()
+                    });
                 }
             }
 
@@ -78,7 +84,7 @@ impl<'a, I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> DfaBuilder<
                 .nfa
                 .nodes
                 .iter()
-                .filter_map(|(n, Node(_, a))| state_set.contains(n).then_some(a.clone()).flatten())
+                .filter_map(|(n, s)| state_set.contains(n).then_some(s.accept.clone()).flatten())
                 .collect();
             if !toks.is_empty() {
                 assert!(node.1.replace(memo_tok.memoize(toks)).is_none());
@@ -90,23 +96,24 @@ impl<'a, I: Copy + Ord, N: Copy + Ord + Hash, T: Clone + Ord + Hash> DfaBuilder<
             for set in node.0.values() {
                 // Try our very hardest to avoid cloning the set again
                 if !states.contains_key(set) {
-                    q.push_back(memo_node.memoize_owned(set));
+                    q.push_back(memo_node.memoize_ref(set));
                 }
             }
         }
 
         // TODO: check for unnecessary memory allocations
         Dfa::new(
-            states.into_iter().map(|(n, State(e, a))| {
+            states.into_iter().map(|(n, State(e, k))| {
                 (
                     n,
-                    e.into_iter()
+                    e.into_partitions()
                         .map(|(k, v)| (k, memo_node.memoize(v)))
                         .collect(),
-                    a,
+                    k,
                 )
             }),
             start,
+            trap,
         )
     }
 }

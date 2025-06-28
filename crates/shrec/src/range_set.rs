@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, fmt, ops};
 
-use crate::partition_map::{Partition, PartitionBounds, PartitionMap, Partitions};
+use crate::partition_map::{IntoPartitions, Partition, PartitionBounds, PartitionMap, Partitions};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
@@ -10,8 +10,8 @@ impl<T: fmt::Debug> fmt::Debug for RangeSet<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0
             .partitions()
-            .filter(|p| *p.value)
-            .fold(&mut f.debug_set(), |d, s| s.debug_range(|r| d.entry(r)))
+            .filter_map(|(k, &v)| v.then_some(k))
+            .fold(&mut f.debug_set(), |d, k| d.entry(&k))
             .finish()
     }
 }
@@ -40,6 +40,12 @@ impl<T> RangeSet<T> {
 
     #[must_use]
     pub fn empty_ranges(&self) -> Ranges<T> { Ranges(self.0.partitions(), false) }
+
+    #[must_use]
+    pub fn into_ranges(self) -> IntoRanges<T> { IntoRanges(self.0.into_partitions(), true) }
+
+    #[must_use]
+    pub fn into_empty_ranges(self) -> IntoRanges<T> { IntoRanges(self.0.into_partitions(), false) }
 }
 
 impl<T: Ord> RangeSet<T> {
@@ -57,7 +63,7 @@ impl<T: Clone + Ord> RangeSet<T> {
     #[inline]
     pub fn remove<B: PartitionBounds<T>>(&mut self, range: B) { self.0.set(range, false); }
 
-    pub fn union(&mut self, other: &Self) { self.0.fold(other, |p, &v| *p.value || v); }
+    pub fn union(&mut self, other: &Self) { self.0.fold(other, |(_, &v), &s| v || s); }
 
     #[must_use]
     #[inline]
@@ -66,7 +72,7 @@ impl<T: Clone + Ord> RangeSet<T> {
         self
     }
 
-    pub fn intersect(&mut self, other: &Self) { self.0.fold(other, |p, &v| *p.value && v); }
+    pub fn intersect(&mut self, other: &Self) { self.0.fold(other, |(_, &v), &s| v && s); }
 
     #[must_use]
     #[inline]
@@ -75,7 +81,7 @@ impl<T: Clone + Ord> RangeSet<T> {
         self
     }
 
-    pub fn invert(&mut self) { self.0.update(.., |p| !p.value); }
+    pub fn invert(&mut self) { self.0.update(.., |_, &v| !v); }
 
     #[must_use]
     #[inline]
@@ -115,14 +121,31 @@ impl<T: Clone + Ord, B: PartitionBounds<T>> FromIterator<B> for RangeSet<T> {
 pub struct Ranges<'a, T>(Partitions<'a, T, bool>, bool);
 
 impl<'a, T> Iterator for Ranges<'a, T> {
-    type Item = Partition<&'a T, ()>;
+    type Item = Partition<&'a T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let partition = self.0.next()?;
+            let (part, &value) = self.0.next()?;
 
-            if *partition.value == self.1 {
-                return Some(partition.map_value(|_| ()));
+            if value == self.1 {
+                return Some(part);
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct IntoRanges<T>(IntoPartitions<T, bool>, bool);
+
+impl<T: Clone> Iterator for IntoRanges<T> {
+    type Item = Partition<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (part, value) = self.0.next()?;
+
+            if value == self.1 {
+                return Some(part);
             }
         }
     }
@@ -133,9 +156,12 @@ impl<'a, T> Iterator for Ranges<'a, T> {
 pub struct AllRanges<'a, T>(Partitions<'a, T, bool>);
 
 impl<'a, T> Iterator for AllRanges<'a, T> {
-    type Item = Partition<&'a T, bool>;
+    type Item = (Partition<&'a T>, bool);
 
-    fn next(&mut self) -> Option<Self::Item> { Some(self.0.next()?.map_value(|b| *b)) }
+    fn next(&mut self) -> Option<Self::Item> {
+        let (part, &value) = self.0.next()?;
+        Some((part, value))
+    }
 }
 
 #[cfg(test)]
@@ -145,15 +171,9 @@ mod test {
     use super::*;
 
     const MAX: usize = 1024;
-    type Part = Partition<usize, bool>;
+    type Part = (Partition<usize>, bool);
 
-    fn check_part(
-        Partition {
-            start,
-            end,
-            value: _,
-        }: &Part,
-    ) -> bool {
+    fn check_part((Partition { start, end }, _): &Part) -> bool {
         start.zip(*end).is_none_or(|(s, e)| e >= s)
     }
 
@@ -180,7 +200,7 @@ mod test {
                     (start, end)
                 };
 
-                Partition { start, end, value }
+                (Partition { start, end }, value)
             })
             .prop_filter("Partitions must be valid", check_part)
     }
@@ -188,7 +208,7 @@ mod test {
     fn dense_map(start: bool, parts: &[Part]) -> [bool; MAX] {
         let mut arr = [start; MAX];
 
-        for Partition { start, end, value } in parts {
+        for (Partition { start, end }, value) in parts {
             arr[(to_closed(*start), to_open(*end))]
                 .iter_mut()
                 .for_each(|v| *v = *value);
@@ -241,21 +261,23 @@ mod test {
         }
     }
 
+    fn part<B: super::PartitionBounds<K>, K, V>(b: B, v: V) -> (Partition<K>, V) { (b.into(), v) }
+
     #[test]
     fn inter_sanity() {
         test_binop(
             false,
-            vec![Part::of(1.., true)],
+            vec![part(1.., true)],
             false,
-            vec![Part::of(..1, true)],
+            vec![part(..1, true)],
             RangeSet::intersect,
             |l, r| l && r,
         );
         test_binop(
             false,
-            vec![Part::of(..1, true)],
+            vec![part(..1, true)],
             false,
-            vec![Part::of(1.., true)],
+            vec![part(1.., true)],
             RangeSet::intersect,
             |l, r| l && r,
         );

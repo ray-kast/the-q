@@ -6,25 +6,107 @@ use std::{
     ops::{self, Bound, Deref},
 };
 
-pub trait PartitionBounds<T> {
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Partition<T> {
+    pub start: Option<T>,
+    pub end: Option<T>,
+}
+
+impl<T: fmt::Debug> fmt::Debug for Partition<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (&self.start, &self.end) {
+            (None, None) => fmt::Debug::fmt(&(..), f),
+            (None, Some(e)) => fmt::Debug::fmt(&(..e), f),
+            (Some(s), None) => fmt::Debug::fmt(&(s..), f),
+            (Some(s), Some(e)) => fmt::Debug::fmt(&(s..e), f),
+        }
+    }
+}
+
+impl<T> From<Partition<T>> for (Option<T>, Option<T>) {
+    #[inline]
+    fn from(Partition { start, end }: Partition<T>) -> Self { (start, end) }
+}
+
+impl<K: ToOwned> Partition<&K> {
+    #[must_use]
+    pub fn to_owned(self) -> Partition<K::Owned> {
+        let Self { start, end } = self;
+        Partition {
+            start: start.map(ToOwned::to_owned),
+            end: end.map(ToOwned::to_owned),
+        }
+    }
+}
+
+impl<T: Copy> Partition<&T> {
+    #[must_use]
+    pub fn copied(self) -> Partition<T> {
+        let Self { start, end } = self;
+        Partition {
+            start: start.copied(),
+            end: end.copied(),
+        }
+    }
+}
+
+impl<T> Partition<T> {
+    #[inline]
+    #[must_use]
+    pub fn bounds(self) -> (Option<T>, Option<T>) { (self.start, self.end) }
+
+    #[must_use]
+    pub fn as_ref(&self) -> Partition<&T> {
+        let Self { start, end } = self;
+        Partition {
+            start: start.as_ref(),
+            end: end.as_ref(),
+        }
+    }
+}
+
+impl<T: Deref> Partition<T> {
+    #[must_use]
+    pub fn as_deref(&self) -> Partition<&T::Target> {
+        let Self { start, end } = self;
+        Partition {
+            start: start.as_deref(),
+            end: end.as_deref(),
+        }
+    }
+}
+
+pub trait PartitionBounds<T>: Into<Partition<T>> {
     /// The start of the range (inclusive), if any
     fn start(&self) -> Option<&T>;
 
     /// The end of the range (exclusive), if any
     fn end(&self) -> Option<&T>;
+}
 
-    /// Returns a half-open range \[start, end)
-    fn into_bounds(self) -> (Option<T>, Option<T>);
+impl<T> From<ops::Range<T>> for Partition<T> {
+    #[inline]
+    fn from(ops::Range { start, end }: ops::Range<T>) -> Self {
+        Partition {
+            start: Some(start),
+            end: Some(end),
+        }
+    }
 }
 
 impl<T> PartitionBounds<T> for ops::Range<T> {
     fn start(&self) -> Option<&T> { Some(&self.start) }
 
     fn end(&self) -> Option<&T> { Some(&self.end) }
+}
 
-    fn into_bounds(self) -> (Option<T>, Option<T>) {
-        let Self { start, end } = self;
-        (Some(start), Some(end))
+impl<T> From<ops::RangeFrom<T>> for Partition<T> {
+    #[inline]
+    fn from(ops::RangeFrom { start }: ops::RangeFrom<T>) -> Self {
+        Partition {
+            start: Some(start),
+            end: None,
+        }
     }
 }
 
@@ -32,10 +114,15 @@ impl<T> PartitionBounds<T> for ops::RangeFrom<T> {
     fn start(&self) -> Option<&T> { Some(&self.start) }
 
     fn end(&self) -> Option<&T> { None }
+}
 
-    fn into_bounds(self) -> (Option<T>, Option<T>) {
-        let Self { start } = self;
-        (Some(start), None)
+impl<T> From<ops::RangeTo<T>> for Partition<T> {
+    #[inline]
+    fn from(ops::RangeTo { end }: ops::RangeTo<T>) -> Self {
+        Partition {
+            start: None,
+            end: Some(end),
+        }
     }
 }
 
@@ -43,10 +130,15 @@ impl<T> PartitionBounds<T> for ops::RangeTo<T> {
     fn start(&self) -> Option<&T> { None }
 
     fn end(&self) -> Option<&T> { Some(&self.end) }
+}
 
-    fn into_bounds(self) -> (Option<T>, Option<T>) {
-        let Self { end } = self;
-        (None, Some(end))
+impl<T> From<ops::RangeFull> for Partition<T> {
+    #[inline]
+    fn from(ops::RangeFull: ops::RangeFull) -> Self {
+        Self {
+            start: None,
+            end: None,
+        }
     }
 }
 
@@ -54,19 +146,23 @@ impl<T> PartitionBounds<T> for ops::RangeFull {
     fn start(&self) -> Option<&T> { None }
 
     fn end(&self) -> Option<&T> { None }
+}
 
-    fn into_bounds(self) -> (Option<T>, Option<T>) {
-        let Self = self;
-        (None, None)
-    }
+impl<T> From<(Option<T>, Option<T>)> for Partition<T> {
+    #[inline]
+    fn from((start, end): (Option<T>, Option<T>)) -> Self { Self { start, end } }
 }
 
 impl<T> PartitionBounds<T> for (Option<T>, Option<T>) {
     fn start(&self) -> Option<&T> { self.0.as_ref() }
 
     fn end(&self) -> Option<&T> { self.1.as_ref() }
+}
 
-    fn into_bounds(self) -> (Option<T>, Option<T>) { self }
+impl<T> PartitionBounds<T> for Partition<T> {
+    fn start(&self) -> Option<&T> { self.start.as_ref() }
+
+    fn end(&self) -> Option<&T> { self.end.as_ref() }
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -83,9 +179,7 @@ impl<K, V: Default> Default for PartitionMap<K, V> {
 impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for PartitionMap<K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.partitions()
-            .fold(&mut f.debug_map(), |d, s| {
-                s.debug_range(|r| d.entry(r, &s.value))
-            })
+            .fold(&mut f.debug_map(), |d, (k, v)| d.entry(&k, &v))
             .finish()
     }
 }
@@ -107,6 +201,14 @@ impl<K, V> PartitionMap<K, V> {
     #[inline]
     #[must_use]
     pub fn into_partitions(self) -> IntoPartitions<K, V> { IntoPartitions::new(self) }
+
+    #[inline]
+    #[must_use]
+    pub fn keys(&self) -> Keys<K, V> { Keys(Partitions::new(self)) }
+
+    #[inline]
+    #[must_use]
+    pub fn values(&self) -> Values<K, V> { Values(Partitions::new(self)) }
 }
 
 #[cfg(any(test, feature = "test"))]
@@ -131,8 +233,23 @@ impl<K: Ord, V> PartitionMap<K, V> {
     }
 }
 
+impl<K: Copy + Ord, V> PartitionMap<&K, V> {
+    #[inline]
+    pub fn copied_keys(self) -> PartitionMap<K, V> {
+        let Self {
+            unbounded_start,
+            ranges_from,
+        } = self;
+
+        PartitionMap {
+            unbounded_start,
+            ranges_from: ranges_from.into_iter().map(|(&k, v)| (k, v)).collect(),
+        }
+    }
+}
+
 fn check_bounds<T: Ord, B: PartitionBounds<T>>(range: B) -> Option<(Option<T>, Option<T>)> {
-    let (start, end) = range.into_bounds();
+    let Partition { start, end } = range.into();
 
     if let (Some(s), Some(e)) = (&start, &end) {
         match s.cmp(e) {
@@ -146,6 +263,15 @@ fn check_bounds<T: Ord, B: PartitionBounds<T>>(range: B) -> Option<(Option<T>, O
 }
 
 impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
+    pub fn from_iter_with_default<B: PartitionBounds<K>, I: IntoIterator<Item = (B, V)>>(
+        it: I,
+        default: V,
+    ) -> Self {
+        let mut me = Self::new(default);
+        me.extend(it);
+        me
+    }
+
     fn set_internal<B: PartitionBounds<K>>(&mut self, range: B, value: V, over: &mut Vec<K>) {
         let Some((start, end)) = check_bounds(range) else {
             return;
@@ -205,14 +331,8 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
         self.assert_invariants();
     }
 
-    #[inline]
-    pub fn push(&mut self, part: Partition<K, V>) {
-        let Partition { start, end, value } = part;
-        self.set((start, end), value);
-    }
-
     // TODO: this could maybe be faster but like.  ghh
-    fn update_internal<B: PartitionBounds<K>, F: FnMut(Partition<&K, &V>) -> V>(
+    fn update_internal<B: PartitionBounds<K>, F: FnMut(Partition<&K>, &V) -> V>(
         &mut self,
         range: B,
         mut f: F,
@@ -246,11 +366,13 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
             let end = Some(end);
             debug_assert!(end > start);
 
-            let value = f(Partition {
-                start: start.as_ref(),
-                end: end.as_ref(),
-                value: &orig_value,
-            });
+            let value = f(
+                Partition {
+                    start: start.as_ref(),
+                    end: end.as_ref(),
+                },
+                &orig_value,
+            );
             if value != orig_value {
                 self.set_internal((start, end.clone()), value, set_over);
             }
@@ -260,18 +382,20 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
         }
 
         if end.is_none() || end > start {
-            let value = f(Partition {
-                start: start.as_ref(),
-                end: end.as_ref(),
-                value: &orig_value,
-            });
+            let value = f(
+                Partition {
+                    start: start.as_ref(),
+                    end: end.as_ref(),
+                },
+                &orig_value,
+            );
             if value != orig_value {
                 self.set_internal((start, end), value, set_over);
             }
         }
     }
 
-    pub fn update<B: PartitionBounds<K>, F: FnMut(Partition<&K, &V>) -> V>(
+    pub fn update<B: PartitionBounds<K>, F: FnMut(Partition<&K>, &V) -> V>(
         &mut self,
         range: B,
         f: F,
@@ -284,7 +408,7 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
 
     pub fn update_all<
         I: IntoIterator<Item: PartitionBounds<K>>,
-        F: FnMut(Partition<&K, &V>) -> V,
+        F: FnMut(Partition<&K>, &V) -> V,
     >(
         &mut self,
         it: I,
@@ -301,7 +425,7 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
         self.assert_invariants();
     }
 
-    pub fn fold<F: FnMut(Partition<&K, &V>, &V) -> V>(
+    pub fn fold<F: FnMut((Partition<&K>, &V), &V) -> V>(
         &mut self,
         other: &PartitionMap<K, V>,
         mut f: F,
@@ -309,10 +433,10 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
         let mut over = vec![];
         let mut set_over = vec![];
 
-        for Partition { start, end, value } in other.partitions() {
+        for (part, value) in other.partitions() {
             self.update_internal(
-                (start.cloned(), end.cloned()),
-                |p| f(p, value),
+                part.to_owned(),
+                |k, v| f((k, v), value),
                 &mut over,
                 &mut set_over,
             );
@@ -323,7 +447,7 @@ impl<K: Clone + Ord, V: Clone + PartialEq> PartitionMap<K, V> {
     }
 
     #[must_use]
-    pub fn folded<F: FnMut(Partition<&K, &V>, &V) -> V>(
+    pub fn folded<F: FnMut((Partition<&K>, &V), &V) -> V>(
         mut self,
         other: &PartitionMap<K, V>,
         f: F,
@@ -364,133 +488,11 @@ impl<K: Clone + Ord, V: Clone + PartialEq, B: PartitionBounds<K>> Extend<(B, V)>
     }
 }
 
-impl<K: Clone + Ord, V: Clone + PartialEq> Extend<Partition<K, V>> for PartitionMap<K, V> {
-    #[inline]
-    fn extend<T: IntoIterator<Item = Partition<K, V>>>(&mut self, it: T) {
-        self.extend(
-            it.into_iter()
-                .map(|Partition { start, end, value }| ((start, end), value)),
-        );
-    }
-}
-
 impl<K: Clone + Ord, V: Clone + Default + PartialEq, B: PartitionBounds<K>> FromIterator<(B, V)>
     for PartitionMap<K, V>
 {
     fn from_iter<I: IntoIterator<Item = (B, V)>>(it: I) -> Self {
-        let mut me = Self::default();
-        me.extend(it);
-        me
-    }
-}
-
-impl<K: Clone + Ord, V: Clone + Default + PartialEq> FromIterator<Partition<K, V>>
-    for PartitionMap<K, V>
-{
-    #[inline]
-    fn from_iter<T: IntoIterator<Item = Partition<K, V>>>(it: T) -> Self {
-        it.into_iter()
-            .map(|Partition { start, end, value }| ((start, end), value))
-            .collect()
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Partition<K, V> {
-    pub start: Option<K>,
-    pub end: Option<K>,
-    pub value: V,
-}
-
-impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for Partition<K, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.debug_range(|r| {
-            f.debug_tuple("Partition")
-                .field(r)
-                .field(&self.value)
-                .finish()
-        })
-    }
-}
-
-impl<K, V> Partition<K, V> {
-    pub fn of<B: PartitionBounds<K>>(range: B, value: V) -> Self {
-        let (start, end) = range.into_bounds();
-        Self { start, end, value }
-    }
-}
-
-impl<K: ToOwned, V: ToOwned> Partition<&K, &V> {
-    #[must_use]
-    pub fn to_owned(&self) -> Partition<K::Owned, V::Owned> {
-        let Self { start, end, value } = *self;
-        Partition {
-            start: start.map(ToOwned::to_owned),
-            end: end.map(ToOwned::to_owned),
-            value: value.to_owned(),
-        }
-    }
-}
-
-impl<K: Copy, V: Copy> Partition<&K, &V> {
-    #[must_use]
-    pub fn copied(&self) -> Partition<K, V> {
-        let Self { start, end, value } = *self;
-        Partition {
-            start: start.copied(),
-            end: end.copied(),
-            value: *value,
-        }
-    }
-}
-
-impl<K, V> Partition<K, V> {
-    #[inline]
-    #[must_use]
-    pub fn bounds(self) -> (Option<K>, Option<K>) { (self.start, self.end) }
-
-    #[must_use]
-    pub fn as_ref(&self) -> Partition<&K, &V> {
-        let Self { start, end, value } = self;
-        Partition {
-            start: start.as_ref(),
-            end: end.as_ref(),
-            value,
-        }
-    }
-
-    pub fn map_value<T, F: FnOnce(V) -> T>(self, f: F) -> Partition<K, T> {
-        let Self { start, end, value } = self;
-        Partition {
-            start,
-            end,
-            value: f(value),
-        }
-    }
-}
-
-impl<K: Deref, V: Deref> Partition<K, V> {
-    #[must_use]
-    pub fn as_deref(&self) -> Partition<&K::Target, &V::Target> {
-        let Self { start, end, value } = self;
-        Partition {
-            start: start.as_deref(),
-            end: end.as_deref(),
-            value,
-        }
-    }
-}
-
-impl<K: fmt::Debug, V> Partition<K, V> {
-    #[inline]
-    pub(super) fn debug_range<T, F: FnOnce(&dyn fmt::Debug) -> T>(&self, f: F) -> T {
-        // i hate ranges SO much
-        match (&self.start, &self.end) {
-            (None, None) => f(&(..)),
-            (None, Some(e)) => f(&(..e)),
-            (Some(s), None) => f(&(s..)),
-            (Some(s), Some(e)) => f(&(s..e)),
-        }
+        Self::from_iter_with_default(it, V::default())
     }
 }
 
@@ -517,7 +519,7 @@ impl<'a, K, V> Partitions<'a, K, V> {
 }
 
 impl<'a, K, V> Iterator for Partitions<'a, K, V> {
-    type Item = Partition<&'a K, &'a V>;
+    type Item = (Partition<&'a K>, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
         let this = self.0.as_mut()?;
@@ -525,22 +527,20 @@ impl<'a, K, V> Iterator for Partitions<'a, K, V> {
         Some(if let Some((end, next_val)) = this.iter.next() {
             let start = this.start.replace(end);
             let value = mem::replace(&mut this.value, next_val);
-            Partition {
-                start,
-                end: Some(end),
+            (
+                Partition {
+                    start,
+                    end: Some(end),
+                },
                 value,
-            }
+            )
         } else {
             let PartitionsInner {
                 start,
                 value,
                 iter: _,
             } = self.0.take().unwrap_or_else(|| unreachable!());
-            Partition {
-                start,
-                end: None,
-                value,
-            }
+            (Partition { start, end: None }, value)
         })
     }
 }
@@ -568,7 +568,7 @@ impl<K, V> IntoPartitions<K, V> {
 }
 
 impl<K: Clone, V> Iterator for IntoPartitions<K, V> {
-    type Item = Partition<K, V>;
+    type Item = (Partition<K>, V);
 
     fn next(&mut self) -> Option<Self::Item> {
         let this = self.0.as_mut()?;
@@ -576,24 +576,42 @@ impl<K: Clone, V> Iterator for IntoPartitions<K, V> {
         Some(if let Some((end, next_val)) = this.iter.next() {
             let start = this.start.replace(end.clone());
             let value = mem::replace(&mut this.value, next_val);
-            Partition {
-                start,
-                end: Some(end),
+            (
+                Partition {
+                    start,
+                    end: Some(end),
+                },
                 value,
-            }
+            )
         } else {
             let IntoPartitionsInner {
                 start,
                 value,
                 iter: _,
             } = self.0.take().unwrap_or_else(|| unreachable!());
-            Partition {
-                start,
-                end: None,
-                value,
-            }
+            (Partition { start, end: None }, value)
         })
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Keys<'a, K, V>(Partitions<'a, K, V>);
+
+impl<'a, K, V> Iterator for Keys<'a, K, V> {
+    type Item = Partition<&'a K>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> { self.0.next().map(|(p, _)| p) }
+}
+
+#[derive(Debug, Clone)]
+pub struct Values<'a, K, V>(Partitions<'a, K, V>);
+
+impl<'a, K, V> Iterator for Values<'a, K, V> {
+    type Item = &'a V;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> { self.0.next().map(|(_, v)| v) }
 }
 
 #[cfg(test)]
@@ -606,20 +624,18 @@ mod test {
 
     type Map = PartitionMap<u64, char>;
 
-    fn part<K, V, R: PartitionBounds<K>>(b: R, value: V) -> Partition<K, V> {
-        Partition::of(b, value)
-    }
-
-    fn assert_parts<'a, P: IntoIterator<Item = &'a Partition<u64, char>>>(map: &Map, parts: P) {
+    fn assert_parts<'a, P: IntoIterator<Item = &'a (Partition<u64>, char)>>(map: &Map, parts: P) {
         assert_eq!(
             map.partitions().collect::<Vec<_>>(),
             parts
                 .into_iter()
-                .map(|Partition { start, end, value }| Partition {
-                    start: start.as_ref(),
-                    end: end.as_ref(),
+                .map(|(Partition { start, end }, value)| (
+                    Partition {
+                        start: start.as_ref(),
+                        end: end.as_ref(),
+                    },
                     value
-                })
+                ))
                 .collect::<Vec<_>>(),
         );
     }
@@ -635,10 +651,10 @@ mod test {
     #[test]
     fn range_set_intersect_regression_update() {
         let mut lhs = Map::new('a');
-        lhs.extend([Part::of(1.., 'b')]);
+        lhs.extend([part(1.., 'b')]);
 
-        lhs.update(..1, |p| intersect_regression_op(*p.value, 'b'));
-        lhs.update(1.., |p| intersect_regression_op(*p.value, 'a'));
+        lhs.update(..1, |_, v| intersect_regression_op(*v, 'b'));
+        lhs.update(1.., |_, v| intersect_regression_op(*v, 'a'));
 
         assert_eq!(lhs, Map::new('a'));
     }
@@ -646,16 +662,16 @@ mod test {
     #[test]
     fn range_set_intersect_regression_fold() {
         let mut lhs = Map::new('a');
-        lhs.extend([Part::of(1.., 'b')]);
+        lhs.extend([part(1.., 'b')]);
         let mut rhs = Map::new('a');
-        rhs.extend([Part::of(..1, 'b')]);
+        rhs.extend([part(..1, 'b')]);
 
-        lhs.fold(&rhs, |p, v| intersect_regression_op(*p.value, *v));
+        lhs.fold(&rhs, |(_, v), s| intersect_regression_op(*v, *s));
 
         assert_eq!(lhs, Map::new('a'));
     }
 
-    fn assert_sanity<'a, I: IntoIterator, P: IntoIterator<Item = &'a Partition<u64, char>>>(
+    fn assert_sanity<'a, I: IntoIterator, P: IntoIterator<Item = &'a (Partition<u64>, char)>>(
         u: char,
         items: I,
         parts: P,
@@ -667,7 +683,7 @@ mod test {
         assert_parts(&map, parts);
     }
 
-    fn assert_sanity_2<'a, A, B, P: IntoIterator<Item = &'a Partition<u64, char>>>(
+    fn assert_sanity_2<'a, A, B, P: IntoIterator<Item = &'a (Partition<u64>, char)>>(
         u: char,
         a: A,
         b: B,
@@ -680,6 +696,8 @@ mod test {
         map.extend([b]);
         assert_parts(&map, parts);
     }
+
+    fn part<B: super::PartitionBounds<K>, K, V>(b: B, v: V) -> (Partition<K>, V) { (b.into(), v) }
 
     #[test]
     #[expect(
@@ -1070,15 +1088,9 @@ mod test {
         ]);
     }
 
-    type Part = Partition<u64, char>;
+    type Part = (Partition<u64>, char);
 
-    fn check_part(
-        Partition {
-            start,
-            end,
-            value: _,
-        }: &Part,
-    ) -> bool {
+    fn check_part((Partition { start, end }, _): &Part) -> bool {
         start.zip(*end).is_none_or(|(s, e)| e >= s)
     }
 
@@ -1090,7 +1102,7 @@ mod test {
             let mut e: Vec<_> = v
                 .into_iter()
                 .enumerate()
-                .flat_map(|(i, Partition { start, end, value })| {
+                .flat_map(|(i, (Partition { start, end }, value))| {
                     [
                         Some((start, i, Reverse(Some(value)))),
                         end.map(|e| (Some(e), i, Reverse(None))),
@@ -1127,11 +1139,7 @@ mod test {
 
             if next_val != value {
                 if time.is_some() {
-                    parts.push(Partition {
-                        start,
-                        end: time,
-                        value,
-                    });
+                    parts.push((Partition { start, end: time }, value));
                 }
 
                 start = time;
@@ -1139,11 +1147,7 @@ mod test {
             }
         }
 
-        parts.push(Partition {
-            start,
-            end: None,
-            value,
-        });
+        parts.push((Partition { start, end: None }, value));
 
         assert_eq!(map.partitions().collect::<Vec<_>>(), parts);
     }
@@ -1155,8 +1159,8 @@ mod test {
         let mut upd = Map::new(c);
         let mut over = vec![];
         let mut set_over = vec![];
-        for Partition { start, end, value } in v {
-            upd.update_internal((start, end), |_| value, &mut over, &mut set_over);
+        for (Partition { start, end }, value) in v {
+            upd.update_internal((start, end), |_, _| value, &mut over, &mut set_over);
         }
     }
 
@@ -1172,7 +1176,7 @@ mod test {
                     (start, end)
                 };
 
-                Partition { start, end, value }
+                (Partition { start, end }, value)
             })
             .prop_filter("Partitions must be valid", check_part)
     }

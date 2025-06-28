@@ -1,6 +1,7 @@
 use nfa_builder::NfaBuilder;
 
-use crate::nfa::Nfa;
+use super::run::{IntoSymbols, Symbol};
+use crate::{free::Succ, nfa::Nfa};
 
 mod nfa_builder;
 
@@ -61,21 +62,21 @@ impl<L> Regex<L> {
     }
 }
 
-impl<L: IntoIterator> Regex<L> {
-    pub fn flatten(self) -> Regex<L::Item> {
+impl<L: IntoSymbols> Regex<L> {
+    pub fn flatten(self) -> Regex<Symbol<L::Atom>> {
         match self {
             Self::Alt(v) => Regex::Alt(v.into_iter().map(Self::flatten).collect()),
             Self::Cat(v) => Regex::Cat(v.into_iter().map(Self::flatten).collect()),
             Self::Star(r) => Regex::Star(r.flatten().into()),
-            Self::Lit(l) => Regex::Cat(l.into_iter().map(Regex::Lit).collect()),
+            Self::Lit(l) => Regex::Cat(l.into_symbols().map(Regex::Lit).collect()),
         }
     }
 }
 
-impl<L: IntoIterator<Item: Ord>> Regex<L> {
+impl<L: IntoSymbols<Atom: Clone + Ord + Succ>> Regex<L> {
     #[inline]
     #[must_use]
-    pub fn compile_atomic(self) -> Nfa<L::Item, u64, ()> {
+    pub fn compile_atomic(self) -> Nfa<L::Atom, u64, ()> {
         NfaBuilder::build([(self, ())]).finish()
     }
 }
@@ -109,10 +110,10 @@ impl<L, T> FromIterator<Token<L, T>> for RegexBag<L, T> {
     }
 }
 
-impl<L: IntoIterator<Item: Ord>, T: Ord> RegexBag<L, T> {
+impl<L: IntoSymbols<Atom: Clone + Ord + Succ>, T: Ord> RegexBag<L, T> {
     #[inline]
     #[must_use]
-    pub fn compile_atomic(self) -> Nfa<L::Item, u64, T> { NfaBuilder::build(self.0).finish() }
+    pub fn compile_atomic(self) -> Nfa<L::Atom, u64, T> { NfaBuilder::build(self.0).finish() }
 }
 
 #[cfg(any(test, feature = "proptest"))]

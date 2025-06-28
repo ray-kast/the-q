@@ -1,18 +1,20 @@
 use std::{process::Stdio, str::Chars};
 
 use serenity::{builder::CreateAttachment, utils::MessageBuilder};
-use shrec::union_find::ClassId;
+use shrec::{re::run::Run, union_find::ClassId};
 use tokio::{fs::File, io::AsyncWriteExt, process};
 
 use super::prelude::*;
 
-type Regex<'a> = shrec::re::kleene::Regex<Chars<'a>>;
+type Regex<'a> = shrec::re::kleene::Regex<Run<char, Chars<'a>>>;
 
 // TODO: miserably hacky, but it should work until shrec gets proper regex parsing support
 mod parse {
     use std::mem;
 
-    use super::{super::prelude::*, Chars, Regex};
+    use shrec::{free::Succ, partition_map::Partition, range_set::RangeSet, re::run::Run};
+
+    use super::{super::prelude::*, Regex};
 
     type ParseResult<'a> = Result<Vec<Regex<'a>>, Vec<Error>>;
 
@@ -47,19 +49,22 @@ mod parse {
         Opt,
     }
 
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone)]
     enum ReOp {
         Pipe,
         Unop(Unop),
         LPar,
         RPar,
+        // HACK, but it should work
+        ClassHint,
+        Class(RangeSet<char>),
         Eof,
     }
 
     #[derive(Debug)]
     enum Production<'a> {
         Blank,
-        Segment(Chars<'a>),
+        Segment(&'a str),
         Re(Regex<'a>),
     }
 
@@ -67,7 +72,7 @@ mod parse {
         fn re(self) -> Regex<'a> {
             match self {
                 Self::Blank => Regex::EMPTY,
-                Self::Segment(s) => Regex::Lit(s),
+                Self::Segment(s) => Regex::Lit(s.into()),
                 Self::Re(r) => r,
             }
         }
@@ -153,7 +158,7 @@ mod parse {
         }
 
         fn try_shift_op(&mut self, s: &'a str, end: usize, op: ReOp) -> Result {
-            let prod = self.reduce(s, end, op)?;
+            let prod = self.reduce(s, end, &op)?;
             match op {
                 ReOp::Pipe => self.0.push(ReStackSym::Alt(prod.map(Production::re))),
                 ReOp::Unop(u) => {
@@ -162,17 +167,17 @@ mod parse {
                             bail!("Missing operand while parsing {u:?} at {:?}", &s[..end])
                         },
                         Production::Segment(l) => 'pre: {
-                            if let Some((idx, _)) = l.as_str().char_indices().last() {
+                            if let Some((idx, _)) = l.char_indices().last() {
                                 if idx > 0 {
-                                    let (pre, suf) = l.as_str().split_at(idx);
+                                    let (pre, suf) = l.split_at(idx);
                                     break 'pre (
-                                        Some(Regex::Lit(pre.chars())),
-                                        Regex::Lit(suf.chars()),
+                                        Some(Regex::Lit(pre.into())),
+                                        Regex::Lit(suf.into()),
                                     );
                                 }
                             }
 
-                            (None, Regex::Lit(l))
+                            (None, Regex::Lit(l.into()))
                         },
                         Production::Re(r) => (None, r),
                     };
@@ -186,7 +191,7 @@ mod parse {
                     self.0.push(ReStackSym::Cat(WithPos(
                         if let Some(prefix) = prefix {
                             debug_assert!(
-                                !matches!(prefix, Regex::Lit(ref l) if l.as_str().is_empty())
+                                !matches!(prefix, Regex::Lit( Run::Run(ref l)) if l.as_str().is_empty())
                             );
                             join_cat(prefix, inner)
                         } else {
@@ -208,6 +213,10 @@ mod parse {
 
                     self.0.push(ReStackSym::Cat(prod.map(Production::re)));
                 },
+                ReOp::ClassHint => self.0.push(ReStackSym::Cat(prod.map(Production::re))),
+                ReOp::Class(c) => self.0.push(ReStackSym::Cat(
+                    prod.map(|p| join_cat(p.re(), Regex::Lit(Run::Set(c)))),
+                )),
                 ReOp::Eof => unreachable!("Eof cannot be used with shift_op"),
             }
 
@@ -243,7 +252,7 @@ mod parse {
 
                 curr = Some(match (sym, curr) {
                     (ReStackSym::SegmentStart(t), None) => {
-                        WithPos(Production::Segment(s[t..end].chars()), Slice(t..end))
+                        WithPos(Production::Segment(&s[t..end]), Slice(t..end))
                     },
                     (ReStackSym::SegmentStart(_), _) => {
                         unreachable!("Unexpanded SegmentStart in the middle of parser stack!")
@@ -265,16 +274,18 @@ mod parse {
             }
         }
 
-        fn reduce(&mut self, s: &'a str, end: usize, op: ReOp) -> Result<WithPos<Production<'a>>> {
+        fn reduce(&mut self, s: &'a str, end: usize, op: &ReOp) -> Result<WithPos<Production<'a>>> {
             match op {
                 ReOp::Pipe | ReOp::RPar | ReOp::Eof => self.pop_until(s, end, true, |_| false),
                 ReOp::Unop(_) => self.pop_until(s, end, false, |_| true),
-                ReOp::LPar => self.pop_until(s, end, true, |s| matches!(s, ReStackSym::Alt(..))),
+                ReOp::LPar | ReOp::ClassHint | ReOp::Class(_) => {
+                    self.pop_until(s, end, true, |s| matches!(s, ReStackSym::Alt(..)))
+                },
             }
         }
 
         fn finish(mut self, s: &'a str, slice: &Slice) -> Result<Regex<'a>> {
-            let WithPos(prod, _) = self.reduce(s, slice.0.end, ReOp::Eof)?;
+            let WithPos(prod, _) = self.reduce(s, slice.0.end, &ReOp::Eof)?;
             let Self(stack) = self;
 
             if let Some(trail) = stack.last() {
@@ -294,35 +305,138 @@ mod parse {
     }
 
     #[derive(Debug)]
-    struct ReState<'a>(Slice, ReStack<'a>);
+    struct ClassState {
+        init: bool,
+        last: Option<char>,
+        ranged: bool,
+        invert: bool,
+        set: RangeSet<char>,
+    }
+
+    impl ClassState {
+        const fn new() -> Self {
+            Self {
+                init: true,
+                last: None,
+                ranged: false,
+                invert: false,
+                set: RangeSet::EMPTY,
+            }
+        }
+
+        fn shift_char(&mut self, next: Option<char>) {
+            self.init = false;
+
+            let part: Option<Partition<_>> = match (
+                mem::replace(&mut self.ranged, false),
+                self.last.take(),
+                next,
+            ) {
+                (false, c, n) => {
+                    self.last = n;
+                    c.map(|c| (c..c.succ()).into())
+                },
+                (true, None, None) => Some((..).into()),
+                (true, None, Some(e)) => Some((..e.succ()).into()),
+                (true, Some(s), None) => Some((s..).into()),
+                (true, Some(s), Some(e)) => Some((s..e.succ()).into()),
+            };
+
+            if let Some(part) = part {
+                self.set.set(part, !self.invert);
+            }
+        }
+
+        fn shift_range(&mut self, res: &mut ParseResult) {
+            self.init = false;
+
+            let r = !self.ranged;
+            if mem::replace(&mut self.ranged, r) {
+                push_err(res, anyhow!("Too many dashes in character class"));
+            }
+        }
+
+        fn shift_inv(&mut self, res: &mut ParseResult) {
+            let init = mem::replace(&mut self.init, false);
+
+            let r = !self.invert;
+            if mem::replace(&mut self.invert, r) {
+                push_err(res, anyhow!("Too many carets in character class"));
+            }
+
+            if init {
+                self.set = RangeSet::FULL;
+            }
+        }
+
+        #[inline]
+        fn finish(&mut self) -> RangeSet<char> {
+            self.shift_char(None);
+            mem::replace(&mut self.set, RangeSet::EMPTY)
+        }
+    }
+
+    #[derive(Debug)]
+    struct ReState<'a>(Slice, ReStack<'a>, Option<ClassState>);
 
     impl<'a> ReState<'a> {
-        const fn new(i: usize) -> Self { Self(Slice(i..i), ReStack::EMPTY) }
+        const fn new(i: usize) -> Self { Self(Slice(i..i), ReStack::EMPTY, None) }
 
         fn shift_idx(self, i: usize) -> Self {
-            let Self(slice, stack) = self;
-            Self(slice.push_end(i), stack.shift_idx(i))
+            let Self(slice, stack, class) = self;
+            Self(slice.push_end(i), stack.shift_idx(i), class)
         }
 
         fn shift_op(self, s: &'a str, i: usize, op: ReOp, res: &mut ParseResult) -> Self {
-            let Self(slice, stack) = self;
-            Self(slice.push_end(i), stack.shift_op(s, i, op, res))
+            let Self(slice, stack, class) = self;
+            Self(slice.push_end(i), stack.shift_op(s, i, op, res), class)
         }
 
-        fn shift(self, s: &'a str, i: usize, c: char, res: &mut ParseResult) -> Self {
-            match c {
-                '|' => self.shift_op(s, i, ReOp::Pipe, res),
-                '*' => self.shift_op(s, i, ReOp::Unop(Unop::Star), res),
-                '+' => self.shift_op(s, i, ReOp::Unop(Unop::Plus), res),
-                '?' => self.shift_op(s, i, ReOp::Unop(Unop::Opt), res),
-                '(' => self.shift_op(s, i, ReOp::LPar, res),
-                ')' => self.shift_op(s, i, ReOp::RPar, res),
-                _ => self.shift_idx(i),
+        fn set_class(self, i: usize, class: Option<ClassState>) -> Self {
+            let Self(_, stack, _) = self;
+            Self(Slice(i..i), stack, class)
+        }
+
+        fn shift(mut self, s: &'a str, i: usize, c: char, res: &mut ParseResult) -> Self {
+            match self.2 {
+                None => match c {
+                    '|' => self.shift_op(s, i, ReOp::Pipe, res),
+                    '*' => self.shift_op(s, i, ReOp::Unop(Unop::Star), res),
+                    '+' => self.shift_op(s, i, ReOp::Unop(Unop::Plus), res),
+                    '?' => self.shift_op(s, i, ReOp::Unop(Unop::Opt), res),
+                    '(' => self.shift_op(s, i, ReOp::LPar, res),
+                    ')' => self.shift_op(s, i, ReOp::RPar, res),
+                    // Desugar to /[-]/
+                    '.' => self.shift_op(s, i, ReOp::Class(RangeSet::FULL), res),
+                    '[' => self
+                        .shift_op(s, i, ReOp::ClassHint, res)
+                        .set_class(i, Some(ClassState::new())),
+                    _ => self.shift_idx(i),
+                },
+                Some(ref mut l) => 'state: {
+                    match c {
+                        '-' => l.shift_range(res),
+                        '^' => l.shift_inv(res),
+                        ']' => {
+                            let part = l.finish();
+                            break 'state self.set_class(i, None).shift_op(
+                                s,
+                                i,
+                                ReOp::Class(part),
+                                res,
+                            );
+                        },
+                        c => l.shift_char(Some(c)),
+                    }
+
+                    self
+                },
             }
         }
 
         fn finish(self, s: &'a str, i: usize) -> Result<Regex<'a>, Error> {
-            let Self(mut slice, stack) = self;
+            let Self(mut slice, stack, class) = self;
+            ensure!(class.is_none(), "Unterminated character class");
             slice = slice.push_end(i);
             stack.finish(s, &slice)
         }
@@ -422,7 +536,10 @@ mod parse {
         use proptest::prelude::*;
         use shrec::{
             free::Free,
-            re::kleene::{self, Regex},
+            re::{
+                kleene::{self, Regex},
+                run::Run,
+            },
         };
 
         fn stringify_re(re: &Regex<std::str::Chars<'_>>, s: &mut String) {
@@ -457,57 +574,63 @@ mod parse {
             }
         }
 
-        fn assert_parse_eq(expected: Regex<String>, s: &str) {
+        fn assert_parse_eq(expected: Regex<Run<char, String>>, s: &str) {
             let actual = super::scan_one(s).unwrap();
 
             assert_eq!(
                 actual
                     .clone()
                     .into_iter()
-                    .map(|r| r.map(Iterator::collect::<String>))
+                    .map(|r| r.map(|l| match l {
+                        Run::Run(c) => Run::Run(c.as_str().into()),
+                        Run::Set(s) => Run::Set(s),
+                    }))
                     .collect::<Vec<_>>()
                     .as_slice(),
                 &[expected],
             );
         }
 
+        #[inline]
+        fn lit(s: &str) -> Regex<Run<char, String>> { Regex::Lit(Run::Run(s.into())) }
+
         #[test]
         fn bnnuy() {
             let expected = Regex::Cat(vec![
-                Regex::Lit("b".into()),
+                lit("b"),
                 Regex::Alt(vec![
                     Regex::Cat(vec![
-                        Regex::Star(Regex::Lit("n".into()).into()),
-                        Regex::Lit("u".into()),
-                        Regex::Lit("n".into()),
-                        Regex::Star(Regex::Lit("n".into()).into()),
+                        Regex::Star(lit("n").into()),
+                        lit("u"),
+                        lit("n"),
+                        Regex::Star(lit("n").into()),
                         Regex::Star(
                             Regex::Cat(vec![
-                                Regex::Star(Regex::Lit("n".into()).into()),
-                                Regex::Lit("u".into()),
-                                Regex::Lit("n".into()),
-                                Regex::Star(Regex::Lit("n".into()).into()),
+                                Regex::Star(lit("n").into()),
+                                lit("u"),
+                                lit("n"),
+                                Regex::Star(lit("n").into()),
                             ])
                             .into(),
                         ),
                     ]),
                     Regex::Cat(vec![
-                        Regex::Lit("n".into()),
-                        Regex::Star(Regex::Lit("n".into()).into()),
-                        Regex::Lit("u".into()),
-                        Regex::Star(Regex::Lit("u".into()).into()),
+                        lit("n"),
+                        Regex::Star(lit("n").into()),
+                        lit("u"),
+                        Regex::Star(lit("u").into()),
                         Regex::Star(
                             Regex::Cat(vec![
-                                Regex::Lit("n".into()),
-                                Regex::Star(Regex::Lit("n".into()).into()),
-                                Regex::Lit("u".into()),
-                                Regex::Star(Regex::Lit("u".into()).into()),
+                                lit("n"),
+                                Regex::Star(lit("n").into()),
+                                lit("u"),
+                                Regex::Star(lit("u").into()),
                             ])
                             .into(),
                         ),
                     ]),
                 ]),
-                Regex::Lit("y".into()),
+                lit("y"),
             ]);
 
             assert_parse_eq(expected.clone(), "b((n*un+)+|(n+u+)+)y");
@@ -599,6 +722,57 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
 
     let path = dir.path().join(format!("graph{i}.png"));
 
+    let graph = format!(
+        "{}",
+        dfa.dot(
+            |i| {
+                let (start, end) = i.copied().bounds();
+
+                if let Some(start) = start
+                    && let Some(end) = end
+                    && start == end
+                {
+                    return "∅".into();
+                }
+
+                let end = end
+                    .map(|e| {
+                        // TODO: stolen from <char as Step> - wen step trait eta
+                        let e = e as u32;
+                        let mut i = e.checked_sub(1)?;
+
+                        if e >= 0xe000 && 0xe000 > i {
+                            i = i.checked_sub(0x800)?;
+                        }
+
+                        // SAFETY: res is a valid unicode scalar
+                        // (below 0x110000 and not in 0xD800..0xE000)
+                        Some(unsafe { char::from_u32_unchecked(i) })
+                    })
+                    .map(|e| e.unwrap());
+
+                if let Some(start) = start
+                    && let Some(end) = end
+                    && start == end
+                {
+                    format!("{start}").into()
+                } else {
+                    match (start, end) {
+                        (None, None) => "…–…".into(),
+                        (None, Some(e)) => format!("…–{e}").into(),
+                        (Some(s), None) => format!("{s}–…").into(),
+                        (Some(s), Some(e)) => format!("{s}–{e}").into(),
+                    }
+                }
+            },
+            |_: &ClassId<_>| "".into(),
+            |t| {
+                let () = t.iter().copied().collect();
+                None
+            }
+        )
+    );
+
     let mut cmd = process::Command::new("dot");
     cmd.current_dir(dir.path())
         .args(["-Grankdir=LR", "-Gdpi=288", "-Tpng", "-o"])
@@ -608,18 +782,6 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
     trace!("Running GraphViz: {cmd:?}");
 
     let mut child = cmd.spawn().context("Error starting GraphViz")?;
-    let graph = format!(
-        "{}",
-        dfa.dot(
-            |i| format!("{i:?}").into(),
-            |_: &ClassId<_>| "".into(),
-            |t| {
-                let () = t.iter().copied().collect();
-                None
-            }
-        )
-    );
-
     child
         .stdin
         .as_mut()

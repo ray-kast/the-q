@@ -9,14 +9,18 @@ use super::Dfa;
 use crate::{
     dfa::Node,
     egraph::{self, prelude::*, trace::dot, EGraphTrace, ENode},
+    free::Succ,
+    partition_map::{Partition, PartitionMap},
     union_find::ClassId,
 };
 
+// NOTE: Ord is not exactly mathematically sound here, but in this case I need
+// it to make this insertable into BTreeMaps
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Op<I, N, T> {
     Node {
         accept: Option<T>,
-        edges: BTreeSet<I>,
+        edges: BTreeSet<Partition<I>>,
     },
     Impostor(N),
 }
@@ -44,15 +48,19 @@ pub type ClassMap<N> = BTreeMap<N, ClassId<N>>;
 pub type Output<I, N, T, G = Graph<I, N, T>> = (Dfa<I, ClassId<N>, T>, G, ClassMap<N>);
 
 #[inline]
-pub(super) fn run_default<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash>(
+pub(super) fn run_default<
+    I: Clone + Ord + Hash + Succ,
+    N: Clone + Ord + Hash,
+    T: Clone + Ord + Hash,
+>(
     dfa: &Dfa<I, N, T>,
 ) -> Output<I, N, T> {
     run::<I, N, T, Graph<I, N, T>, ()>(dfa, Graph::default(), &mut ())
 }
 
 pub fn run<
-    I: Copy + Ord + Hash,
-    N: Copy + Ord + Hash,
+    I: Clone + Ord + Hash + Succ,
+    N: Clone + Ord + Hash,
     T: Clone + Ord + Hash,
     G: EGraphUpgradeTrace<FuncSymbol = Op<I, N, T>, Class = N>,
     R: EGraphTrace<Op<I, N, T>, N>,
@@ -70,20 +78,21 @@ pub fn run<
     let mut classes = BTreeMap::new();
     let mut impostors = BTreeMap::new();
 
-    stk.push(Command::Explore(dfa.start));
+    stk.push(Command::Explore(dfa.start.clone()));
 
     while let Some(node) = stk.pop() {
         match node {
             Command::Explore(n) => {
                 use std::collections::btree_map::Entry;
 
-                match classes.entry(n) {
+                match classes.entry(n.clone()) {
                     Entry::Occupied(_) => continue,
                     Entry::Vacant(v) => drop(v.insert(None)),
                 }
 
+                let states = &dfa.states[&n];
                 stk.push(Command::Add(n));
-                for &n in dfa.states[&n].0.values().rev() {
+                for n in states.0.values().cloned() {
                     if !classes.contains_key(&n) {
                         stk.push(Command::Explore(n));
                     }
@@ -94,14 +103,15 @@ pub fn run<
                 let enode = ENode::new(
                     Op::Node {
                         accept: accept.clone(),
-                        edges: edges.keys().copied().collect(),
+                        edges: edges.keys().map(Partition::to_owned).collect(),
                     }
                     .into(),
                     edges
                         .values()
-                        .map(|&n| {
+                        .cloned()
+                        .map(|n| {
                             classes[&n].unwrap_or_else(|| {
-                                *impostors.entry(n).or_insert_with(|| {
+                                *impostors.entry(n.clone()).or_insert_with(|| {
                                     eg.add(ENode::new(Op::Impostor(n).into(), [].into()))
                                         .unwrap()
                                 })
@@ -124,6 +134,7 @@ pub fn run<
     }
     drop(wr);
 
+    let trap = eg.find(classes[&dfa.trap]).unwrap();
     let states = eg
         .class_nodes()
         .into_iter()
@@ -142,17 +153,16 @@ pub fn run<
 
             (
                 c,
-                edges
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &e)| (e, args[i]))
-                    .collect(),
+                PartitionMap::from_iter_with_default(
+                    edges.iter().enumerate().map(|(i, e)| (e.clone(), args[i])),
+                    trap,
+                ),
                 accept.clone(),
             )
         });
 
     (
-        Dfa::new(states, eg.find(classes[&dfa.start]).unwrap()),
+        Dfa::new(states, eg.find(classes[&dfa.start]).unwrap(), trap),
         eg,
         classes,
     )
@@ -168,6 +178,8 @@ mod test {
     use super::EGraphUpgrade;
     use crate::{
         egraph::{self, congr, fast, reference, test_tools::EGraphParts},
+        free::Succ,
+        partition_map::PartitionMap,
         re::kleene,
         union_find::ClassId,
     };
@@ -191,7 +203,7 @@ mod test {
 
     fn run<
         G: EGraphUpgrade<FuncSymbol = super::Op<I, N, T>, Class = N>,
-        I: Copy + Ord + Hash + fmt::Debug,
+        I: Copy + Ord + Hash + Succ + fmt::Debug,
         N: Copy + Ord + Hash + fmt::Debug,
         T: Clone + Ord + Hash + fmt::Debug,
     >(
@@ -202,7 +214,7 @@ mod test {
     }
 
     #[expect(clippy::type_complexity, reason = "chill out man, it's a test helper")]
-    fn run_ref<I: Copy + Ord + Hash, N: Copy + Ord + Hash, T: Clone + Ord + Hash>(
+    fn run_ref<I: Copy + Ord + Hash + Succ, N: Copy + Ord + Hash, T: Clone + Ord + Hash>(
         dfa: &super::Dfa<I, N, T>,
     ) -> super::Output<I, N, T, reference::EGraph<super::Op<I, N, T>, N>> {
         super::run(dfa, reference::EGraph::default(), &mut ())
@@ -222,6 +234,7 @@ mod test {
     ) {
         let mapping = egraph::test_tools::assert_equiv(lhs_graph, rhs_graph);
 
+        let trap = *mapping.image(&lhs.trap).unwrap();
         let lhs_mapped = super::Dfa {
             states: lhs
                 .states
@@ -230,17 +243,21 @@ mod test {
                     (
                         *mapping.image(s).unwrap(),
                         super::Node(
-                            n.0.iter()
-                                .map(|(i, n)| (i.clone(), *mapping.image(n).unwrap()))
-                                .collect(),
+                            PartitionMap::from_iter_with_default(
+                                n.0.partitions()
+                                    .map(|(k, v)| (k.to_owned(), *mapping.image(v).unwrap())),
+                                trap,
+                            ),
                             n.1.clone(),
                         ),
                     )
                 })
                 .collect(),
             start: *mapping.image(&lhs.start).unwrap(),
+            trap,
         };
 
+        let trap = *mapping.preimage(&rhs.trap).unwrap();
         let rhs_mapped = super::Dfa {
             states: rhs
                 .states
@@ -249,15 +266,18 @@ mod test {
                     (
                         *mapping.preimage(s).unwrap(),
                         super::Node(
-                            n.0.iter()
-                                .map(|(i, n)| (i.clone(), *mapping.preimage(n).unwrap()))
-                                .collect(),
+                            PartitionMap::from_iter_with_default(
+                                n.0.partitions()
+                                    .map(|(k, v)| (k.to_owned(), *mapping.preimage(v).unwrap())),
+                                trap,
+                            ),
                             n.1.clone(),
                         ),
                     )
                 })
                 .collect(),
             start: *mapping.preimage(&rhs.start).unwrap(),
+            trap,
         };
 
         assert_eq!(*lhs, rhs_mapped);

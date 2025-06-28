@@ -1,12 +1,17 @@
 use super::Regex;
-use crate::{free::Free, nfa::Nfa};
+use crate::{
+    free::{Free, Succ},
+    nfa::Nfa,
+    partition_map::Partition,
+    re::run::IntoSymbols,
+};
 
 pub struct NfaBuilder<I, T> {
     nfa: Nfa<I, u64, T>,
     free: Free<u64>,
 }
 
-impl<I: Ord, T: Ord> NfaBuilder<I, T> {
+impl<I: Clone + Ord + Succ, T: Ord> NfaBuilder<I, T> {
     fn new() -> Self {
         let mut free = Free::default();
         let start = free.fresh();
@@ -15,7 +20,7 @@ impl<I: Ord, T: Ord> NfaBuilder<I, T> {
         Self { nfa, free }
     }
 
-    pub fn build<B: IntoIterator<Item = (Regex<L>, T)>, L: IntoIterator<Item = I>>(
+    pub fn build<B: IntoIterator<Item = (Regex<L>, T)>, L: IntoSymbols<Atom = I>>(
         tok_bag: B,
     ) -> Self {
         let mut me = Self::new();
@@ -35,11 +40,11 @@ impl<I: Ord, T: Ord> NfaBuilder<I, T> {
     }
 
     #[inline]
-    fn connect(&mut self, from: u64, to: u64, by: Option<I>) {
+    fn connect(&mut self, from: u64, to: u64, by: Option<Partition<I>>) {
         assert!(self.nfa.connect(&from, to, by));
     }
 
-    fn build_in<L: IntoIterator<Item = I>>(&mut self, regex: Regex<L>, head: u64, tail: u64) {
+    fn build_in<L: IntoSymbols<Atom = I>>(&mut self, regex: Regex<L>, head: u64, tail: u64) {
         match regex {
             Regex::Alt(a) => {
                 for re in a {
@@ -67,7 +72,11 @@ impl<I: Ord, T: Ord> NfaBuilder<I, T> {
                 self.connect(t, h, None);
             },
             Regex::Lit(l) => {
-                self.build_cat_in(l, head, tail, |s, i, h, t| s.connect(h, t, Some(i)));
+                self.build_cat_in(l.into_symbols(), head, tail, |s, i, h, t| {
+                    for part in i {
+                        s.connect(h, t, Some(part));
+                    }
+                });
             },
         }
     }

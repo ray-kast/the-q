@@ -19,7 +19,7 @@ impl<T: Clone + Eq + Hash + Deref<Target: Eq + Hash + Into<T>> + Borrow<T::Targe
             .clone()
     }
 
-    pub fn memoize_owned<Q: Eq + Hash + ToOwned<Owned = T::Target> + ?Sized>(
+    pub fn memoize_ref<Q: Eq + Hash + ToOwned<Owned = T::Target> + ?Sized>(
         &mut self,
         val: &Q,
     ) -> T
