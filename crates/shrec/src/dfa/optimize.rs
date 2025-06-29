@@ -17,15 +17,15 @@ use crate::{
 // NOTE: Ord is not exactly mathematically sound here, but in this case I need
 // it to make this insertable into BTreeMaps
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Op<I, N, T> {
+pub enum Op<I, N, E, T> {
     Node {
         accept: Option<T>,
-        edges: BTreeSet<Partition<I>>,
+        edges: BTreeMap<Partition<I>, Option<E>>,
     },
     Impostor(N),
 }
 
-impl<I: fmt::Debug, N: fmt::Debug, T: fmt::Debug> dot::Format for Op<I, N, T> {
+impl<I: fmt::Debug, N: fmt::Debug, E: fmt::Debug, T: fmt::Debug> dot::Format for Op<I, N, E, T> {
     fn fmt_node(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Node { accept, .. } => f.write_fmt(format_args!("accept {accept:?}")),
@@ -43,32 +43,34 @@ impl<I: fmt::Debug, N: fmt::Debug, T: fmt::Debug> dot::Format for Op<I, N, T> {
     }
 }
 
-pub type Graph<I, N, T> = egraph::fast::EGraph<Op<I, N, T>, N>;
+pub type Graph<I, N, E, T> = egraph::fast::EGraph<Op<I, N, E, T>, N>;
 pub type ClassMap<N> = BTreeMap<N, ClassId<N>>;
-pub type Output<I, N, T, G = Graph<I, N, T>> = (Dfa<I, ClassId<N>, T>, G, ClassMap<N>);
+pub type Output<I, N, E, T, G = Graph<I, N, E, T>> = (Dfa<I, ClassId<N>, E, T>, G, ClassMap<N>);
 
 #[inline]
 pub(super) fn run_default<
     I: Clone + Ord + Hash + Succ,
     N: Clone + Ord + Hash,
+    E: Clone + Ord + Hash,
     T: Clone + Ord + Hash,
 >(
-    dfa: &Dfa<I, N, T>,
-) -> Output<I, N, T> {
-    run::<I, N, T, Graph<I, N, T>, ()>(dfa, Graph::default(), &mut ())
+    dfa: &Dfa<I, N, E, T>,
+) -> Output<I, N, E, T> {
+    run::<I, N, E, T, Graph<I, N, E, T>, ()>(dfa, Graph::default(), &mut ())
 }
 
 pub fn run<
     I: Clone + Ord + Hash + Succ,
     N: Clone + Ord + Hash,
+    E: Clone + Ord,
     T: Clone + Ord + Hash,
-    G: EGraphUpgradeTrace<FuncSymbol = Op<I, N, T>, Class = N>,
-    R: EGraphTrace<Op<I, N, T>, N>,
+    G: EGraphUpgradeTrace<FuncSymbol = Op<I, N, E, T>, Class = N>,
+    R: EGraphTrace<Op<I, N, E, T>, N>,
 >(
-    dfa: &Dfa<I, N, T>,
+    dfa: &Dfa<I, N, E, T>,
     mut eg: G,
     t: &mut R,
-) -> Output<I, N, T, G> {
+) -> Output<I, N, E, T, G> {
     enum Command<N> {
         Explore(N),
         Add(N),
@@ -92,7 +94,7 @@ pub fn run<
 
                 let states = &dfa.states[&n];
                 stk.push(Command::Add(n));
-                for n in states.0.values().cloned() {
+                for (_, n) in states.0.values().cloned() {
                     if !classes.contains_key(&n) {
                         stk.push(Command::Explore(n));
                     }
@@ -103,13 +105,16 @@ pub fn run<
                 let enode = ENode::new(
                     Op::Node {
                         accept: accept.clone(),
-                        edges: edges.keys().map(Partition::to_owned).collect(),
+                        edges: edges
+                            .partitions()
+                            .map(|(k, (e, _))| (k.to_owned(), e.clone()))
+                            .collect(),
                     }
                     .into(),
                     edges
                         .values()
                         .cloned()
-                        .map(|n| {
+                        .map(|(_, n)| {
                             classes[&n].unwrap_or_else(|| {
                                 *impostors.entry(n.clone()).or_insert_with(|| {
                                     eg.add(ENode::new(Op::Impostor(n).into(), [].into()))
@@ -154,8 +159,11 @@ pub fn run<
             (
                 c,
                 PartitionMap::from_iter_with_default(
-                    edges.iter().enumerate().map(|(i, e)| (e.clone(), args[i])),
-                    trap,
+                    edges
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (e, t))| (e.clone(), (t.clone(), args[i]))),
+                    (None, trap),
                 ),
                 accept.clone(),
             )
@@ -202,34 +210,41 @@ mod test {
     // }
 
     fn run<
-        G: EGraphUpgrade<FuncSymbol = super::Op<I, N, T>, Class = N>,
-        I: Copy + Ord + Hash + Succ + fmt::Debug,
-        N: Copy + Ord + Hash + fmt::Debug,
+        G: EGraphUpgrade<FuncSymbol = super::Op<I, N, E, T>, Class = N>,
+        I: Clone + Ord + Hash + Succ + fmt::Debug,
+        N: Clone + Ord + Hash + fmt::Debug,
+        E: Clone + Ord,
         T: Clone + Ord + Hash + fmt::Debug,
     >(
-        dfa: &super::Dfa<I, N, T>,
+        dfa: &super::Dfa<I, N, E, T>,
         egraph: G,
-    ) -> super::Output<I, N, T, G> {
-        super::run::<_, _, _, G, _>(dfa, egraph, &mut ())
+    ) -> super::Output<I, N, E, T, G> {
+        super::run::<_, _, _, _, G, _>(dfa, egraph, &mut ())
     }
 
     #[expect(clippy::type_complexity, reason = "chill out man, it's a test helper")]
-    fn run_ref<I: Copy + Ord + Hash + Succ, N: Copy + Ord + Hash, T: Clone + Ord + Hash>(
-        dfa: &super::Dfa<I, N, T>,
-    ) -> super::Output<I, N, T, reference::EGraph<super::Op<I, N, T>, N>> {
+    fn run_ref<
+        I: Clone + Ord + Hash + Succ,
+        N: Clone + Ord + Hash,
+        E: Clone + Ord + Hash,
+        T: Clone + Ord + Hash,
+    >(
+        dfa: &super::Dfa<I, N, E, T>,
+    ) -> super::Output<I, N, E, T, reference::EGraph<super::Op<I, N, E, T>, N>> {
         super::run(dfa, reference::EGraph::default(), &mut ())
     }
 
     fn assert_equiv<
         I: fmt::Debug + Clone + Ord,
         N: fmt::Debug + Ord,
+        E: fmt::Debug + Clone + Ord,
         T: fmt::Debug + Clone + Ord,
-        L: Into<EGraphParts<super::Op<I, N, T>, N>>,
-        R: Into<EGraphParts<super::Op<I, N, T>, N>>,
+        L: Into<EGraphParts<super::Op<I, N, E, T>, N>>,
+        R: Into<EGraphParts<super::Op<I, N, E, T>, N>>,
     >(
-        lhs: &super::Dfa<I, ClassId<N>, T>,
+        lhs: &super::Dfa<I, ClassId<N>, E, T>,
         lhs_graph: L,
-        rhs: &super::Dfa<I, ClassId<N>, T>,
+        rhs: &super::Dfa<I, ClassId<N>, E, T>,
         rhs_graph: R,
     ) {
         let mapping = egraph::test_tools::assert_equiv(lhs_graph, rhs_graph);
@@ -244,9 +259,10 @@ mod test {
                         *mapping.image(s).unwrap(),
                         super::Node(
                             PartitionMap::from_iter_with_default(
-                                n.0.partitions()
-                                    .map(|(k, v)| (k.to_owned(), *mapping.image(v).unwrap())),
-                                trap,
+                                n.0.partitions().map(|(k, (e, v))| {
+                                    (k.to_owned(), (e.clone(), *mapping.image(v).unwrap()))
+                                }),
+                                (None, trap),
                             ),
                             n.1.clone(),
                         ),
@@ -267,9 +283,10 @@ mod test {
                         *mapping.preimage(s).unwrap(),
                         super::Node(
                             PartitionMap::from_iter_with_default(
-                                n.0.partitions()
-                                    .map(|(k, v)| (k.to_owned(), *mapping.preimage(v).unwrap())),
-                                trap,
+                                n.0.partitions().map(|(k, (e, v))| {
+                                    (k.to_owned(), (e.clone(), *mapping.preimage(v).unwrap()))
+                                }),
+                                (None, trap),
                             ),
                             n.1.clone(),
                         ),
@@ -304,7 +321,7 @@ mod test {
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
             // let mut t = FlushOnDrop::new();
 
-            run::<reference::EGraph<_, _>, _, _, _>(&dfa, reference::EGraph::default());
+            run::<reference::EGraph<_, _>, _, _, _, _>(&dfa, reference::EGraph::default());
         }
 
         #[test]
@@ -319,7 +336,7 @@ mod test {
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
             // let mut t = FlushOnDrop::new();
 
-            let (opt, graph, _) = run::<congr::EGraph<_, _>, _, _, _>(
+            let (opt, graph, _) = run::<congr::EGraph<_, _>, _, _, _, _>(
                 &dfa,
                 congr::EGraph::default(),
             );
@@ -342,7 +359,7 @@ mod test {
             let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
             // let mut t = FlushOnDrop::new();
 
-            let (opt, graph, _) = run::<fast::EGraph<_, _, _>, _, _, _>(
+            let (opt, graph, _) = run::<fast::EGraph<_, _, _>, _, _, _, _>(
                 &dfa,
                 fast::EGraph::with_hasher(FixedState::with_seed(seed)),
             );

@@ -31,12 +31,13 @@ fn main() {
         dfa.dot(
             |i| format!("{i:?}").into(),
             |n| format!("{n}").into(),
+            |e| Some(format!("{e:?}").into()),
             |t| Some(format!("{t:?}").into()),
         )
     );
 
     let mut t = DotTracer::rich(|dot::Snapshot { graph }| println!("{graph}"));
-    let (dfa, ..) = optimize::run::<_, _, _, reference::EGraph<_, _>, _>(
+    let (dfa, ..) = optimize::run::<_, _, _, _, reference::EGraph<_, _>, _>(
         &dfa,
         reference::EGraph::new(),
         &mut t,
@@ -49,6 +50,7 @@ fn main() {
         dfa.dot(
             |i| format!("{i:?}").into(),
             |n| format!("{}", n.id()).into(),
+            |e| Some(format!("{e:?}").into()),
             |t| Some(format!("{t:?}").into()),
         )
     );

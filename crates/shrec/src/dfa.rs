@@ -13,18 +13,18 @@ mod atomize;
 pub mod optimize;
 
 #[derive(Debug, PartialEq)]
-pub struct Node<I, N, T>(PartitionMap<I, N>, Option<T>);
+pub struct Node<I, N, E, T>(PartitionMap<I, (Option<E>, N)>, Option<T>);
 
 #[derive(Debug, PartialEq)]
-pub struct Dfa<I, N, T> {
-    states: BTreeMap<N, Node<I, N, T>>,
+pub struct Dfa<I, N, E, T> {
+    states: BTreeMap<N, Node<I, N, E, T>>,
     start: N,
     trap: N,
 }
 
-impl<I, N: Ord, T> Dfa<I, N, T> {
+impl<I, N: Ord, E, T> Dfa<I, N, E, T> {
     pub fn new(
-        states: impl IntoIterator<Item = (N, PartitionMap<I, N>, Option<T>)>,
+        states: impl IntoIterator<Item = (N, PartitionMap<I, (Option<E>, N)>, Option<T>)>,
         start: N,
         trap: N,
     ) -> Self {
@@ -35,7 +35,7 @@ impl<I, N: Ord, T> Dfa<I, N, T> {
         assert!(states.contains_key(&start));
 
         for node in states.values() {
-            for out in node.0.values() {
+            for (_, out) in node.0.values() {
                 assert!(states.contains_key(out));
             }
         }
@@ -47,7 +47,7 @@ impl<I, N: Ord, T> Dfa<I, N, T> {
         }
     }
 
-    pub fn map_token<U>(self, f: impl Fn(T) -> U) -> Dfa<I, N, U> {
+    pub fn map_token<U>(self, f: impl Fn(T) -> U) -> Dfa<I, N, E, U> {
         let Self {
             states,
             start,
@@ -64,7 +64,7 @@ impl<I, N: Ord, T> Dfa<I, N, T> {
     }
 
     // TODO: try_trait_v2 wen eta
-    pub fn try_map_token<U, F>(self, f: impl Fn(T) -> Result<U, F>) -> Result<Dfa<I, N, U>, F> {
+    pub fn try_map_token<U, F>(self, f: impl Fn(T) -> Result<U, F>) -> Result<Dfa<I, N, E, U>, F> {
         let Self {
             states,
             start,
@@ -82,9 +82,9 @@ impl<I, N: Ord, T> Dfa<I, N, T> {
     }
 }
 
-impl<I: Copy + Ord, N: Clone + Ord, T> Dfa<&I, N, T> {
+impl<I: Copy + Ord, N: Clone + Ord, E, T> Dfa<&I, N, E, T> {
     #[must_use]
-    pub fn copied(self) -> Dfa<I, N, T> {
+    pub fn copied(self) -> Dfa<I, N, E, T> {
         let Self {
             states,
             start,
@@ -101,21 +101,28 @@ impl<I: Copy + Ord, N: Clone + Ord, T> Dfa<&I, N, T> {
     }
 }
 
-impl<I: Clone + Ord, N: Ord + Hash, T> Dfa<I, N, T> {
-    pub fn atomize_nodes<A: Default + Copy + Ord + Succ>(self) -> (Dfa<I, A, T>, HashMap<N, A>) {
+impl<I: Clone + Ord, N: Ord + Hash, E: Clone + Eq, T> Dfa<I, N, E, T> {
+    pub fn atomize_nodes<A: Default + Copy + Ord + Succ>(self) -> (Dfa<I, A, E, T>, HashMap<N, A>) {
         DfaAtomizer::default().atomize_nodes(self)
     }
 }
 
-impl<I: Clone + Ord + Hash + Succ, N: Clone + Ord + Hash, T: Clone + Ord + Hash> Dfa<I, N, T> {
-    pub fn optimize(&self) -> optimize::Output<I, N, T> { optimize::run_default(self) }
+impl<
+        I: Clone + Ord + Hash + Succ,
+        N: Clone + Ord + Hash,
+        E: Clone + Ord + Hash,
+        T: Clone + Ord + Hash,
+    > Dfa<I, N, E, T>
+{
+    pub fn optimize(&self) -> optimize::Output<I, N, E, T> { optimize::run_default(self) }
 }
 
-impl<I, N: Ord, T> Dfa<I, N, T> {
+impl<I, N: Ord, E, T> Dfa<I, N, E, T> {
     pub fn dot<'a>(
         &self,
         fmt_input: impl Fn(Partition<&I>) -> Cow<'a, str>,
         fmt_state: impl Fn(&N) -> Cow<'a, str>,
+        fmt_edge: impl Fn(&E) -> Option<Cow<'a, str>>,
         fmt_tok: impl Fn(&T) -> Option<Cow<'a, str>>,
     ) -> dot::Graph<'a> {
         let mut free_id = Free::from(0);
@@ -129,8 +136,8 @@ impl<I, N: Ord, T> Dfa<I, N, T> {
                     (
                         s,
                         e.partitions()
-                            .filter(|&(_, v)| *v != self.trap)
-                            .map(|(k, v)| (k, [v])),
+                            .filter(|&(_, (_, v))| *v != self.trap)
+                            .map(|(k, (e, v))| (k, [(e.as_ref(), v)])),
                         a.as_ref(),
                     )
                 }),
@@ -138,6 +145,7 @@ impl<I, N: Ord, T> Dfa<I, N, T> {
             |n| *node_ids.entry(*n).or_insert_with(|| free_id.fresh()),
             fmt_input,
             fmt_state,
+            fmt_edge,
             fmt_tok,
         )
     }

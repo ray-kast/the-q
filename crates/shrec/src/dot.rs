@@ -135,13 +135,15 @@ impl<'a> Graph<'a> {
     pub(crate) fn state_machine<
         I,
         S,
+        E,
         T,
         IN: IntoIterator<Item = (S, IE, Option<T>)>,
         IE: IntoIterator<Item = (I, IO)>,
-        IO: IntoIterator<Item = S>,
+        IO: IntoIterator<Item = (Option<E>, S)>,
         G: FnMut(&S) -> u32,
         FI: Fn(I) -> Cow<'a, str>,
         FS: Fn(S) -> Cow<'a, str>,
+        FE: Fn(E) -> Option<Cow<'a, str>>,
         FT: Fn(T) -> Option<Cow<'a, str>>,
     >(
         nodes: IN,
@@ -149,6 +151,7 @@ impl<'a> Graph<'a> {
         mut get_id: G,
         fmt_input: FI,
         fmt_state: FS,
+        fmt_edge: FE,
         fmt_tok: FT,
     ) -> Self {
         let mut graph = Self::new(GraphType::Directed);
@@ -171,10 +174,16 @@ impl<'a> Graph<'a> {
             for (input, outputs) in edges {
                 let input = fmt_input(input);
 
-                for next_state in outputs {
+                for (out, next_state) in outputs {
                     let edge = graph.edge(id.clone(), get_id(&next_state).to_string());
 
-                    edge.label(input.clone());
+                    let label = if let Some(out) = out.and_then(&fmt_edge) {
+                        format!("{input}/{out}").into()
+                    } else {
+                        input.clone()
+                    };
+
+                    edge.label(label);
                 }
             }
         }

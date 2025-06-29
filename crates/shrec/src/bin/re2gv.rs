@@ -188,6 +188,7 @@ fn main() {
             non_dfa.dot(
                 |i| format!("{i:?}").into(),
                 |n| format!("{n:?}").into(),
+                |e| Some(format!("{e:?}").into()),
                 |t| Some(format!("{t:?}").into()),
             )
         ),
@@ -201,6 +202,7 @@ fn main() {
                 dfa_opt.dot(
                     |i| format!("{i:?}").into(),
                     |n| format!("{n:?}").into(),
+                    |e| Some(format!("{e:?}").into()),
                     |t| Some(format!("{t:?}").into()),
                 )
             );
@@ -213,6 +215,7 @@ fn main() {
                 dfa.dot(
                     |i| format!("{i:?}").into(),
                     |n| format!("{n:?}").into(),
+                    |e| Some(format!("{e:?}").into()),
                     |t| Some(format!("{t:?}").into()),
                 )
             );

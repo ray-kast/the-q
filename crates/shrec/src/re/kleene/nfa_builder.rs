@@ -6,12 +6,12 @@ use crate::{
     re::run::IntoSymbols,
 };
 
-pub struct NfaBuilder<I, T> {
-    nfa: Nfa<I, u64, T>,
+pub struct NfaBuilder<I, E, T> {
+    nfa: Nfa<I, u64, E, T>,
     free: Free<u64>,
 }
 
-impl<I: Clone + Ord + Succ, T: Ord> NfaBuilder<I, T> {
+impl<I: Clone + Ord + Succ, E: Clone + Ord, T: Ord> NfaBuilder<I, E, T> {
     fn new() -> Self {
         let mut free = Free::default();
         let start = free.fresh();
@@ -40,8 +40,8 @@ impl<I: Clone + Ord + Succ, T: Ord> NfaBuilder<I, T> {
     }
 
     #[inline]
-    fn connect(&mut self, from: u64, to: u64, by: Option<Partition<I>>) {
-        assert!(self.nfa.connect(&from, to, by));
+    fn connect(&mut self, from: u64, to: u64, by: Option<Partition<I>>, out: Option<E>) {
+        assert!(self.nfa.connect(&from, to, by, out));
     }
 
     fn build_in<L: IntoSymbols<Atom = I>>(&mut self, regex: Regex<L>, head: u64, tail: u64) {
@@ -52,8 +52,8 @@ impl<I: Clone + Ord + Succ, T: Ord> NfaBuilder<I, T> {
                     let t = self.fresh_node();
 
                     self.build_in(re, h, t);
-                    self.connect(head, h, None);
-                    self.connect(t, tail, None);
+                    self.connect(head, h, None, None);
+                    self.connect(t, tail, None, None);
                 }
             },
             Regex::Cat(c) => {
@@ -66,15 +66,15 @@ impl<I: Clone + Ord + Succ, T: Ord> NfaBuilder<I, T> {
                 let t = self.fresh_node();
 
                 self.build_in(*r, h, t);
-                self.connect(head, h, None);
-                self.connect(t, tail, None);
-                self.connect(head, tail, None);
-                self.connect(t, h, None);
+                self.connect(head, h, None, None);
+                self.connect(t, tail, None, None);
+                self.connect(head, tail, None, None);
+                self.connect(t, h, None, None);
             },
             Regex::Lit(l) => {
                 self.build_cat_in(l.into_symbols(), head, tail, |s, i, h, t| {
                     for part in i {
-                        s.connect(h, t, Some(part));
+                        s.connect(h, t, Some(part), None);
                     }
                 });
             },
@@ -102,10 +102,10 @@ impl<I: Clone + Ord + Succ, T: Ord> NfaBuilder<I, T> {
         if let Some(el) = prev {
             f(self, el, h, tail);
         } else {
-            self.connect(head, tail, None);
+            self.connect(head, tail, None, None);
         }
     }
 
     #[inline]
-    pub fn finish(self) -> Nfa<I, u64, T> { self.nfa }
+    pub fn finish(self) -> Nfa<I, u64, E, T> { self.nfa }
 }

@@ -25,10 +25,10 @@ impl<N, A: Default> Default for DfaAtomizer<N, A> {
 impl<N: Eq + Hash, A: Copy + Ord + Succ> DfaAtomizer<N, A> {
     fn get(&mut self, node: N) -> A { *self.used.entry(node).or_insert_with(|| self.free.fresh()) }
 
-    pub fn atomize_nodes<I: Clone + Ord, T>(
+    pub fn atomize_nodes<I: Clone + Ord, E: Clone + Eq, T>(
         mut self,
-        dfa: Dfa<I, N, T>,
-    ) -> (Dfa<I, A, T>, HashMap<N, A>) {
+        dfa: Dfa<I, N, E, T>,
+    ) -> (Dfa<I, A, E, T>, HashMap<N, A>) {
         let Dfa {
             states,
             start,
@@ -46,8 +46,8 @@ impl<N: Eq + Hash, A: Copy + Ord + Succ> DfaAtomizer<N, A> {
                             self.get(n),
                             Node(
                                 PartitionMap::from_iter_with_default(
-                                    e.into_partitions().map(|(k, v)| (k, self.get(v))),
-                                    trap,
+                                    e.into_partitions().map(|(k, (e, n))| (k, (e, self.get(n)))),
+                                    (None, trap),
                                 ),
                                 k,
                             ),

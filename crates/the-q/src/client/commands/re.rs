@@ -55,7 +55,7 @@ mod parse {
         Unop(Unop),
         LPar,
         RPar,
-        // HACK, but it should work
+        // HACK to force reducing early and terminate segments for char classes
         ClassHint,
         Class(RangeSet<char>),
         Eof,
@@ -339,6 +339,7 @@ mod parse {
                 (true, None, None) => Some((..).into()),
                 (true, None, Some(e)) => Some((..e.succ()).into()),
                 (true, Some(s), None) => Some((s..).into()),
+                (true, Some(s), Some(e)) if e < s => Some((e..s.succ()).into()),
                 (true, Some(s), Some(e)) => Some((s..e.succ()).into()),
             };
 
@@ -406,7 +407,6 @@ mod parse {
                     '?' => self.shift_op(s, i, ReOp::Unop(Unop::Opt), res),
                     '(' => self.shift_op(s, i, ReOp::LPar, res),
                     ')' => self.shift_op(s, i, ReOp::RPar, res),
-                    // Desugar to /[-]/
                     '.' => self.shift_op(s, i, ReOp::Class(RangeSet::FULL), res),
                     '[' => self
                         .shift_op(s, i, ReOp::ClassHint, res)
@@ -766,6 +766,10 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
                 }
             },
             |_: &ClassId<_>| "".into(),
+            |e| {
+                let () = e.iter().copied().collect();
+                None
+            },
             |t| {
                 let () = t.iter().copied().collect();
                 None
