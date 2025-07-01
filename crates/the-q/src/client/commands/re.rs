@@ -448,7 +448,7 @@ mod parse {
         Message,
         Start(Delim),
         Re(Delim, ReState<'a>),
-        TickFinish(ReState<'a>),
+        TickFinish(ReState<'a>, usize),
         TickFinishBlank,
         TickTrail(Slice),
     }
@@ -480,6 +480,14 @@ mod parse {
     }
 
     pub fn scan_any(s: &str) -> ParseResult {
+        fn finish<'a>(state: ReState<'a>, s: &'a str, i: usize, res: &mut ParseResult<'a>) {
+            match (state.finish(s, i), res) {
+                (Ok(r), Ok(v)) => v.push(r),
+                (Ok(_), Err(_)) => (),
+                (Err(e), r) => push_err(r, e),
+            }
+        }
+
         let mut res = Ok(vec![]);
         let mut state = State::Message;
 
@@ -496,18 +504,19 @@ mod parse {
                 (State::Start(delim), c) => {
                     State::Re(delim, ReState::new(i).shift(s, i, c, &mut res))
                 },
-                (State::Re(Delim::TickSlash, s), '/') => State::TickFinish(s),
-                (State::Re(Delim::Slash, state), '/')
-                | (State::Re(Delim::Tick, state) | State::TickFinish(state), '`') => {
-                    match (state.finish(s, i), &mut res) {
-                        (Ok(r), Ok(v)) => v.push(r),
-                        (Ok(_), Err(_)) => (),
-                        (Err(e), r) => push_err(r, e),
-                    }
+                (State::Re(Delim::TickSlash, s), '/') => State::TickFinish(s, i),
+                (State::Re(Delim::Slash, state), '/') | (State::Re(Delim::Tick, state), '`') => {
+                    finish(state, s, i, &mut res);
+                    State::Message
+                },
+                (State::TickFinish(state, i), '`') => {
+                    finish(state, s, i, &mut res);
                     State::Message
                 },
                 (State::Re(d, t), c) => State::Re(d, t.shift(s, i, c, &mut res)),
-                (State::TickFinish(_) | State::TickFinishBlank, _) => State::TickTrail(Slice(i..i)),
+                (State::TickFinish(..) | State::TickFinishBlank, _) => {
+                    State::TickTrail(Slice(i..i))
+                },
                 (State::TickTrail(t), '`') => {
                     push_err(&mut res, tick_trail_err(t.get(s)));
                     State::Message
@@ -519,7 +528,7 @@ mod parse {
 
         match state {
             State::Message | State::Start(_) | State::TickFinishBlank => (),
-            State::Re(_, t) | State::TickFinish(t) => push_err(
+            State::Re(_, t) | State::TickFinish(t, _) => push_err(
                 &mut res,
                 anyhow!("Unclosed regular expression at {:?}", t.0.get(s)),
             ),
@@ -726,6 +735,15 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
         dfa.dot(
             |_: usize| "".into(),
             |i| {
+                fn escape(c: char) -> String {
+                    let s = c.escape_default().collect::<String>();
+                    if s.len() == s.trim().len() {
+                        s
+                    } else {
+                        format!("'{s}'")
+                    }
+                }
+
                 let (start, end) = i.copied().bounds();
 
                 if let Some(start) = start
@@ -755,8 +773,11 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
                     && let Some(end) = end
                     && start == end
                 {
-                    format!("{start}").into()
+                    escape(start).into()
                 } else {
+                    let start = start.map(escape);
+                    let end = end.map(escape);
+
                     match (start, end) {
                         (None, None) => "…–…".into(),
                         (None, Some(e)) => format!("…–{e}").into(),
