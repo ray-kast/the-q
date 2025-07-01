@@ -1,31 +1,28 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-    hash::Hash,
-};
+use std::{collections::BTreeMap, fmt, hash::Hash};
+
+use hashbrown::HashMap;
 
 use super::Dfa;
-// TODO: switch to the optimized implementation once it...well, works
 use crate::{
-    dfa::Node,
+    dfa::{collect_state_keys, collect_states, State, DFA_START},
     egraph::{self, prelude::*, trace::dot, EGraphTrace, ENode},
     free::Succ,
-    partition_map::{Partition, PartitionMap},
+    partition_map::Partition,
     union_find::ClassId,
 };
 
 // NOTE: Ord is not exactly mathematically sound here, but in this case I need
 // it to make this insertable into BTreeMaps
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Op<I, N, E, T> {
+pub enum Op<I, T, E> {
     Node {
-        accept: Option<T>,
-        edges: BTreeMap<Partition<I>, Option<E>>,
+        accept: T,
+        edges: BTreeMap<Partition<I>, E>,
     },
-    Impostor(N),
+    Impostor(usize),
 }
 
-impl<I: fmt::Debug, N: fmt::Debug, E: fmt::Debug, T: fmt::Debug> dot::Format for Op<I, N, E, T> {
+impl<I: fmt::Debug, T: fmt::Debug, E: fmt::Debug> dot::Format for Op<I, T, E> {
     fn fmt_node(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Node { accept, .. } => f.write_fmt(format_args!("accept {accept:?}")),
@@ -43,34 +40,34 @@ impl<I: fmt::Debug, N: fmt::Debug, E: fmt::Debug, T: fmt::Debug> dot::Format for
     }
 }
 
-pub type Graph<I, N, E, T> = egraph::fast::EGraph<Op<I, N, E, T>, N>;
-pub type ClassMap<N> = BTreeMap<N, ClassId<N>>;
-pub type Output<I, N, E, T, G = Graph<I, N, E, T>> = (Dfa<I, ClassId<N>, E, T>, G, ClassMap<N>);
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Node;
+
+pub type Graph<I, T, E> = egraph::fast::EGraph<Op<I, T, E>, Node>;
+pub type Output<I, T, E, G = Graph<I, T, E>> = (Dfa<I, T, E>, G, HashMap<usize, ClassId<Node>>);
 
 #[inline]
 pub(super) fn run_default<
     I: Clone + Ord + Hash + Succ,
-    N: Clone + Ord + Hash,
-    E: Clone + Ord + Hash,
     T: Clone + Ord + Hash,
+    E: Clone + Ord + Hash,
 >(
-    dfa: &Dfa<I, N, E, T>,
-) -> Output<I, N, E, T> {
-    run::<I, N, E, T, Graph<I, N, E, T>, ()>(dfa, Graph::default(), &mut ())
+    dfa: &Dfa<I, T, E>,
+) -> Output<I, T, E> {
+    run::<I, T, E, Graph<I, T, E>, ()>(dfa, Graph::default(), &mut ())
 }
 
 pub fn run<
     I: Clone + Ord + Hash + Succ,
-    N: Clone + Ord + Hash,
-    E: Clone + Ord,
     T: Clone + Ord + Hash,
-    G: EGraphUpgradeTrace<FuncSymbol = Op<I, N, E, T>, Class = N>,
-    R: EGraphTrace<Op<I, N, E, T>, N>,
+    E: Clone + Ord,
+    G: EGraphUpgradeTrace<FuncSymbol = Op<I, T, E>, Class = Node>,
+    R: EGraphTrace<Op<I, T, E>, Node>,
 >(
-    dfa: &Dfa<I, N, E, T>,
+    dfa: &Dfa<I, T, E>,
     mut eg: G,
     t: &mut R,
-) -> Output<I, N, E, T, G> {
+) -> Output<I, T, E, G> {
     enum Command<N> {
         Explore(N),
         Add(N),
@@ -80,33 +77,33 @@ pub fn run<
     let mut classes = BTreeMap::new();
     let mut impostors = BTreeMap::new();
 
-    stk.push(Command::Explore(dfa.start.clone()));
+    stk.push(Command::Explore(DFA_START));
 
     while let Some(node) = stk.pop() {
         match node {
             Command::Explore(n) => {
                 use std::collections::btree_map::Entry;
 
-                match classes.entry(n.clone()) {
+                match classes.entry(n) {
                     Entry::Occupied(_) => continue,
                     Entry::Vacant(v) => drop(v.insert(None)),
                 }
 
-                let states = &dfa.states[&n];
+                let state = &dfa.0[n];
                 stk.push(Command::Add(n));
-                for (_, n) in states.0.values().cloned() {
+                for (_, n) in state.0.values().cloned() {
                     if !classes.contains_key(&n) {
                         stk.push(Command::Explore(n));
                     }
                 }
             },
             Command::Add(n) => {
-                let Node(ref edges, ref accept) = dfa.states[&n];
+                let State(ref edges, ref accept) = dfa.0[n];
                 let enode = ENode::new(
                     Op::Node {
                         accept: accept.clone(),
                         edges: edges
-                            .partitions()
+                            .ranges()
                             .map(|(k, (e, _))| (k.to_owned(), e.clone()))
                             .collect(),
                     }
@@ -116,7 +113,7 @@ pub fn run<
                         .cloned()
                         .map(|(_, n)| {
                             classes[&n].unwrap_or_else(|| {
-                                *impostors.entry(n.clone()).or_insert_with(|| {
+                                *impostors.entry(n).or_insert_with(|| {
                                     eg.add(ENode::new(Op::Impostor(n).into(), [].into()))
                                         .unwrap()
                                 })
@@ -139,14 +136,15 @@ pub fn run<
     }
     drop(wr);
 
-    let trap = eg.find(classes[&dfa.trap]).unwrap();
-    let states = eg
-        .class_nodes()
-        .into_iter()
-        .map(|(k, v)| (k, v.into_iter().collect()))
-        .collect::<BTreeMap<_, BTreeSet<_>>>()
-        .into_iter()
-        .map(|(c, mut n)| {
+    let nodes = eg.class_nodes();
+    let state_ids = collect_state_keys(
+        nodes.keys().copied(),
+        &eg.find(*classes.get(&DFA_START).unwrap()).unwrap(),
+    );
+
+    let states = collect_states(
+        &state_ids,
+        eg.class_nodes().into_iter().map(|(s, mut n)| {
             n.retain(|n| !matches!(n.op(), Op::Impostor(_)));
             assert!(n.len() == 1);
 
@@ -157,23 +155,29 @@ pub fn run<
             let args = node.args();
 
             (
-                c,
-                PartitionMap::from_iter_with_default(
+                s,
+                State(
                     edges
                         .iter()
                         .enumerate()
-                        .map(|(i, (e, t))| (e.clone(), (t.clone(), args[i]))),
-                    (None, trap),
+                        .map(|(i, (e, t))| {
+                            (e.clone(), (t.clone(), *state_ids.get(&args[i]).unwrap()))
+                        })
+                        .collect(),
+                    accept.clone(),
                 ),
-                accept.clone(),
             )
-        });
+        }),
+    );
 
-    (
-        Dfa::new(states, eg.find(classes[&dfa.start]).unwrap(), trap),
-        eg,
-        classes,
-    )
+    drop(nodes);
+
+    let n_ids = state_ids.len();
+    let state_classes: HashMap<_, _> = state_ids.into_iter().map(|(k, v)| (v, k)).collect();
+
+    debug_assert!(state_classes.len() == n_ids);
+
+    (Dfa::new(states), eg, state_classes)
 }
 
 #[cfg(test)]
@@ -181,15 +185,15 @@ mod test {
     use std::{fmt, hash::Hash};
 
     use foldhash::fast::FixedState;
+    use hashbrown::HashMap;
     use proptest::prelude::*;
 
     use super::EGraphUpgrade;
     use crate::{
         egraph::{self, congr, fast, reference, test_tools::EGraphParts},
         free::Succ,
-        partition_map::PartitionMap,
+        range_map::RangeMap,
         re::kleene,
-        union_find::ClassId,
     };
 
     // fn print_snap(dot::Snapshot { graph }: dot::Snapshot) { println!("{graph}") }
@@ -210,95 +214,109 @@ mod test {
     // }
 
     fn run<
-        G: EGraphUpgrade<FuncSymbol = super::Op<I, N, E, T>, Class = N>,
+        G: EGraphUpgrade<FuncSymbol = super::Op<I, T, E>, Class = super::Node>,
         I: Clone + Ord + Hash + Succ + fmt::Debug,
-        N: Clone + Ord + Hash + fmt::Debug,
-        E: Clone + Ord,
         T: Clone + Ord + Hash + fmt::Debug,
+        E: Clone + Ord,
     >(
-        dfa: &super::Dfa<I, N, E, T>,
+        dfa: &super::Dfa<I, T, E>,
         egraph: G,
-    ) -> super::Output<I, N, E, T, G> {
-        super::run::<_, _, _, _, G, _>(dfa, egraph, &mut ())
+    ) -> super::Output<I, T, E, G> {
+        super::run::<_, _, _, G, _>(dfa, egraph, &mut ())
     }
 
     #[expect(clippy::type_complexity, reason = "chill out man, it's a test helper")]
-    fn run_ref<
-        I: Clone + Ord + Hash + Succ,
-        N: Clone + Ord + Hash,
-        E: Clone + Ord + Hash,
-        T: Clone + Ord + Hash,
-    >(
-        dfa: &super::Dfa<I, N, E, T>,
-    ) -> super::Output<I, N, E, T, reference::EGraph<super::Op<I, N, E, T>, N>> {
+    fn run_ref<I: Clone + Ord + Hash + Succ, T: Clone + Ord + Hash, E: Clone + Ord + Hash>(
+        dfa: &super::Dfa<I, T, E>,
+    ) -> super::Output<I, T, E, reference::EGraph<super::Op<I, T, E>, super::Node>> {
         super::run(dfa, reference::EGraph::default(), &mut ())
     }
 
     fn assert_equiv<
         I: fmt::Debug + Clone + Ord,
-        N: fmt::Debug + Ord,
-        E: fmt::Debug + Clone + Ord,
         T: fmt::Debug + Clone + Ord,
-        L: Into<EGraphParts<super::Op<I, N, E, T>, N>>,
-        R: Into<EGraphParts<super::Op<I, N, E, T>, N>>,
+        E: fmt::Debug + Clone + Ord,
+        L: Into<EGraphParts<super::Op<I, T, E>, super::Node>>,
+        R: Into<EGraphParts<super::Op<I, T, E>, super::Node>>,
     >(
-        lhs: &super::Dfa<I, ClassId<N>, E, T>,
-        lhs_graph: L,
-        rhs: &super::Dfa<I, ClassId<N>, E, T>,
-        rhs_graph: R,
+        lhs: super::Output<I, T, E, L>,
+        rhs: super::Output<I, T, E, R>,
     ) {
+        let (lhs, lhs_graph, lhs_cm) = lhs;
+        let (rhs, rhs_graph, rhs_cm) = rhs;
+
         let mapping = egraph::test_tools::assert_equiv(lhs_graph, rhs_graph);
 
-        let trap = *mapping.image(&lhs.trap).unwrap();
-        let lhs_mapped = super::Dfa {
-            states: lhs
-                .states
-                .iter()
-                .map(|(s, n)| {
+        let lhs: HashMap<_, (RangeMap<_, _>, _)> = lhs
+            .into_states()
+            .into_iter()
+            .enumerate()
+            .map(|(i, super::State(e, t))| {
+                (
+                    lhs_cm[&i],
                     (
-                        *mapping.image(s).unwrap(),
-                        super::Node(
-                            PartitionMap::from_iter_with_default(
-                                n.0.partitions().map(|(k, (e, v))| {
-                                    (k.to_owned(), (e.clone(), *mapping.image(v).unwrap()))
-                                }),
-                                (None, trap),
-                            ),
-                            n.1.clone(),
-                        ),
-                    )
-                })
-                .collect(),
-            start: *mapping.image(&lhs.start).unwrap(),
-            trap,
-        };
+                        e.into_ranges()
+                            .map(|(i, (e, s))| (i, (e, lhs_cm[&s])))
+                            .collect(),
+                        t,
+                    ),
+                )
+            })
+            .collect();
 
-        let trap = *mapping.preimage(&rhs.trap).unwrap();
-        let rhs_mapped = super::Dfa {
-            states: rhs
-                .states
-                .iter()
-                .map(|(s, n)| {
+        let rhs: HashMap<_, (RangeMap<_, _>, _)> = rhs
+            .into_states()
+            .into_iter()
+            .enumerate()
+            .map(|(i, super::State(e, t))| {
+                (
+                    rhs_cm[&i],
                     (
-                        *mapping.preimage(s).unwrap(),
-                        super::Node(
-                            PartitionMap::from_iter_with_default(
-                                n.0.partitions().map(|(k, (e, v))| {
-                                    (k.to_owned(), (e.clone(), *mapping.preimage(v).unwrap()))
-                                }),
-                                (None, trap),
-                            ),
-                            n.1.clone(),
-                        ),
-                    )
-                })
-                .collect(),
-            start: *mapping.preimage(&rhs.start).unwrap(),
-            trap,
-        };
+                        e.into_ranges()
+                            .map(|(i, (e, s))| (i, (e, rhs_cm[&s])))
+                            .collect(),
+                        t,
+                    ),
+                )
+            })
+            .collect();
 
-        assert_eq!(*lhs, rhs_mapped);
-        assert_eq!(lhs_mapped, *rhs);
+        let lhs_mapped: HashMap<_, _> = lhs
+            .iter()
+            .map(|(s, (e, t))| {
+                (
+                    *mapping.image(s).unwrap(),
+                    (
+                        e.ranges()
+                            .map(|(k, (e, v))| {
+                                (k.to_owned(), (e.clone(), *mapping.image(v).unwrap()))
+                            })
+                            .collect(),
+                        t.clone(),
+                    ),
+                )
+            })
+            .collect();
+
+        let rhs_mapped: HashMap<_, _> = rhs
+            .iter()
+            .map(|(s, (e, t))| {
+                (
+                    *mapping.preimage(s).unwrap(),
+                    (
+                        e.ranges()
+                            .map(|(k, (e, v))| {
+                                (k.to_owned(), (e.clone(), *mapping.preimage(v).unwrap()))
+                            })
+                            .collect(),
+                        t.clone(),
+                    ),
+                )
+            })
+            .collect();
+
+        assert_eq!(lhs, rhs_mapped);
+        assert_eq!(lhs_mapped, rhs);
     }
 
     proptest! {
@@ -317,11 +335,11 @@ mod test {
             0..16,
             crate::prop::symbol(),
         )) {
-            let nfa = r.compile_atomic();
-            let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
+            let nfa = r.compile();
+            let dfa = nfa.compile();
             // let mut t = FlushOnDrop::new();
 
-            run::<reference::EGraph<_, _>, _, _, _, _>(&dfa, reference::EGraph::default());
+            run::<reference::EGraph<_, _>, _, _, _>(&dfa, reference::EGraph::default());
         }
 
         #[test]
@@ -332,16 +350,16 @@ mod test {
             0..16,
             crate::prop::symbol(),
         )) {
-            let nfa = r.compile_atomic();
-            let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
+            let nfa = r.compile();
+            let dfa = nfa.compile();
             // let mut t = FlushOnDrop::new();
 
-            let (opt, graph, _) = run::<congr::EGraph<_, _>, _, _, _, _>(
+            let lhs = run::<congr::EGraph<_, _>, _, _, _>(
                 &dfa,
                 congr::EGraph::default(),
             );
-            let (ref_opt, ref_graph, _) = run_ref(&dfa);
-            assert_equiv(&opt, graph, &ref_opt, ref_graph);
+            let rhs = run_ref(&dfa);
+            assert_equiv(lhs, rhs);
         }
 
         #[test]
@@ -355,16 +373,16 @@ mod test {
             ),
             seed in any::<u64>(),
         ) {
-            let nfa = r.compile_atomic();
-            let (dfa, _) = nfa.compile().atomize_nodes::<u64>();
+            let nfa = r.compile();
+            let dfa = nfa.compile();
             // let mut t = FlushOnDrop::new();
 
-            let (opt, graph, _) = run::<fast::EGraph<_, _, _>, _, _, _, _>(
+            let lhs = run::<fast::EGraph<_, _, _>, _, _, _>(
                 &dfa,
                 fast::EGraph::with_hasher(FixedState::with_seed(seed)),
             );
-            let (ref_opt, ref_graph, _) = run_ref(&dfa);
-            assert_equiv(&opt, graph, &ref_opt, ref_graph);
+            let rhs = run_ref(&dfa);
+            assert_equiv(lhs, rhs);
         }
     }
 }

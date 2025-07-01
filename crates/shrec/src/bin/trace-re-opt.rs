@@ -22,22 +22,21 @@ use shrec::{
 fn main() {
     let re = Star(Alt(vec![Lit(vec!['0']), Lit(vec!['1'])]).into());
 
-    let non_dfa = re.compile_atomic();
+    let non_dfa = re.compile();
     let dfa = non_dfa.compile();
-    let (dfa, _) = dfa.atomize_nodes::<u64>();
 
     println!(
         "{}",
         dfa.dot(
+            |s| format!("{s}").into(),
             |i| format!("{i:?}").into(),
-            |n| format!("{n}").into(),
-            |e| Some(format!("{e:?}").into()),
             |t| Some(format!("{t:?}").into()),
+            |e| Some(format!("{e:?}").into()),
         )
     );
 
     let mut t = DotTracer::rich(|dot::Snapshot { graph }| println!("{graph}"));
-    let (dfa, ..) = optimize::run::<_, _, _, _, reference::EGraph<_, _>, _>(
+    let (dfa, _, cm) = optimize::run::<_, _, _, reference::EGraph<_, _>, _>(
         &dfa,
         reference::EGraph::new(),
         &mut t,
@@ -48,10 +47,10 @@ fn main() {
     println!(
         "{}",
         dfa.dot(
+            |s| format!("{:?}", cm[&s]).into(),
             |i| format!("{i:?}").into(),
-            |n| format!("{}", n.id()).into(),
-            |e| Some(format!("{e:?}").into()),
             |t| Some(format!("{t:?}").into()),
+            |e| Some(format!("{e:?}").into()),
         )
     );
 }

@@ -1,59 +1,43 @@
 use super::Regex;
 use crate::{
-    free::{Free, Succ},
-    nfa::Nfa,
+    free::Succ,
+    nfa::{Nfa, NFA_START},
     partition_map::Partition,
     re::run::IntoSymbols,
 };
 
-pub struct NfaBuilder<I, E, T> {
-    nfa: Nfa<I, u64, E, T>,
-    free: Free<u64>,
-}
+pub struct NfaBuilder<I, T, E>(Nfa<I, Option<T>, E>);
 
-impl<I: Clone + Ord + Succ, E: Clone + Ord, T: Ord> NfaBuilder<I, E, T> {
-    fn new() -> Self {
-        let mut free = Free::default();
-        let start = free.fresh();
-        let nfa = Nfa::new(start);
-
-        Self { nfa, free }
-    }
+impl<I: Clone + Ord + Succ, T: Ord, E: Default + Clone + Ord> NfaBuilder<I, T, E> {
+    #[inline]
+    fn new() -> Self { Self(Nfa::new()) }
 
     pub fn build<B: IntoIterator<Item = (Regex<L>, T)>, L: IntoSymbols<Atom = I>>(
         tok_bag: B,
     ) -> Self {
         let mut me = Self::new();
         for (regex, tok) in tok_bag {
-            let accept = me.free.fresh();
-            assert!(me.nfa.insert_accept(accept, tok).is_none());
-            me.build_in(regex, *me.nfa.start(), accept);
+            let accept = me.0.push_accept(Some(tok));
+            me.build_in(regex, NFA_START, accept);
         }
         me
     }
 
     #[inline]
-    fn fresh_node(&mut self) -> u64 {
-        let fresh = self.free.fresh();
-        assert!(self.nfa.insert(fresh).is_none());
-        fresh
+    fn connect(&mut self, from: usize, to: usize, by: Option<Partition<I>>, out: E) {
+        assert!(self.0.connect(from, to, by, out));
     }
 
-    #[inline]
-    fn connect(&mut self, from: u64, to: u64, by: Option<Partition<I>>, out: Option<E>) {
-        assert!(self.nfa.connect(&from, to, by, out));
-    }
-
-    fn build_in<L: IntoSymbols<Atom = I>>(&mut self, regex: Regex<L>, head: u64, tail: u64) {
+    fn build_in<L: IntoSymbols<Atom = I>>(&mut self, regex: Regex<L>, head: usize, tail: usize) {
         match regex {
             Regex::Alt(a) => {
                 for re in a {
-                    let h = self.fresh_node();
-                    let t = self.fresh_node();
+                    let h = self.0.push();
+                    let t = self.0.push();
 
                     self.build_in(re, h, t);
-                    self.connect(head, h, None, None);
-                    self.connect(t, tail, None, None);
+                    self.connect(head, h, None, E::default());
+                    self.connect(t, tail, None, E::default());
                 }
             },
             Regex::Cat(c) => {
@@ -62,19 +46,19 @@ impl<I: Clone + Ord + Succ, E: Clone + Ord, T: Ord> NfaBuilder<I, E, T> {
                 });
             },
             Regex::Star(r) => {
-                let h = self.fresh_node();
-                let t = self.fresh_node();
+                let h = self.0.push();
+                let t = self.0.push();
 
                 self.build_in(*r, h, t);
-                self.connect(head, h, None, None);
-                self.connect(t, tail, None, None);
-                self.connect(head, tail, None, None);
-                self.connect(t, h, None, None);
+                self.connect(head, h, None, E::default());
+                self.connect(t, tail, None, E::default());
+                self.connect(head, tail, None, E::default());
+                self.connect(t, h, None, E::default());
             },
             Regex::Lit(l) => {
                 self.build_cat_in(l.into_symbols(), head, tail, |s, i, h, t| {
                     for part in i {
-                        s.connect(h, t, Some(part), None);
+                        s.0.connect(h, t, Some(part), E::default());
                     }
                 });
             },
@@ -85,15 +69,15 @@ impl<I: Clone + Ord + Succ, E: Clone + Ord, T: Ord> NfaBuilder<I, E, T> {
     fn build_cat_in<J: IntoIterator>(
         &mut self,
         it: J,
-        head: u64,
-        tail: u64,
-        f: impl Fn(&mut Self, J::Item, u64, u64),
+        head: usize,
+        tail: usize,
+        f: impl Fn(&mut Self, J::Item, usize, usize),
     ) {
         let mut h = head;
         let mut prev = None;
         for el in it {
             if let Some(el) = prev.replace(el) {
-                let t = self.fresh_node();
+                let t = self.0.push();
                 f(self, el, h, t);
                 h = t;
             }
@@ -102,10 +86,10 @@ impl<I: Clone + Ord + Succ, E: Clone + Ord, T: Ord> NfaBuilder<I, E, T> {
         if let Some(el) = prev {
             f(self, el, h, tail);
         } else {
-            self.connect(head, tail, None, None);
+            self.connect(head, tail, None, E::default());
         }
     }
 
     #[inline]
-    pub fn finish(self) -> Nfa<I, u64, E, T> { self.nfa }
+    pub fn finish(self) -> Nfa<I, Option<T>, E> { self.0 }
 }

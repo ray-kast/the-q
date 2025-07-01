@@ -6,6 +6,8 @@ use std::{
 
 use indexmap::IndexMap;
 
+use crate::autom::Accept;
+
 macro_rules! attr {
     ($id:ident, $name:literal) => {
         pub fn $id<S: Into<Cow<'a, str>>>(&mut self, $id: S) {
@@ -133,36 +135,36 @@ impl<'a> Graph<'a> {
     }
 
     pub(crate) fn state_machine<
-        I,
-        S,
-        E,
-        T,
-        IN: IntoIterator<Item = (S, IE, Option<T>)>,
-        IE: IntoIterator<Item = (I, IO)>,
-        IO: IntoIterator<Item = (Option<E>, S)>,
-        G: FnMut(&S) -> u32,
-        FI: Fn(I) -> Cow<'a, str>,
-        FS: Fn(S) -> Cow<'a, str>,
-        FE: Fn(E) -> Option<Cow<'a, str>>,
-        FT: Fn(T) -> Option<Cow<'a, str>>,
+        State: Copy,
+        Input,
+        NodeTok: Accept,
+        EdgeTok: Accept,
+        IterStates: IntoIterator<Item = (State, IterEdges, NodeTok)>,
+        IterEdges: IntoIterator<Item = (Input, IterDeltas)>,
+        IterDeltas: IntoIterator<Item = (EdgeTok, State)>,
+        G: FnMut(State) -> u32,
+        FS: Fn(State) -> Cow<'a, str>,
+        FI: Fn(Input) -> Cow<'a, str>,
+        FT: Fn(&NodeTok::Token) -> Option<Cow<'a, str>>,
+        FE: Fn(&EdgeTok::Token) -> Option<Cow<'a, str>>,
     >(
-        nodes: IN,
-        start: &S,
+        nodes: IterStates,
+        start: State,
         mut get_id: G,
-        fmt_input: FI,
         fmt_state: FS,
-        fmt_edge: FE,
-        fmt_tok: FT,
+        fmt_input: FI,
+        fmt_node_tok: FT,
+        fmt_edge_tok: FE,
     ) -> Self {
         let mut graph = Self::new(GraphType::Directed);
 
         for (state, edges, accept) in nodes {
-            let id = Cow::from(get_id(&state).to_string());
+            let id = Cow::from(get_id(state).to_string());
             let node = graph.node(id.clone());
 
             let mut label = fmt_state(state);
-            if let Some(tok) = accept {
-                if let Some(tok) = fmt_tok(tok) {
+            if let Some(tok) = accept.as_token() {
+                if let Some(tok) = fmt_node_tok(tok) {
                     label = format!("{label}:{tok}").into();
                 }
 
@@ -174,16 +176,19 @@ impl<'a> Graph<'a> {
             for (input, outputs) in edges {
                 let input = fmt_input(input);
 
-                for (out, next_state) in outputs {
-                    let edge = graph.edge(id.clone(), get_id(&next_state).to_string());
+                for (accept, next_state) in outputs {
+                    let edge = graph.edge(id.clone(), get_id(next_state).to_string());
 
-                    let label = if let Some(out) = out.and_then(&fmt_edge) {
-                        format!("{input}/{out}").into()
-                    } else {
-                        input.clone()
-                    };
+                    let mut label = None;
+                    if let Some(tok) = accept.as_token() {
+                        if let Some(tok) = fmt_edge_tok(tok) {
+                            label = Some(format!("{input}/{tok}").into());
+                        }
 
-                    edge.label(label);
+                        edge.pen_width("2");
+                    }
+
+                    edge.label(label.unwrap_or_else(|| input.clone()));
                 }
             }
         }
@@ -347,7 +352,9 @@ impl<'a> Edge<'a> {
 
     attr!(concentrate, "concentrate");
 
-    attr!(label, "label");
+    attr!(pen_width, "penwidth");
 
     attr!(color, "color");
+
+    attr!(label, "label");
 }

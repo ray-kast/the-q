@@ -59,6 +59,14 @@ impl<K: Ord, V> RangeMap<K, V> {
     }
 }
 
+impl<K: Copy + Ord, V> RangeMap<&K, V> {
+    #[inline]
+    pub fn copied_keys(self) -> RangeMap<K, V> {
+        let Self(m) = self;
+        RangeMap(m.copied_keys())
+    }
+}
+
 impl<K: Clone + Ord, V: Clone + PartialEq> RangeMap<K, V> {
     #[inline]
     pub fn insert<B: PartitionBounds<K>>(&mut self, range: B, value: V) {

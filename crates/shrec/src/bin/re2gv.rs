@@ -173,7 +173,7 @@ fn main() {
     //     ]),
     // ]);
 
-    let non_dfa = re.compile_atomic();
+    let non_dfa = re.compile();
 
     // let cm = cm.into_iter().fold(HashMap::new(), |mut m, (k, v)| {
     //     m.entry(eg.find(v).unwrap())
@@ -194,16 +194,15 @@ fn main() {
         ),
         Output::Dfa => {
             let dfa = non_dfa.compile();
-            let (dfa, _) = dfa.atomize_nodes::<u64>();
-            let (dfa_opt, eg, cm) = dfa.optimize();
+            let (dfa_opt, eg, ..) = dfa.optimize();
 
             println!(
                 "{}",
                 dfa_opt.dot(
+                    |s| format!("{s:?}").into(),
                     |i| format!("{i:?}").into(),
-                    |n| format!("{n:?}").into(),
-                    |e| Some(format!("{e:?}").into()),
                     |t| Some(format!("{t:?}").into()),
+                    |e| Some(format!("{e:?}").into()),
                 )
             );
         },
@@ -213,17 +212,16 @@ fn main() {
             println!(
                 "{}",
                 dfa.dot(
+                    |s| format!("{s:?}").into(),
                     |i| format!("{i:?}").into(),
-                    |n| format!("{n:?}").into(),
-                    |e| Some(format!("{e:?}").into()),
                     |t| Some(format!("{t:?}").into()),
+                    |e| Some(format!("{e:?}").into()),
                 )
             );
         },
         Output::Eg => {
             let dfa = non_dfa.compile();
-            let (dfa, _) = dfa.atomize_nodes::<u64>();
-            let (dfa_opt, eg, cm) = dfa.optimize();
+            let (dfa_opt, eg, ..) = dfa.optimize();
 
             println!(
                 "{}",

@@ -17,6 +17,7 @@
     reason = "TODO: document everything"
 )]
 
+pub mod autom;
 pub mod bijection;
 pub mod closure_builder;
 pub mod dfa;

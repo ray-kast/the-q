@@ -76,9 +76,7 @@ impl<L: IntoSymbols> Regex<L> {
 impl<L: IntoSymbols<Atom: Clone + Ord + Succ>> Regex<L> {
     #[inline]
     #[must_use]
-    pub fn compile_atomic(self) -> Nfa<L::Atom, u64, (), ()> {
-        NfaBuilder::build([(self, ())]).finish()
-    }
+    pub fn compile(self) -> Nfa<L::Atom, Option<()>> { NfaBuilder::build([(self, ())]).finish() }
 }
 
 pub type Token<L, T> = (Regex<L>, T);
@@ -113,7 +111,7 @@ impl<L, T> FromIterator<Token<L, T>> for RegexBag<L, T> {
 impl<L: IntoSymbols<Atom: Clone + Ord + Succ>, T: Ord> RegexBag<L, T> {
     #[inline]
     #[must_use]
-    pub fn compile_atomic(self) -> Nfa<L::Atom, u64, (), T> { NfaBuilder::build(self.0).finish() }
+    pub fn compile(self) -> Nfa<L::Atom, Option<T>> { NfaBuilder::build(self.0).finish() }
 }
 
 #[cfg(any(test, feature = "proptest"))]

@@ -1,7 +1,7 @@
 use std::{process::Stdio, str::Chars};
 
 use serenity::{builder::CreateAttachment, utils::MessageBuilder};
-use shrec::{re::run::Run, union_find::ClassId};
+use shrec::{autom::NoToken, re::run::Run};
 use tokio::{fs::File, io::AsyncWriteExt, process};
 
 use super::prelude::*;
@@ -715,9 +715,8 @@ async fn graph_res(
 async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<CreateAttachment> {
     trace!("{re:?}");
 
-    let nfa = re.compile_atomic();
+    let nfa = re.compile();
     let dfa = nfa.compile();
-    let (dfa, _) = dfa.atomize_nodes::<u32>();
     let (dfa, ..) = dfa.optimize();
 
     let path = dir.path().join(format!("graph{i}.png"));
@@ -725,6 +724,7 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
     let graph = format!(
         "{}",
         dfa.dot(
+            |_: usize| "".into(),
             |i| {
                 let (start, end) = i.copied().bounds();
 
@@ -765,15 +765,8 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
                     }
                 }
             },
-            |_: &ClassId<_>| "".into(),
-            |e| {
-                let () = e.iter().copied().collect();
-                None
-            },
-            |t| {
-                let () = t.iter().copied().collect();
-                None
-            }
+            |_: &BTreeSet<()>| None,
+            |_: &BTreeSet<NoToken>| None,
         )
     );
 
