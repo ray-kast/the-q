@@ -133,6 +133,12 @@ impl<
     pub fn compile(&self) -> dfa_builder::Output<I, T, E> { DfaBuilder::new(self).build() }
 }
 
+impl<I: Clone + Ord, T: Accept<Token: Clone + Ord + Hash>> Nfa<I, T> {
+    #[inline]
+    #[must_use]
+    pub fn compile_moore(&self) -> dfa_builder::Moore<I, T> { DfaBuilder::new(self).build_moore() }
+}
+
 impl<I, T: Accept, E: Accept> Nfa<I, T, E> {
     pub fn dot<'a>(
         &self,

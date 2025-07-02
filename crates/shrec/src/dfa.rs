@@ -89,7 +89,7 @@ impl<I, T, E> Dfa<I, T, E> {
         Self(states)
     }
 
-    pub fn map_nodes<U>(self, f: impl Fn(T) -> U) -> Dfa<I, U, E> {
+    pub fn map_nodes<U>(self, mut f: impl FnMut(T) -> U) -> Dfa<I, U, E> {
         Dfa(self
             .0
             .into_iter()
@@ -98,7 +98,10 @@ impl<I, T, E> Dfa<I, T, E> {
     }
 
     // TODO: try_trait_v2 wen eta
-    pub fn try_map_nodes<U, F>(self, f: impl Fn(T) -> Result<U, F>) -> Result<Dfa<I, U, E>, F> {
+    pub fn try_map_nodes<U, F>(
+        self,
+        mut f: impl FnMut(T) -> Result<U, F>,
+    ) -> Result<Dfa<I, U, E>, F> {
         Ok(Dfa(self
             .0
             .into_iter()

@@ -336,7 +336,7 @@ mod test {
             crate::prop::symbol(),
         )) {
             let nfa = r.compile();
-            let dfa = nfa.compile();
+            let dfa = nfa.compile_moore();
             // let mut t = FlushOnDrop::new();
 
             run::<reference::EGraph<_, _>, _, _, _>(&dfa, reference::EGraph::default());
@@ -351,7 +351,7 @@ mod test {
             crate::prop::symbol(),
         )) {
             let nfa = r.compile();
-            let dfa = nfa.compile();
+            let dfa = nfa.compile_moore();
             // let mut t = FlushOnDrop::new();
 
             let lhs = run::<congr::EGraph<_, _>, _, _, _>(
@@ -374,7 +374,7 @@ mod test {
             seed in any::<u64>(),
         ) {
             let nfa = r.compile();
-            let dfa = nfa.compile();
+            let dfa = nfa.compile_moore();
             // let mut t = FlushOnDrop::new();
 
             let lhs = run::<fast::EGraph<_, _, _>, _, _, _>(

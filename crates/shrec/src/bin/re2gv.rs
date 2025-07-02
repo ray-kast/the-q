@@ -193,7 +193,7 @@ fn main() {
             )
         ),
         Output::Dfa => {
-            let dfa = non_dfa.compile();
+            let dfa = non_dfa.compile_moore();
             let (dfa_opt, eg, ..) = dfa.optimize();
 
             println!(
@@ -207,7 +207,7 @@ fn main() {
             );
         },
         Output::DfaUnopt => {
-            let dfa = non_dfa.compile();
+            let dfa = non_dfa.compile_moore();
 
             println!(
                 "{}",
@@ -220,7 +220,7 @@ fn main() {
             );
         },
         Output::Eg => {
-            let dfa = non_dfa.compile();
+            let dfa = non_dfa.compile_moore();
             let (dfa_opt, eg, ..) = dfa.optimize();
 
             println!(

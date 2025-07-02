@@ -23,7 +23,7 @@ fn main() {
     let re = Star(Alt(vec![Lit(vec!['0']), Lit(vec!['1'])]).into());
 
     let non_dfa = re.compile();
-    let dfa = non_dfa.compile();
+    let dfa = non_dfa.compile_moore();
 
     println!(
         "{}",

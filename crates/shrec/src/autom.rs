@@ -1,5 +1,11 @@
 use std::{collections::BTreeSet, sync::Arc};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ClosedAccept<T, E> {
+    Node(T),
+    Edge(E),
+}
+
 pub trait Accept {
     type Token;
 
