@@ -103,7 +103,7 @@ impl<I, T: Default, E> Nfa<I, T, E> {
     pub fn push(&mut self) -> usize { self.push_accept(T::default()) }
 }
 
-impl<I: Clone + Ord, T: Ord, E: Clone + Ord> Nfa<I, T, E> {
+impl<I: Clone + Ord, T, E: Clone + Ord> Nfa<I, T, E> {
     pub fn connect(&mut self, from: usize, to: usize, by: Option<Partition<I>>, out: E) -> bool {
         assert!(to < self.0.len());
         let from = self.0.get_mut(from).unwrap();

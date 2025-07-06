@@ -7,7 +7,7 @@ use std::{
 
 use super::{Nfa, NFA_START};
 use crate::{
-    autom::{Accept, ClosedAccept, NoToken},
+    autom::{Accept, ClosedAccept},
     closure_builder::ClosureBuilder,
     dfa::{self, collect_state_keys, collect_states, Dfa},
     memoize::Memoize,
@@ -50,8 +50,6 @@ pub type Output<I, T, E> = Dfa<
     Arc<BTreeSet<ClosedAccept<<T as Accept>::Token, <E as Accept>::Token>>>,
     Arc<BTreeSet<<E as Accept>::Token>>,
 >;
-
-pub type Moore<I, T> = Dfa<I, Arc<BTreeSet<<T as Accept>::Token>>, Arc<BTreeSet<NoToken>>>;
 
 pub struct DfaBuilder<'a, I, T: Accept, E: Accept> {
     nfa: &'a Nfa<I, T, E>,
@@ -178,6 +176,8 @@ impl<
     }
 }
 
+pub type Moore<I, T> = Dfa<I, Arc<BTreeSet<<T as Accept>::Token>>, ()>;
+
 impl<I: Clone + Ord, T: Accept<Token: Clone + Ord + Hash>> DfaBuilder<'_, I, T, ()> {
     pub fn build_moore(&mut self) -> Moore<I, T> {
         let dfa = self.build();
@@ -193,5 +193,6 @@ impl<I: Clone + Ord, T: Accept<Token: Clone + Ord + Hash>> DfaBuilder<'_, I, T, 
                     .collect(),
             )
         })
+        .map_edges(|e| debug_assert!(e.is_empty()))
     }
 }

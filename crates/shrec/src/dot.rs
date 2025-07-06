@@ -157,6 +157,7 @@ impl<'a> Graph<'a> {
         fmt_edge_tok: FE,
     ) -> Self {
         let mut graph = Self::new(GraphType::Directed);
+        let mut edge_info = IndexMap::new();
 
         for (state, edges, accept) in nodes {
             let id = Cow::from(get_id(state).to_string());
@@ -177,20 +178,42 @@ impl<'a> Graph<'a> {
                 let input = fmt_input(input);
 
                 for (accept, next_state) in outputs {
-                    let edge = graph.edge(id.clone(), get_id(next_state).to_string());
+                    use indexmap::map::Entry;
 
                     let mut label = None;
-                    if let Some(tok) = accept.as_token() {
+                    let accept = if let Some(tok) = accept.as_token() {
                         if let Some(tok) = fmt_edge_tok(tok) {
                             label = Some(format!("{input}/{tok}").into());
                         }
 
-                        edge.pen_width("2");
-                    }
+                        true
+                    } else {
+                        false
+                    };
 
-                    edge.label(label.unwrap_or_else(|| input.clone()));
+                    let label = label.unwrap_or_else(|| input.clone());
+
+                    match edge_info.entry((id.clone(), get_id(next_state).to_string())) {
+                        Entry::Vacant(v) => {
+                            v.insert((accept, label));
+                        },
+                        Entry::Occupied(mut o) => {
+                            let s = &mut o.get_mut().1;
+                            *s = format!("{s},{label}").into();
+                        },
+                    }
                 }
             }
+        }
+
+        for ((from, to), (accept, label)) in edge_info {
+            let edge = graph.edge(from, to);
+
+            if accept {
+                edge.pen_width("2");
+            }
+
+            edge.label(label);
         }
 
         let start_id = Cow::from("_start");

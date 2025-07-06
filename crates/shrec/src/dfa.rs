@@ -6,6 +6,7 @@ use crate::{
     autom::Accept,
     dot,
     free::{Free, Succ},
+    nfa::Nfa,
     partition_map::Partition,
     range_map::RangeMap,
 };
@@ -89,7 +90,7 @@ impl<I, T, E> Dfa<I, T, E> {
         Self(states)
     }
 
-    pub fn map_nodes<U>(self, mut f: impl FnMut(T) -> U) -> Dfa<I, U, E> {
+    pub fn map_nodes<U, F: FnMut(T) -> U>(self, mut f: F) -> Dfa<I, U, E> {
         Dfa(self
             .0
             .into_iter()
@@ -98,15 +99,30 @@ impl<I, T, E> Dfa<I, T, E> {
     }
 
     // TODO: try_trait_v2 wen eta
-    pub fn try_map_nodes<U, F>(
+    pub fn try_map_nodes<U, R, F: FnMut(T) -> Result<U, R>>(
         self,
-        mut f: impl FnMut(T) -> Result<U, F>,
-    ) -> Result<Dfa<I, U, E>, F> {
+        mut f: F,
+    ) -> Result<Dfa<I, U, E>, R> {
         Ok(Dfa(self
             .0
             .into_iter()
             .map(|State(e, a)| Ok(State(e, f(a)?)))
             .collect::<Result<_, _>>()?))
+    }
+}
+
+impl<I: Clone + Ord, T, E> Dfa<I, T, E> {
+    pub fn map_edges<G: Clone + PartialEq, F: FnMut(E) -> G>(self, mut f: F) -> Dfa<I, T, G> {
+        Dfa(self
+            .0
+            .into_iter()
+            .map(|State(e, a)| {
+                State(
+                    e.into_ranges().map(|(i, (e, s))| (i, (f(e), s))).collect(),
+                    a,
+                )
+            })
+            .collect())
     }
 }
 
@@ -124,6 +140,11 @@ impl<I: Copy + Ord, T, E> Dfa<&I, T, E> {
 impl<I: Clone + Ord + Hash + Succ, T: Clone + Ord + Hash, E: Clone + Ord + Hash> Dfa<I, T, E> {
     #[must_use]
     pub fn optimize(&self) -> optimize::Output<I, T, E> { optimize::run_default(self) }
+}
+
+impl<I: Clone + Ord, T, E: Clone + Ord> Dfa<I, T, E> {
+    #[must_use]
+    pub fn into_nfa(self) -> Nfa<I, T, E> { self.into() }
 }
 
 impl<I, T: Accept, E: Accept> Dfa<I, T, E> {

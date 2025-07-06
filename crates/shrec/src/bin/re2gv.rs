@@ -15,13 +15,19 @@
     reason = "TODO: Testing code, currently it's all hard-coded and comment-toggled"
 )]
 
+use std::io::{self, Read};
+
 use clap::Parser;
 use hashbrown::{HashMap, HashSet};
 use shrec::{
     egraph::{prelude::*, trace::dot::ClosureFormatter},
-    re::kleene::{
-        Regex::{self, Alt, Cat, Lit, Star},
-        RegexBag,
+    re::{
+        kleene::{
+            syntax::{pretty, scan_one},
+            Regex::{self, Alt, Cat, Lit, Star},
+            RegexBag,
+        },
+        run::Run,
     },
 };
 
@@ -29,10 +35,14 @@ use shrec::{
 #[clap(about, version)]
 struct Opts {
     output: Output,
+
+    #[arg(required = true)]
+    regex: Vec<String>,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum Output {
+    Re,
     Nfa,
     Dfa,
     DfaUnopt,
@@ -48,182 +58,77 @@ fn main() {
         Proot,
     }
 
-    let Opts { output } = Opts::parse();
+    let Opts { output, regex } = Opts::parse();
 
-    // let re = Cat(vec![
-    //     Alt(vec![
-    //         Cat(vec![
-    //             Lit("k".chars()),
-    //             Alt(vec![
-    //                 Lit("im".chars()),
-    //                 Lit("em".chars()),
-    //                 Lit("at".chars()),
-    //             ]),
-    //         ]),
-    //         Lit("ban".chars()),
-    //     ]),
-    //     Alt(vec![
-    //         Cat(vec![
-    //             Lit("o".chars()),
-    //             Star(Lit("no".chars()).into()),
-    //         ]),
-    //         Cat(vec![
-    //             Lit("a".chars()),
-    //             Star(Lit("na".chars()).into()),
-    //         ]),
-    //     ]),
-    // ]);
-    // let re = shrec::re::syntax::token_re();
-    // let re = RegexBag::from_iter([
-    //     (
-    //         Cat(vec![
-    //             Lit("pro".chars()),
-    //             Star(
-    //                 Cat(vec![
-    //                     Alt(vec![Lit("".chars()), Lit("ta".chars())]),
-    //                     Lit("to".chars()),
-    //                 ])
-    //                 .into(),
-    //             ),
-    //             Lit("gen".chars()),
-    //         ]),
-    //         Proto::Proto,
-    //     ),
-    //     (
-    //         Cat(vec![
-    //             Lit("p".chars()),
-    //             Alt(vec![
-    //                 Lit("".chars()),
-    //                 Cat(vec![Lit("r".chars()), Star(Lit("o".chars()).into())]),
-    //             ]),
-    //             Lit("otat".chars()),
-    //             Alt(vec![
-    //                 Lit("".chars()),
-    //                 Cat(vec![
-    //                     Lit("o".chars()),
-    //                     Star(Lit("to".chars()).into()),
-    //                     Alt(vec![Lit("".chars()), Lit("t".chars()), Lit("gen".chars())]),
-    //                 ]),
-    //             ]),
-    //         ]),
-    //         Proto::Potato,
-    //     ),
-    //     (
-    //         Cat(vec![
-    //             Lit("proo".chars()),
-    //             Star(Lit("o".chars()).into()),
-    //             Lit("t".chars()),
-    //         ]),
-    //         Proto::Proot,
-    //     ),
-    // ]);
-    let re = Alt(vec![
-        Cat(vec![
-            Lit(vec!['b']),
-            Lit(vec!['n']),
-            Star(Lit(vec!['n']).into()),
-            Star(Lit(vec!['u']).into()),
-            Lit(vec!['y']),
-        ]),
-        Cat(vec![
-            Lit(vec!['b']),
-            Alt(vec![Cat(vec![]), Lit(vec!['n'])]),
-            Lit(vec!['u']),
-            Star(Lit(vec!['u']).into()),
-            Lit(vec!['n']),
-            Star(Lit(vec!['n']).into()),
-            Lit(vec!['y']),
-        ]),
-        Cat(vec![
-            Lit(vec!['b']),
-            Lit(vec!['u']),
-            Star(Lit(vec!['u']).into()),
-            Lit(vec!['n']),
-            Star(Lit(vec!['n']).into()),
-            Lit(vec!['b', 'y']),
-        ]),
-        Cat(vec![
-            Lit(vec!['b', 'o']),
-            Lit(vec!['u']),
-            Star(Lit(vec!['u']).into()),
-            Lit(vec!['n']),
-            Star(Lit(vec!['n']).into()),
-            Lit(vec!['y']),
-        ]),
-    ]);
-    // let re = Cat(vec![
-    //     Lit(vec!['b']),
-    //     Cat(vec![
-    //         Alt(vec![
-    //             Cat(vec![Cat(vec![
-    //                 Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]),
-    //                 Star(Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]).into()),
-    //             ])]),
-    //             Cat(vec![
-    //                 Lit(vec![]),
-    //                 Cat(vec![Lit(vec!['n']), Star(Lit(vec!['n']).into())]),
-    //                 Star(Cat(vec![Lit(vec!['u']), Star(Lit(vec!['n']).into())]).into()),
-    //             ]),
-    //         ]),
-    //         Cat(vec![
-    //             Lit(vec![]),
-    //             Alt(vec![Cat(vec![]), Lit(vec!['u'])]),
-    //             Lit(vec!['y']),
-    //         ]),
-    //     ]),
-    // ]);
+    let regex: RegexBag<_, _> = regex
+        .iter()
+        .enumerate()
+        .flat_map(|(i, s)| scan_one(s).unwrap().into_iter().map(move |r| (r, i)))
+        .collect();
 
-    let non_dfa = re.compile();
-
-    // let cm = cm.into_iter().fold(HashMap::new(), |mut m, (k, v)| {
-    //     m.entry(eg.find(v).unwrap())
-    //         .or_insert_with(HashSet::new)
-    //         .insert(k);
-    //     m
-    // });
-
-    match output {
-        Output::Nfa => println!(
-            "{}",
-            non_dfa.dot(
-                |i| format!("{i:?}").into(),
-                |n| format!("{n:?}").into(),
-                |e| Some(format!("{e:?}").into()),
-                |t| Some(format!("{t:?}").into()),
-            )
-        ),
-        Output::Dfa => {
-            let dfa = non_dfa.compile_moore();
-            let (dfa_opt, eg, ..) = dfa.optimize();
-
+    'comp: {
+        if matches!(output, Output::Re) {
             println!(
                 "{}",
-                dfa_opt.dot(
+                regex.dot(
+                    |l| match l {
+                        Run::Run(s) => s.as_str().into(),
+                        Run::Set(s) => s
+                            .ranges()
+                            .map(|p| pretty(p.copied()))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                            .into(),
+                    },
+                    |t| format!("{t}").into()
+                )
+            );
+            break 'comp;
+        }
+
+        let non_dfa = regex.compile();
+
+        if matches!(output, Output::Nfa) {
+            println!(
+                "{}",
+                non_dfa.dot(
                     |s| format!("{s:?}").into(),
-                    |i| format!("{i:?}").into(),
+                    |i| pretty(i.copied()),
                     |t| Some(format!("{t:?}").into()),
                     |e| Some(format!("{e:?}").into()),
                 )
             );
-        },
-        Output::DfaUnopt => {
-            let dfa = non_dfa.compile_moore();
+            break 'comp;
+        }
 
+        let dfa = non_dfa.compile_moore();
+
+        if matches!(output, Output::DfaUnopt) {
             println!(
                 "{}",
                 dfa.dot(
                     |s| format!("{s:?}").into(),
-                    |i| format!("{i:?}").into(),
+                    |i| pretty(i.copied()),
                     |t| Some(format!("{t:?}").into()),
                     |e| Some(format!("{e:?}").into()),
                 )
             );
-        },
-        Output::Eg => {
-            let dfa = non_dfa.compile_moore();
-            let (dfa_opt, eg, ..) = dfa.optimize();
+            break 'comp;
+        }
 
-            println!(
+        let (dfa_opt, eg, ..) = dfa.optimize();
+
+        match output {
+            Output::Dfa => println!(
+                "{}",
+                dfa_opt.dot(
+                    |s| format!("{s:?}").into(),
+                    |i| pretty(i.copied()),
+                    |t| Some(format!("{t:?}").into()),
+                    |e| Some(format!("{e:?}").into()),
+                )
+            ),
+            Output::Eg => println!(
                 "{}",
                 eg.dot(ClosureFormatter::new(
                     |n, f| f.write_fmt(format_args!("{n:?}")),
@@ -233,7 +138,8 @@ fn main() {
                         shrec::dfa::optimize::Op::Impostor(_) => Ok(()),
                     }
                 )),
-            );
-        },
+            ),
+            _ => unreachable!(),
+        }
     }
 }

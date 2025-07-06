@@ -1,9 +1,16 @@
+use std::borrow::Cow;
+
 use nfa_builder::NfaBuilder;
 
 use super::run::{IntoSymbols, Symbol};
-use crate::{free::Succ, nfa::Nfa};
+use crate::{
+    dot,
+    free::{Free, Succ},
+    nfa::Nfa,
+};
 
 mod nfa_builder;
+pub mod syntax;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Regex<L> {
@@ -60,6 +67,62 @@ impl<L> Regex<L> {
             r => Self::Star(r.into()),
         }
     }
+
+    fn dot_impl<'a, F: Fn(&L) -> Cow<'a, str>>(
+        &self,
+        graph: &mut dot::Graph<'a>,
+        free_id: &mut Free<usize>,
+        fmt_lit: &mut F,
+        tok: Option<Cow<'a, str>>,
+    ) -> String {
+        let id = free_id.fresh().to_string();
+
+        let label = match self {
+            Regex::Alt(v) => {
+                for re in v {
+                    let sub_id = re.dot_impl(graph, free_id, fmt_lit, None);
+                    graph.edge(id.clone(), sub_id);
+                }
+                "∪".into()
+            },
+            Regex::Cat(v) => {
+                for re in v {
+                    let sub_id = re.dot_impl(graph, free_id, fmt_lit, None);
+                    graph.edge(id.clone(), sub_id);
+                }
+                "+".into()
+            },
+            Regex::Star(r) => {
+                let sub_id = r.dot_impl(graph, free_id, fmt_lit, None);
+                graph.edge(id.clone(), sub_id);
+                "∗".into()
+            },
+            Regex::Lit(l) => fmt_lit(l),
+        };
+
+        let node = graph.node(id.clone());
+        let label = if let Some(tok) = tok {
+            node.border_count("2");
+
+            format!("{tok}: {label}").into()
+        } else {
+            label
+        };
+
+        node.label(label);
+
+        id
+    }
+
+    #[inline]
+    pub fn dot<'a, F: Fn(&L) -> Cow<'a, str>>(&self, mut fmt_lit: F) -> dot::Graph<'a> {
+        let mut graph = dot::Graph::new(dot::GraphType::Directed);
+        let mut free_id = Free::default();
+
+        self.dot_impl(&mut graph, &mut free_id, &mut fmt_lit, None);
+
+        graph
+    }
 }
 
 impl<L: IntoSymbols> Regex<L> {
@@ -85,6 +148,24 @@ pub type TokenList<L, T> = Vec<Token<L, T>>;
 #[derive(Debug, Default)]
 #[repr(transparent)]
 pub struct RegexBag<L, T>(TokenList<L, T>);
+
+impl<L, T> RegexBag<L, T> {
+    #[inline]
+    pub fn dot<'a, FL: Fn(&L) -> Cow<'a, str>, FT: Fn(&T) -> Cow<'a, str>>(
+        &self,
+        mut fmt_lit: FL,
+        fmt_tok: FT,
+    ) -> dot::Graph<'a> {
+        let mut graph = dot::Graph::new(dot::GraphType::Directed);
+        let mut free_id = Free::default();
+
+        for (re, tok) in &self.0 {
+            re.dot_impl(&mut graph, &mut free_id, &mut fmt_lit, Some(fmt_tok(tok)));
+        }
+
+        graph
+    }
+}
 
 impl<L, T> From<TokenList<L, T>> for RegexBag<L, T> {
     #[inline]
