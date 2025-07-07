@@ -10,45 +10,72 @@
 )]
 #![warn(clippy::pedantic, missing_docs)]
 
+use clap::Parser;
 use shrec::{
     dfa::optimize,
     egraph::{
-        reference,
+        fast, reference,
         trace::{dot, DotTracer},
     },
-    re::kleene::Regex::{Alt, Lit, Star},
+    re::kleene::{
+        syntax::{pretty, scan_one},
+        RegexBag,
+    },
 };
 
+#[derive(Parser)]
+#[clap(about, version)]
+struct Opts {
+    #[arg(long, short)]
+    reference: bool,
+
+    #[arg(required = true)]
+    regex: Vec<String>,
+}
+
 fn main() {
-    let re = Star(Alt(vec![Lit(vec!['0']), Lit(vec!['1'])]).into());
+    let Opts { reference, regex } = Opts::parse();
+
+    let re: RegexBag<_, _> = regex
+        .iter()
+        .enumerate()
+        .flat_map(|(i, s)| scan_one(s).unwrap().into_iter().map(move |r| (r, i)))
+        .collect();
 
     let non_dfa = re.compile();
-    let (dfa, ..) = non_dfa.compile_moore();
+    let (dfa, cm) = non_dfa.compile_moore();
 
     println!(
         "{}",
         dfa.dot(
-            |s| format!("{s}").into(),
-            |i| format!("{i:?}").into(),
+            |s| format!("{:?}", cm[s]).into(),
+            |i| pretty(i.copied()),
             |t| Some(format!("{t:?}").into()),
             |e| Some(format!("{e:?}").into()),
         )
     );
 
     let mut t = DotTracer::rich(|dot::Snapshot { graph }| println!("{graph}"));
-    let (dfa, _, cm) = optimize::run::<_, _, _, reference::EGraph<_, _>, _>(
-        &dfa,
-        reference::EGraph::new(),
-        &mut t,
-    );
+    let dfa_opt;
+    let cm;
+    if reference {
+        (dfa_opt, _, cm) = optimize::run::<_, _, _, reference::EGraph<_, _>, _>(
+            &dfa,
+            reference::EGraph::new(),
+            &mut t,
+        );
+    } else {
+        (dfa_opt, _, cm) =
+            optimize::run::<_, _, _, fast::EGraph<_, _>, _>(&dfa, fast::EGraph::new(), &mut t);
+    }
 
     t.flush();
 
     println!(
         "{}",
-        dfa.dot(
+        dfa_opt.dot(
             |s| format!("{:?}", cm[s]).into(),
-            |i| format!("{i:?}").into(),
+            |i| pretty(i.copied()),
             |t| Some(format!("{t:?}").into()),
             |e| Some(format!("{e:?}").into()),
         )
