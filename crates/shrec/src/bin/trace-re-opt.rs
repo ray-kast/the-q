@@ -23,7 +23,7 @@ fn main() {
     let re = Star(Alt(vec![Lit(vec!['0']), Lit(vec!['1'])]).into());
 
     let non_dfa = re.compile();
-    let dfa = non_dfa.compile_moore();
+    let (dfa, ..) = non_dfa.compile_moore();
 
     println!(
         "{}",
@@ -47,7 +47,7 @@ fn main() {
     println!(
         "{}",
         dfa.dot(
-            |s| format!("{:?}", cm[&s]).into(),
+            |s| format!("{:?}", cm[s]).into(),
             |i| format!("{i:?}").into(),
             |t| Some(format!("{t:?}").into()),
             |e| Some(format!("{e:?}").into()),

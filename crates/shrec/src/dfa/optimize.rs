@@ -1,7 +1,5 @@
 use std::{collections::BTreeMap, fmt, hash::Hash};
 
-use hashbrown::HashMap;
-
 use super::Dfa;
 use crate::{
     dfa::{collect_state_keys, collect_states, State, DFA_START},
@@ -44,7 +42,7 @@ impl<I: fmt::Debug, T: fmt::Debug, E: fmt::Debug> dot::Format for Op<I, T, E> {
 pub struct Node;
 
 pub type Graph<I, T, E> = egraph::fast::EGraph<Op<I, T, E>, Node>;
-pub type Output<I, T, E, G = Graph<I, T, E>> = (Dfa<I, T, E>, G, HashMap<usize, ClassId<Node>>);
+pub type Output<I, T, E, G = Graph<I, T, E>> = (Dfa<I, T, E>, G, Vec<ClassId<Node>>);
 
 #[inline]
 pub(super) fn run_default<
@@ -142,7 +140,7 @@ pub fn run<
         &eg.find(*classes.get(&DFA_START).unwrap()).unwrap(),
     );
 
-    let states = collect_states(
+    let (states, state_classes) = collect_states(
         &state_ids,
         eg.class_nodes().into_iter().map(|(s, mut n)| {
             n.retain(|n| !matches!(n.op(), Op::Impostor(_)));
@@ -171,12 +169,6 @@ pub fn run<
     );
 
     drop(nodes);
-
-    let n_ids = state_ids.len();
-    let state_classes: HashMap<_, _> = state_ids.into_iter().map(|(k, v)| (v, k)).collect();
-
-    debug_assert!(state_classes.len() == n_ids);
-
     (Dfa::new(states), eg, state_classes)
 }
 
@@ -253,10 +245,10 @@ mod test {
             .enumerate()
             .map(|(i, super::State(e, t))| {
                 (
-                    lhs_cm[&i],
+                    lhs_cm[i],
                     (
                         e.into_ranges()
-                            .map(|(i, (e, s))| (i, (e, lhs_cm[&s])))
+                            .map(|(i, (e, s))| (i, (e, lhs_cm[s])))
                             .collect(),
                         t,
                     ),
@@ -270,10 +262,10 @@ mod test {
             .enumerate()
             .map(|(i, super::State(e, t))| {
                 (
-                    rhs_cm[&i],
+                    rhs_cm[i],
                     (
                         e.into_ranges()
-                            .map(|(i, (e, s))| (i, (e, rhs_cm[&s])))
+                            .map(|(i, (e, s))| (i, (e, rhs_cm[s])))
                             .collect(),
                         t,
                     ),
@@ -336,7 +328,7 @@ mod test {
             crate::prop::symbol(),
         )) {
             let nfa = r.compile();
-            let dfa = nfa.compile_moore();
+            let (dfa, _) = nfa.compile_moore();
             // let mut t = FlushOnDrop::new();
 
             run::<reference::EGraph<_, _>, _, _, _>(&dfa, reference::EGraph::default());
@@ -351,7 +343,7 @@ mod test {
             crate::prop::symbol(),
         )) {
             let nfa = r.compile();
-            let dfa = nfa.compile_moore();
+            let (dfa, _) = nfa.compile_moore();
             // let mut t = FlushOnDrop::new();
 
             let lhs = run::<congr::EGraph<_, _>, _, _, _>(
@@ -374,7 +366,7 @@ mod test {
             seed in any::<u64>(),
         ) {
             let nfa = r.compile();
-            let dfa = nfa.compile_moore();
+            let (dfa, _) = nfa.compile_moore();
             // let mut t = FlushOnDrop::new();
 
             let lhs = run::<fast::EGraph<_, _, _>, _, _, _>(

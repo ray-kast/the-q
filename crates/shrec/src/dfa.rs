@@ -54,12 +54,18 @@ pub fn collect_states<
 >(
     map: &HashMap<K, usize>,
     it: I,
-) -> Vec<V> {
+) -> (Vec<V>, Vec<K>) {
     let it = it.into_iter();
     let len = it.len();
-    let map: BTreeMap<usize, _> = it.map(|(k, v)| (*map.get(&k).unwrap(), v)).collect();
-    assert!(map.len() == len);
-    map.into_values().collect()
+    let (states, keys): (BTreeMap<usize, _>, BTreeMap<usize, _>) = it
+        .map(|(k, v)| {
+            let id = *map.get(&k).unwrap();
+            ((id, v), (id, k))
+        })
+        .unzip();
+    assert!(states.len() == len);
+    assert!(keys.len() == len);
+    (states.into_values().collect(), keys.into_values().collect())
 }
 
 #[derive(Debug, PartialEq)]

@@ -101,13 +101,13 @@ fn main() {
             break 'comp;
         }
 
-        let dfa = non_dfa.compile_moore();
+        let (dfa, dfa_cm) = non_dfa.compile_moore();
 
         if matches!(output, Output::DfaUnopt) {
             println!(
                 "{}",
                 dfa.dot(
-                    |s| format!("{s:?}").into(),
+                    |s| format!("{:?}", dfa_cm[s]).into(),
                     |i| pretty(i.copied()),
                     |t| Some(format!("{t:?}").into()),
                     |e| Some(format!("{e:?}").into()),
@@ -116,13 +116,13 @@ fn main() {
             break 'comp;
         }
 
-        let (dfa_opt, eg, ..) = dfa.optimize();
+        let (dfa_opt, eg, eg_cm) = dfa.optimize();
 
         match output {
             Output::Dfa => println!(
                 "{}",
                 dfa_opt.dot(
-                    |s| format!("{s:?}").into(),
+                    |s| format!("{:?}", eg_cm[s]).into(),
                     |i| pretty(i.copied()),
                     |t| Some(format!("{t:?}").into()),
                     |e| Some(format!("{e:?}").into()),

@@ -45,11 +45,14 @@ impl<I, T: Accept, E: Accept> State<I, T, E> {
     }
 }
 
-pub type Output<I, T, E> = Dfa<
-    I,
-    Arc<BTreeSet<ClosedAccept<<T as Accept>::Token, <E as Accept>::Token>>>,
-    Arc<BTreeSet<<E as Accept>::Token>>,
->;
+pub type Output<I, T, E> = (
+    Dfa<
+        I,
+        Arc<BTreeSet<ClosedAccept<<T as Accept>::Token, <E as Accept>::Token>>>,
+        Arc<BTreeSet<<E as Accept>::Token>>,
+    >,
+    Vec<Arc<BTreeSet<usize>>>,
+);
 
 pub struct DfaBuilder<'a, I, T: Accept, E: Accept> {
     nfa: &'a Nfa<I, T, E>,
@@ -93,7 +96,10 @@ impl<
         let start: Arc<BTreeSet<usize>> = memo_state.memoize(start);
 
         if start.is_empty() {
-            return Dfa::new(vec![dfa::State(RangeMap::new(), no_node_tok)]);
+            return (
+                Dfa::new(vec![dfa::State(RangeMap::new(), no_node_tok)]),
+                vec![start],
+            );
         }
 
         let mut states: BTreeMap<Arc<BTreeSet<usize>>, State<I, T, E>> = BTreeMap::default();
@@ -151,8 +157,7 @@ impl<
 
         let state_ids = collect_state_keys(states.keys().cloned(), &start);
 
-        // TODO: check for unnecessary memory allocations
-        Dfa::new(collect_states(
+        let (states, state_sets) = collect_states(
             &state_ids,
             states.into_iter().map(|(s, State(e, k))| {
                 (
@@ -172,27 +177,35 @@ impl<
                     ),
                 )
             }),
-        ))
+        );
+
+        (Dfa::new(states), state_sets)
     }
 }
 
-pub type Moore<I, T> = Dfa<I, Arc<BTreeSet<<T as Accept>::Token>>, ()>;
+pub type Moore<I, T> = (
+    Dfa<I, Arc<BTreeSet<<T as Accept>::Token>>, ()>,
+    Vec<Arc<BTreeSet<usize>>>,
+);
 
 impl<I: Clone + Ord, T: Accept<Token: Clone + Ord + Hash>> DfaBuilder<'_, I, T, ()> {
     pub fn build_moore(&mut self) -> Moore<I, T> {
-        let dfa = self.build();
+        let (dfa, sets) = self.build();
         let mut memo_tok = Memoize::default();
 
-        dfa.map_nodes(|t| {
-            memo_tok.memoize(
-                t.iter()
-                    .map(|t| match t {
-                        ClosedAccept::Node(n) => n.clone(),
-                        ClosedAccept::Edge(e) => match *e {},
-                    })
-                    .collect(),
-            )
-        })
-        .map_edges(|e| debug_assert!(e.is_empty()))
+        (
+            dfa.map_nodes(|t| {
+                memo_tok.memoize(
+                    t.iter()
+                        .map(|t| match t {
+                            ClosedAccept::Node(n) => n.clone(),
+                            ClosedAccept::Edge(e) => match *e {},
+                        })
+                        .collect(),
+                )
+            })
+            .map_edges(|e| debug_assert!(e.is_empty())),
+            sets,
+        )
     }
 }

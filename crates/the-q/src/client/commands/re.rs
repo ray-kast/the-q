@@ -40,7 +40,7 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
     trace!("{re:?}");
 
     let nfa = re.compile();
-    let dfa = nfa.compile_moore();
+    let (dfa, ..) = nfa.compile_moore();
     let (dfa, ..) = dfa.optimize();
 
     let path = dir.path().join(format!("graph{i}.png"));
