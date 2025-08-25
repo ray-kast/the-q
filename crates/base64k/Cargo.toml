@@ -9,6 +9,8 @@ repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
 arrayvec = "0.7.6"
+clap.workspace = true
+clap.optional = true
 wide = "0.7.33"
 
 [dev-dependencies]
