@@ -51,7 +51,9 @@ impl Visitor<'_> {
 
         let FileDescriptorSet { file } = desc;
 
-        file.iter().for_each(|f| self.fildes(&scope, f));
+        for f in file {
+            self.fildes(&scope, f);
+        }
     }
 
     #[inline]

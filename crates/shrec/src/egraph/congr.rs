@@ -213,7 +213,7 @@ impl<F: Ord + Hash, C> EGraphRead for EGraph<F, C> {
         node.classes_canonical(&self.eq_uf)
     }
 
-    fn class_nodes(&self) -> ClassNodes<Self> {
+    fn class_nodes(&self) -> ClassNodes<'_, Self> {
         self.node_data.values().fold(HashMap::new(), |mut m, d| {
             assert!(m
                 .entry(self.eq_uf.find(d.class).unwrap())
@@ -382,10 +382,10 @@ impl<F: Ord + Hash, C> EGraph<F, C> {
                                 .union(other_congr_class, old_congr_class)
                                 .unwrap();
 
-                            if let Some(unioned) = unioned {
-                                if let Some(class) = new_parents.remove(&unioned) {
-                                    new_parents.insert(root, class);
-                                }
+                            if let Some(unioned) = unioned
+                                && let Some(class) = new_parents.remove(&unioned)
+                            {
+                                new_parents.insert(root, class);
                             }
 
                             root

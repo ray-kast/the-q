@@ -8,12 +8,12 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/ray-kast/the-q/"
 
 [dependencies]
-anyhow = "1.0.98"
+anyhow = "1.0.100"
 clap.workspace = true
 git2 = "0.20.2"
 prost = "0.14.1"
 prost-types = "0.14.1"
 shrec.workspace = true
-tempfile = "3.20.0"
+tempfile = "3.23.0"
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["tracing-log", "fmt"] }
+tracing-subscriber = { version = "0.3.20", features = ["tracing-log", "fmt"] }

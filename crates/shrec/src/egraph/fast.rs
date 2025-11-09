@@ -241,7 +241,7 @@ impl<F: Eq + Hash, C, S: Clone + BuildHasher> EGraphRead for EGraph<F, C, S> {
         node.classes_canonical(&self.eq_uf)
     }
 
-    fn class_nodes(&self) -> ClassNodes<Self, S> {
+    fn class_nodes(&self) -> ClassNodes<'_, Self, S> {
         self.poison_check();
 
         self.node_data.values().fold(
@@ -591,10 +591,10 @@ impl<F: Eq + Hash, C, T: EGraphTrace<F, C>, S: Clone + BuildHasher> EGraphMut<'_
                             .union(other_congr_class, old_congr_class)
                             .expect_invariant("Unable to union updated parent IDs");
 
-                        if let Some(unioned) = unioned {
-                            if let Some(class) = new_parents.remove(&unioned) {
-                                new_parents.insert(root, class);
-                            }
+                        if let Some(unioned) = unioned
+                            && let Some(class) = new_parents.remove(&unioned)
+                        {
+                            new_parents.insert(root, class);
                         }
 
                         root

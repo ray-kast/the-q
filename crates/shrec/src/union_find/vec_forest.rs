@@ -79,7 +79,7 @@ impl VecForestSet {
     }
 
     #[inline]
-    pub fn roots(&self) -> Roots { Roots(self.0.iter().enumerate()) }
+    pub fn roots(&self) -> Roots<'_> { Roots(self.0.iter().enumerate()) }
 }
 
 impl ForestFind<usize> for VecForestSet {

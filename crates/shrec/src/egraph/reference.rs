@@ -133,7 +133,8 @@ impl<F: Ord, C> EGraphCore for EGraph<F, C> {
                     .is_none_or(|c| class == c));
             }
 
-            self.node_classes.insert(node, class);
+            assert!(self.node_classes.insert(node, class).is_none());
+
             class
         })
     }
@@ -155,7 +156,7 @@ impl<F: Ord + Hash, C> EGraphRead for EGraph<F, C> {
         node.classes_canonical(&self.uf)
     }
 
-    fn class_nodes(&self) -> ClassNodes<Self, Self::Hasher> {
+    fn class_nodes(&self) -> ClassNodes<'_, Self, Self::Hasher> {
         self.node_classes
             .iter()
             .fold(HashMap::new(), |mut m: HashMap<_, HashSet<_>>, (n, &c)| {

@@ -10,32 +10,32 @@ repository = "https://github.com/ray-kast/the-q/"
 build = "build.rs"
 
 [dependencies]
-anyhow = "1.0.98"
-async-trait = "0.1.88" # TODO: remove async-trait?
+anyhow = "1.0.100"
+async-trait = "0.1.89" # TODO: remove async-trait?
 clap.workspace = true
 dotenvy = "0.15.7"
 futures-util.workspace = true
 hashbrown.workspace = true
 hostname = "0.4.1"
 jpeggr.workspace = true
-notify = "8.0.0"
+notify = "8.2.0"
 once_cell = { version = "1.21.3", features = ["parking_lot"] }
-ordered-float = "5.0.0"
+ordered-float = "5.1.0"
 paracord.workspace = true
 prost = "0.14.1"
 qcore.workspace = true
-reqwest = { version = "0.12.20", features = ["deflate", "gzip", "brotli", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12.24", features = ["deflate", "gzip", "brotli", "rustls-tls"], default-features = false }
 serenity.workspace = true
 shrec.workspace = true
 songbird = { version = "0.5.0", features = ["serenity"] }
 strsim = "0.11.1"
-symphonia = { version = "0.5.4", features = ["all"] }
-tempfile = "3.20.0"
-tokio = { version = "1.45.1", features = ["parking_lot", "full", "tracing"] }
+symphonia = { version = "0.5.5", features = ["all"] }
+tempfile = "3.23.0"
+tokio = { version = "1.48.0", features = ["parking_lot", "full", "tracing"] }
 tracing = "0.1.41"
 tracing-loki = { version = "0.2.6", default-features = false, features = ["rustls", "compat-0-2-1"] }
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "tracing-log"] }
-url = "2.5.4"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "tracing-log"] }
+url = "2.5.7"
 walkdir = "2.5.0"
 
 [dev-dependencies]
@@ -43,5 +43,5 @@ proptest.workspace = true
 shrec = { workspace = true, features = ["proptest"] }
 
 [build-dependencies]
-glob = "0.3.2"
+glob = "0.3.3"
 prost-build = "0.14.1"

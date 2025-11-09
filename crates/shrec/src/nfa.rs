@@ -39,7 +39,7 @@ impl<I, T, E> Node<I, T, E> {
     pub fn nil_edges(&self) -> &BTreeSet<(E, usize)> { &self.nil }
 
     #[inline]
-    pub fn edges(&self) -> Edges<I, E> {
+    pub fn edges(&self) -> Edges<'_, I, E> {
         Edges {
             nil: Some(&self.nil),
             map: self.map.partitions(),

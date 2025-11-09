@@ -101,7 +101,7 @@ impl<T, V: Variance> CompatPair<T, V> {
     }
 
     #[inline]
-    pub const fn display(&self) -> Display<Self> { Display(self) }
+    pub const fn display(&self) -> Display<'_, Self> { Display(self) }
 
     pub fn into_inner(self) -> (T, T) {
         let Self {
@@ -373,7 +373,7 @@ impl<T> Side<T> {
     }
 
     #[inline]
-    pub const fn display(&self) -> Display<Side<T>> { Display(self) }
+    pub const fn display(&self) -> Display<'_, Side<T>> { Display(self) }
 
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Side<U> {
         match self {
@@ -537,7 +537,7 @@ impl<T, V: Variance> SideInclusive<T, V> {
     }
 
     #[inline]
-    pub const fn display(&self) -> Display<SideInclusive<T, V>> { Display(self) }
+    pub const fn display(&self) -> Display<'_, SideInclusive<T, V>> { Display(self) }
 
     pub fn map<U>(self, f: impl Fn(T) -> U) -> SideInclusive<U, V> {
         match self {

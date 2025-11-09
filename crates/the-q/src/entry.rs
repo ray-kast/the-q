@@ -94,7 +94,7 @@ pub fn main() {
         .context("Error loading hostname")
         .and_then(|h| {
             h.into_string()
-                .map_err(|s| anyhow!("Couldn't parse hostname {s:?}"))
+                .map_err(|s| anyhow!("Couldn't parse hostname {}", s.display()))
         })
         .unwrap_or_else(|e| init_error!("Error getting system hostname: {e}"));
 

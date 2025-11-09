@@ -38,14 +38,18 @@ impl ShortArray {
     #[cfg(any(miri, test))]
     fn encode_miri(&self) -> [u32; ShortArray::WIDTH] {
         let mut arr = self.0;
-        arr.iter_mut().for_each(|i| *i = (*i + 0x800) ^ 0xd800);
+        for i in &mut arr {
+            *i = (*i + 0x800) ^ 0xd800;
+        }
         arr
     }
 
     #[cfg(any(miri, test))]
     fn decode_miri(&self) -> [u32; ShortArray::WIDTH] {
         let mut arr = self.0;
-        arr.iter_mut().for_each(|i| *i = (*i ^ 0xd800) - 0x800);
+        for i in &mut arr {
+            *i = (*i ^ 0xd800) - 0x800;
+        }
         arr
     }
 

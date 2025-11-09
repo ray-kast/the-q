@@ -142,7 +142,7 @@ impl<'a, I: private::Interaction> BasicVisitor<'a, I> {
     /// # Errors
     /// This method returns an error if the input data is non-conformant.
     #[inline]
-    pub fn guild(&self) -> Result<GuildVisitor> {
+    pub fn guild(&self) -> Result<GuildVisitor<'_>> {
         if self.int.guild_id().is_some() != self.int.member().is_some() {
             return Err(Error::Malformed(
                 "Guild ID and member info presence desynced",

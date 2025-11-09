@@ -14,9 +14,9 @@ pub fn diff_opts(file: impl AsRef<Path>) -> DiffOptions {
 }
 
 pub fn log(
-    repo: &'_ Repository,
+    repo: &Repository,
     mut diffopt: DiffOptions,
-) -> Result<impl Iterator<Item = Result<Commit>> + '_> {
+) -> Result<impl Iterator<Item = Result<Commit<'_>>> + '_> {
     let mut rw = repo.revwalk()?;
     rw.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
     rw.push_head()?;

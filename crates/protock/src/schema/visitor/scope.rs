@@ -34,7 +34,7 @@ impl<'a> GlobalScope<'a> {
     }
 
     #[inline]
-    pub fn package_ref<S: AsRef<str>>(&self, package: Option<&S>) -> Option<ScopeRef> {
+    pub fn package_ref<S: AsRef<str>>(&self, package: Option<&S>) -> Option<ScopeRef<'_>> {
         let ret = split_package(package).try_fold(ScopeRef::new(self), ScopeRef::child)?;
 
         matches!(ret.scope.kind, Some(ScopeKind::Package(_))).then_some(ret)

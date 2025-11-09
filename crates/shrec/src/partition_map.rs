@@ -196,7 +196,7 @@ impl<K, V> PartitionMap<K, V> {
 
     #[inline]
     #[must_use]
-    pub fn partitions(&self) -> Partitions<K, V> { Partitions::new(self) }
+    pub fn partitions(&self) -> Partitions<'_, K, V> { Partitions::new(self) }
 
     #[inline]
     #[must_use]
@@ -204,11 +204,11 @@ impl<K, V> PartitionMap<K, V> {
 
     #[inline]
     #[must_use]
-    pub fn keys(&self) -> Keys<K, V> { Keys(Partitions::new(self)) }
+    pub fn keys(&self) -> Keys<'_, K, V> { Keys(Partitions::new(self)) }
 
     #[inline]
     #[must_use]
-    pub fn values(&self) -> Values<K, V> { Values(Partitions::new(self)) }
+    pub fn values(&self) -> Values<'_, K, V> { Values(Partitions::new(self)) }
 }
 
 #[cfg(any(test, feature = "test"))]

@@ -5,9 +5,9 @@ edition = "2024"
 publish = false
 
 [dependencies]
-afl = "0.15.19"
-arbitrary = { version = "1.4.1", features = ["derive"] }
-foldhash = "0.1.5"
+afl = "0.17.0"
+arbitrary = { version = "1.4.2", features = ["derive"] }
+foldhash = "0.2.0"
 shrec = { version = "0.1.0", path = "../../crates/shrec", features = ["test"] }
 
 [features]

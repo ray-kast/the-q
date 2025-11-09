@@ -33,13 +33,13 @@ impl<T> RangeSet<T> {
     pub const fn full() -> Self { Self::new(true) }
 
     #[must_use]
-    pub fn all_ranges(&self) -> AllRanges<T> { AllRanges(self.0.partitions()) }
+    pub fn all_ranges(&self) -> AllRanges<'_, T> { AllRanges(self.0.partitions()) }
 
     #[must_use]
-    pub fn ranges(&self) -> Ranges<T> { Ranges(self.0.partitions(), true) }
+    pub fn ranges(&self) -> Ranges<'_, T> { Ranges(self.0.partitions(), true) }
 
     #[must_use]
-    pub fn empty_ranges(&self) -> Ranges<T> { Ranges(self.0.partitions(), false) }
+    pub fn empty_ranges(&self) -> Ranges<'_, T> { Ranges(self.0.partitions(), false) }
 
     #[must_use]
     pub fn into_ranges(self) -> IntoRanges<T> { IntoRanges(self.0.into_partitions(), true) }

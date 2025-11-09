@@ -105,7 +105,7 @@ impl<C: ?Sized> UnionFind<C> {
     pub fn classes(&self) -> Classes<C> { Classes(0..self.0.len(), PhantomData) }
 
     #[inline]
-    pub fn roots(&self) -> Roots<C> { Roots(self.0.roots(), PhantomData) }
+    pub fn roots(&self) -> Roots<'_, C> { Roots(self.0.roots(), PhantomData) }
 
     /// Add a new node to the union-find, returning its ID
     #[inline]

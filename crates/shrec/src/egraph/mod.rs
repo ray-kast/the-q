@@ -59,7 +59,7 @@ pub trait EGraphRead: EGraphCore {
 
     fn is_canonical(&self, node: &ENode<Self::FuncSymbol, Self::Class>) -> Result<bool, NoNode>;
 
-    fn class_nodes(&self) -> ClassNodes<Self, Self::Hasher>;
+    fn class_nodes(&self) -> ClassNodes<'_, Self, Self::Hasher>;
 
     fn dot<M: trace::dot::Formatter<Self::FuncSymbol>>(&self, f: M) -> dot::Graph<'static>;
 }

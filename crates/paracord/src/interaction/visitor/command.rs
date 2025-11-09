@@ -111,7 +111,7 @@ macro_rules! visit_basic {
         /// This method returns an error if the command does not take arguments
         #[doc = concat!("or the named argument is not ", $desc)]
         /// or an equivalent autocomplete argument
-        $vis fn $name(&mut self, name: &'a str) -> Result<AutocompleteOptionVisitor<$ty>> {
+        $vis fn $name(&mut self, name: &'a str) -> Result<AutocompleteOptionVisitor<'_, $ty>> {
             let opt = self.visit_opt(name)?;
             if let Some(opt) = opt {
                 match opt.value {
@@ -140,7 +140,7 @@ macro_rules! visit_basic {
         /// # Errors
         /// This method returns an error if the command does not take arguments
         #[doc = concat!("or the named argument is not ", $desc)]
-        $vis fn $name(&mut self, name: &'a str) -> Result<OptionVisitor<$ty>> {
+        $vis fn $name(&mut self, name: &'a str) -> Result<OptionVisitor<'_, $ty>> {
             let opt = self.visit_opt(name)?;
             if let Some(opt) = opt {
                 match opt.value {

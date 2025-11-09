@@ -70,7 +70,7 @@ impl CompatError {
     ) -> Self {
         Self {
             cx: unsafe {
-                pair.map(|s| Box::new(s) as Box<(dyn fmt::Debug + 'static)>)
+                pair.map(|s| Box::new(s) as Box<dyn fmt::Debug + 'static>)
                     .force_covar()
             },
             message: message.to_string(),

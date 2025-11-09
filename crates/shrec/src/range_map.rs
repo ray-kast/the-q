@@ -37,18 +37,18 @@ impl<K, V> RangeMap<K, V> {
     pub const fn new() -> Self { Self(PartitionMap::new(None)) }
 
     #[must_use]
-    pub fn ranges(&self) -> Ranges<K, V> { Ranges(self.0.partitions()) }
+    pub fn ranges(&self) -> Ranges<'_, K, V> { Ranges(self.0.partitions()) }
 
     #[must_use]
     pub fn into_ranges(self) -> IntoRanges<K, V> { IntoRanges(self.0.into_partitions()) }
 
     #[inline]
     #[must_use]
-    pub fn keys(&self) -> Keys<K, V> { Keys(Ranges(self.0.partitions())) }
+    pub fn keys(&self) -> Keys<'_, K, V> { Keys(Ranges(self.0.partitions())) }
 
     #[inline]
     #[must_use]
-    pub fn values(&self) -> Values<K, V> { Values(Ranges(self.0.partitions())) }
+    pub fn values(&self) -> Values<'_, K, V> { Values(Ranges(self.0.partitions())) }
 }
 
 impl<K: Ord, V> RangeMap<K, V> {

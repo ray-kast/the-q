@@ -231,11 +231,11 @@ impl<'a> ReStack<'a> {
                         return Err(ParseError::MissingUnop(u, &s[..end]));
                     },
                     Production::Segment(l) => 'pre: {
-                        if let Some((idx, _)) = l.char_indices().last() {
-                            if idx > 0 {
-                                let (pre, suf) = l.split_at(idx);
-                                break 'pre (Some(Regex::Lit(pre.into())), Regex::Lit(suf.into()));
-                            }
+                        if let Some((idx, _)) = l.char_indices().last()
+                            && idx > 0
+                        {
+                            let (pre, suf) = l.split_at(idx);
+                            break 'pre (Some(Regex::Lit(pre.into())), Regex::Lit(suf.into()));
                         }
 
                         (None, Regex::Lit(l.into()))
@@ -530,7 +530,7 @@ fn push_err<'a>(res: &mut ParseResult<'a>, err: ParseError<'a>) {
 
 fn tick_trail_err(s: &str) -> ParseError<'_> { ParseError::BacktickTrail(s) }
 
-pub fn scan_one(s: &str) -> ParseResult {
+pub fn scan_one(s: &str) -> ParseResult<'_> {
     let mut res = Ok(vec![]);
     let mut state = ReState::new(0);
 
@@ -547,7 +547,7 @@ pub fn scan_one(s: &str) -> ParseResult {
     res
 }
 
-pub fn scan_any(s: &str) -> ParseResult {
+pub fn scan_any(s: &str) -> ParseResult<'_> {
     fn finish<'a>(state: ReState<'a>, s: &'a str, i: usize, res: &mut ParseResult<'a>) {
         match (state.finish(s, i), res) {
             (Ok(r), Ok(v)) => v.push(r),

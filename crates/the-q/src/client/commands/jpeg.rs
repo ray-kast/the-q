@@ -162,34 +162,31 @@ impl CommandHandler<Schema> for JpegMessageCommand {
                 break 'found Some((JpegInput::Attachment(attachment), &*attachment.filename));
             }
 
-            // TODO: when let-chains
             if let [ref embed] = *message.embeds {
-                if let Some(ref image) = embed.image {
-                    if let Ok(url) = image.url.parse() {
-                        break 'found Some((JpegInput::Url(url), "output.jpg"));
-                    }
+                if let Some(ref image) = embed.image
+                    && let Ok(url) = image.url.parse()
+                {
+                    break 'found Some((JpegInput::Url(url), "output.jpg"));
                 }
 
-                if let Some(ref thumbnail) = embed.thumbnail {
-                    if let Ok(url) = thumbnail.url.parse() {
-                        break 'found Some((JpegInput::Url(url), "thumb.jpg"));
-                    }
+                if let Some(ref thumbnail) = embed.thumbnail
+                    && let Ok(url) = thumbnail.url.parse()
+                {
+                    break 'found Some((JpegInput::Url(url), "thumb.jpg"));
                 }
 
-                if let Some(ref author) = embed.author {
-                    if let Some(ref icon) = author.icon_url {
-                        if let Ok(url) = icon.parse() {
-                            break 'found Some((JpegInput::Url(url), "icon.jpg"));
-                        }
-                    }
+                if let Some(ref author) = embed.author
+                    && let Some(ref icon) = author.icon_url
+                    && let Ok(url) = icon.parse()
+                {
+                    break 'found Some((JpegInput::Url(url), "icon.jpg"));
                 }
 
-                if let Some(ref url) = embed.url {
-                    if let Ok(url) = url.parse::<Url>() {
-                        if ImageFormat::from_path(url.path()).is_ok() {
-                            break 'found Some((JpegInput::Url(url), "embed.jpg"));
-                        }
-                    }
+                if let Some(ref url) = embed.url
+                    && let Ok(url) = url.parse::<Url>()
+                    && ImageFormat::from_path(url.path()).is_ok()
+                {
+                    break 'found Some((JpegInput::Url(url), "embed.jpg"));
                 }
             }
 

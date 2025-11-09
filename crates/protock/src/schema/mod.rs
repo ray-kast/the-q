@@ -90,17 +90,17 @@ mod imp {
                     types,
                 },
                 |k, v, log| {
-                    if let Some(writer) = v.visit(Side::Writer(())) {
-                        if !writer.internal() {
-                            CompatError::new_var(
-                                cx.as_ref().map(|c| c.name.to_owned()).into(),
-                                format!(
-                                    "Missing {} type {k:?} present in writer",
-                                    writer.var_pretty()
-                                ),
-                            )
-                            .err(log);
-                        }
+                    if let Some(writer) = v.visit(Side::Writer(()))
+                        && !writer.internal()
+                    {
+                        CompatError::new_var(
+                            cx.as_ref().map(|c| c.name.to_owned()).into(),
+                            format!(
+                                "Missing {} type {k:?} present in writer",
+                                writer.var_pretty()
+                            ),
+                        )
+                        .err(log);
                     }
                 },
             );
