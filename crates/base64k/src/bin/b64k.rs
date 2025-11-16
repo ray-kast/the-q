@@ -16,8 +16,10 @@ use std::{
     path::PathBuf,
 };
 
+#[cfg(feature = "clap")]
 use clap::Parser;
 
+#[cfg(feature = "clap")]
 #[derive(Parser)]
 struct Opts {
     #[arg(long, short)]
@@ -26,6 +28,12 @@ struct Opts {
     file: Option<PathBuf>,
 }
 
+#[cfg(not(feature = "clap"))]
+fn main() {
+    panic!("Feature 'clap' is required to build this binary");
+}
+
+#[cfg(feature = "clap")]
 fn main() {
     let Opts { decode, file } = Opts::parse();
 
