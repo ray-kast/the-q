@@ -11,9 +11,9 @@ repository = "https://github.com/ray-kast/the-q/"
 anyhow = "1.0.100"
 clap.workspace = true
 git2 = "0.20.2"
+mid-tools.workspace = true
 prost = "0.14.1"
 prost-types = "0.14.1"
-shrec.workspace = true
 tempfile = "3.23.0"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["tracing-log", "fmt"] }

@@ -2004,6 +2004,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 
 [[package]]
+name = "mid-tools"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "hashbrown 0.16.0",
+ "indexmap",
+ "spin 0.10.0",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2662,9 +2673,9 @@ dependencies = [
  "anyhow",
  "clap",
  "git2",
+ "mid-tools",
  "prost 0.14.1",
  "prost-types 0.14.1",
- "shrec",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -3584,19 +3595,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shrec"
-version = "0.1.0"
-dependencies = [
- "clap",
- "foldhash",
- "hashbrown 0.16.0",
- "indexmap",
- "proptest",
- "spin 0.10.0",
- "thiserror 2.0.17",
-]
-
-[[package]]
 name = "signal-hook-registry"
 version = "1.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4160,6 +4158,7 @@ dependencies = [
  "hashbrown 0.16.0",
  "hostname",
  "jpeggr",
+ "mid-tools",
  "notify",
  "once_cell",
  "ordered-float 5.1.0",
@@ -4170,7 +4169,6 @@ dependencies = [
  "qcore",
  "reqwest 0.12.24",
  "serenity",
- "shrec",
  "songbird",
  "strsim 0.11.1",
  "symphonia",

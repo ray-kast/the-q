@@ -1,10 +1,10 @@
 use std::process::Stdio;
 
-use serenity::{builder::CreateAttachment, utils::MessageBuilder};
-use shrec::{
+use mid_tools::{
     autom::NoToken,
     re::kleene::syntax::{pretty, scan_any, scan_one, ParseError, Regex},
 };
+use serenity::{builder::CreateAttachment, utils::MessageBuilder};
 use tokio::{fs::File, io::AsyncWriteExt, process};
 
 use super::prelude::*;

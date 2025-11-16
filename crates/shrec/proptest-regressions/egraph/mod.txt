@@ -1,9 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc 3780f1a100c54e5efff661f52322570af695405805c237e2a78455c404177d65 # shrinks to (nodes, merges) = (Tree(Symbol('ὐ'), [Tree(Symbol('»'), []), Tree(Symbol('Ὕ'), []), Tree(Symbol('j'), [])]), [(2, 3), (0, 1)])
-cc 208b56f4193cd411a8b9d8aa358d42aa372e3e7bdf6bc2015f91827e89a12d2b # shrinks to (nodes, merges) = (Tree(Symbol('ҕ'), [Tree(Symbol('0'), [Tree(Symbol('R'), []), Tree(Symbol('/'), []), Tree(Symbol('\\'), [])])]), [(3, 0), (1, 4)])
-cc 799487415b9f9d40d438c0481688ca6634a866796c110a391fff42c1328043ce # shrinks to (nodes, merges) = (Tree(Symbol('Ύ'), [Tree(Symbol('%'), [Tree(Symbol('A'), []), Tree(Symbol('a'), [])]), Tree(Symbol('%'), [Tree(Symbol('0'), []), Tree(Symbol('0'), [])])]), [(1, 2), (0, 0), (3, 1), (1, 0)])

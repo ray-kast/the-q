@@ -8,12 +8,13 @@ futures-util = "0.3.31"
 hashbrown = "0.16.0"
 proptest = "1.9.0"
 
+mid-tools = { version = "0.0.0", path = "../wire-stuff/crates/mid-tools" }
+
 base64k = { version = "=0.1.0", path = "crates/base64k" }
 jpeggr = { version = "=0.1.0", path = "crates/jpeggr" }
 paracord = { version = "=0.1.0", path = "crates/paracord" }
 qcore = { version = "=0.1.0", path = "crates/qcore" }
 qmacros = { version = "=0.1.0", path = "crates/qmacros" }
-shrec = { version = "=0.1.0", path = "crates/shrec" }
 
 [workspace.dependencies.clap]
 version = "4.5.51"

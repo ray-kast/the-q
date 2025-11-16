@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use shrec::range_set::RangeSet;
+use mid_tools::range_set::RangeSet;
 
 use super::ty::TypeContext;
 use crate::{

@@ -18,6 +18,7 @@ futures-util.workspace = true
 hashbrown.workspace = true
 hostname = "0.4.1"
 jpeggr.workspace = true
+mid-tools.workspace = true
 notify = "8.2.0"
 once_cell = { version = "1.21.3", features = ["parking_lot"] }
 ordered-float = "5.1.0"
@@ -26,7 +27,6 @@ prost = "0.14.1"
 qcore.workspace = true
 reqwest = { version = "0.12.24", features = ["deflate", "gzip", "brotli", "rustls-tls"], default-features = false }
 serenity.workspace = true
-shrec.workspace = true
 songbird = { version = "0.5.0", features = ["serenity"] }
 strsim = "0.11.1"
 symphonia = { version = "0.5.5", features = ["all"] }
@@ -40,7 +40,6 @@ walkdir = "2.5.0"
 
 [dev-dependencies]
 proptest.workspace = true
-shrec = { workspace = true, features = ["proptest"] }
 
 [build-dependencies]
 glob = "0.3.3"

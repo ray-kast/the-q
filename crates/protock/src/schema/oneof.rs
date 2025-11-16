@@ -3,7 +3,7 @@ use std::{
     fmt::Write,
 };
 
-use shrec::union_find::{ClassId, UnionFind};
+use mid_tools::union_find::{ClassId, UnionFind};
 
 use super::ty::TypeContext;
 use crate::{

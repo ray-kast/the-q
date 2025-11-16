@@ -1,8 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc 9f2e6db6294d12f89235b80b8eb55f6f23a39dfc426edf2132ae7f07ecdc58c0 # shrinks to r = Star(Alt([Lit(['!']), Lit(['Ἐ'])]))
-cc 8844601b6ce31859f11ba98960afe369c03f5d33f135112680aee1b9e6cd589a # shrinks to r = Star(Alt([Lit(['ὐ', '`']), Lit(['a', '`']), Lit(['0'])]))

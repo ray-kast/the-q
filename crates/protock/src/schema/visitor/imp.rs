@@ -1,5 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use mid_tools::range_set::RangeSet;
 use prost_types::{
     descriptor_proto::ReservedRange, enum_descriptor_proto::EnumReservedRange,
     file_options::OptimizeMode, method_options::IdempotencyLevel, DescriptorProto,
@@ -7,7 +8,6 @@ use prost_types::{
     FileDescriptorProto, FileDescriptorSet, FileOptions, MessageOptions, MethodDescriptorProto,
     MethodOptions, OneofDescriptorProto, ServiceDescriptorProto, ServiceOptions,
 };
-use shrec::range_set::RangeSet;
 
 use super::{scope::GlobalScope, scope_ref::ScopeRef};
 use crate::schema::{
