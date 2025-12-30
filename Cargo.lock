@@ -2006,7 +2006,7 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 [[package]]
 name = "mid-tools"
 version = "0.0.0"
-source = "git+https://github.com/ray-kast/compiler-stuff.git?rev=1df7048#1df704820d59ac6a3f6b5c8558ac41d50188e85f"
+source = "git+https://github.com/ray-kast/compiler-stuff.git?rev=a28f400#a28f4005ea4d6e938c52eb905450f4eff8f02c60"
 dependencies = [
  "clap",
  "hashbrown 0.16.0",
