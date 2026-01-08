@@ -32,7 +32,7 @@ strsim = "0.11.1"
 symphonia = { version = "0.5.5", features = ["all"] }
 tempfile = "3.23.0"
 tokio = { version = "1.48.0", features = ["parking_lot", "full", "tracing"] }
-tracing = "0.1.41"
+tracing.workspace = true
 tracing-loki = { version = "0.2.6", default-features = false, features = ["rustls", "compat-0-2-1"] }
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "tracing-log"] }
 url = "2.5.7"

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use jpeggr::image::{self, ImageFormat};
+use jpeggr::image::{self, imageops::FilterType, ImageFormat};
 use serenity::builder::CreateAttachment;
 
 use super::prelude::*;
@@ -10,11 +10,26 @@ enum JpegInput<'a> {
     Url(Url),
 }
 
-async fn jpeg(input: JpegInput<'_>, quality: Option<i64>) -> Result<Vec<u8>> {
+async fn jpeg(
+    input: JpegInput<'_>,
+    iterations: Option<i64>,
+    quality: Option<i64>,
+    size: Option<i64>,
+) -> Result<Vec<u8>> {
+    let iterations @ 0..=10 = iterations.unwrap_or(1) else {
+        unreachable!()
+    };
+    let iterations = usize::try_from(iterations).unwrap_or_else(|_| unreachable!());
+
     let quality @ 0..=100 = quality.unwrap_or(1) else {
         unreachable!()
     };
     let quality = u8::try_from(quality).unwrap_or_else(|_| unreachable!());
+
+    let size @ 1..=512 = size.unwrap_or(227) else {
+        unreachable!()
+    };
+    let size = u32::try_from(size).unwrap_or_else(|_| unreachable!());
 
     let image_data;
     let content_type;
@@ -58,8 +73,14 @@ async fn jpeg(input: JpegInput<'_>, quality: Option<i64>) -> Result<Vec<u8>> {
 
         let image = image::load_from_memory_with_format(&image_data, format)
             .context("Error reading image data")?;
-        let jpegged_image = jpeggr::jpeg_dynamic_image(image, 1, quality)
-            .context("Error applying JPEG effect to image")?;
+        let jpegged_image = jpeggr::jpeg_dynamic_image(image, jpeggr::JpegArgs {
+            iterations,
+            quality,
+            size,
+            down_filter: FilterType::Nearest,
+            up_filter: FilterType::Lanczos3,
+        })
+        .context("Error applying JPEG effect to image")?;
 
         let mut bytes = Vec::new();
         image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, quality)
@@ -89,12 +110,15 @@ impl From<&CommandOpts> for JpegCommand {
 impl CommandHandler<Schema> for JpegCommand {
     fn register_global(&self) -> CommandInfo {
         CommandInfo::build_slash(&self.name, "Applies a JPEG effect to an image", |a| {
-            a.attachment("image", "The input image", true).int(
-                "quality",
-                "The compression quality",
-                false,
-                1..=100,
-            )
+            a.attachment("image", "The input image", true)
+                .int(
+                    "iterations",
+                    "Number of times to JPEG the image",
+                    false,
+                    1..=10,
+                )
+                .int("quality", "The compression quality", false, 1..=100)
+                .int("size", "Maximum output size", false, 1..=512)
         })
         .unwrap()
     }
@@ -106,14 +130,16 @@ impl CommandHandler<Schema> for JpegCommand {
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         let attachment = visitor.visit_attachment("image")?.required()?;
+        let iterations = visitor.visit_i64("iterations")?.optional();
         let quality = visitor.visit_i64("quality")?.optional();
+        let size = visitor.visit_i64("size")?.optional();
 
         let responder = responder
             .defer_message(MessageOpts::default())
             .await
             .context("Error sending deferred message")?;
 
-        let bytes = jpeg(JpegInput::Attachment(attachment), quality).await?;
+        let bytes = jpeg(JpegInput::Attachment(attachment), iterations, quality, size).await?;
 
         let attachment = CreateAttachment::bytes(
             bytes,
@@ -209,7 +235,7 @@ impl CommandHandler<Schema> for JpegMessageCommand {
             .await
             .context("Error sending deferred message")?;
 
-        let bytes = jpeg(input, None).await?;
+        let bytes = jpeg(input, None, None, None).await?;
 
         // TODO: post file size difference
         let attachment = CreateAttachment::bytes(

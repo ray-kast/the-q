@@ -22,6 +22,6 @@ serenity.workspace = true
 strsim = "0.11.1"
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", default-features = false, features = ["sync"] }
-tracing = "0.1.41"
+tracing.workspace = true
 url = "2.5.7"
 zstd = { version = "0.13.3", features = ["experimental"] }
