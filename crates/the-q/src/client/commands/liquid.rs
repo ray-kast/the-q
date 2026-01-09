@@ -23,7 +23,7 @@ fn liquid(
     bias_curly: Option<f64>,
     resize_output: Option<bool>,
 ) -> Result<(DynamicImage, ()), jpeggr::Error> {
-    const DEFAULT_PERCENT: f64 = 50.0;
+    const DEFAULT_PERCENT: f64 = 43.0;
 
     let (x_percent, y_percent) = (x_percent.or(y_percent), y_percent.or(x_percent));
 
@@ -34,10 +34,10 @@ fn liquid(
         unreachable!()
     };
 
-    let curly_seams @ MIN_CURLY..=MAX_CURLY = curly_seams.unwrap_or(0.5) else {
+    let curly_seams @ MIN_CURLY..=MAX_CURLY = curly_seams.unwrap_or(1.5) else {
         unreachable!()
     };
-    let bias_curly @ MIN_BIAS_CURLY..=MAX_BIAS_CURLY = bias_curly.unwrap_or(0.0) else {
+    let bias_curly @ MIN_BIAS_CURLY..=MAX_BIAS_CURLY = bias_curly.unwrap_or(0.6) else {
         unreachable!()
     };
 
