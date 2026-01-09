@@ -1,16 +1,5 @@
 //! Repeatedly JPEG-encode an image
 
-#![deny(
-    clippy::disallowed_methods,
-    clippy::suspicious,
-    clippy::style,
-    clippy::clone_on_ref_ptr,
-    missing_debug_implementations,
-    missing_copy_implementations
-)]
-#![warn(clippy::pedantic, missing_docs)]
-#![allow(clippy::module_name_repetitions)]
-
 use std::io::Cursor;
 
 use image::{
@@ -131,6 +120,9 @@ pub fn jpeg_buffer<P: PixelWithColorType + Pixel<Subpixel = u8> + 'static>(
 ///
 /// # Errors
 /// This function returns an error if the JPEG transcoder fails
+///
+/// # Panics
+/// This function panics if the JPEG transcoder produces an invalid buffer
 pub fn jpeg_dynamic_image(image: DynamicImage, args: JpegArgs) -> Result<DynamicImage, Error> {
     Ok(DynamicImage::ImageRgb8(jpeg_buffer(
         image.into_rgb8(),

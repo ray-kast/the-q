@@ -4,20 +4,40 @@ use image::{imageops, DynamicImage, ImageBuffer, Rgba};
 
 use crate::Error;
 
+/// Common arguments to the liquid functions
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LiquidArgs {
+    /// Maximum input resolution in either dimension
+    ///
+    /// Inputs larger than this will be downsampled for performance reasons
     pub max_input_size: u32,
+    /// X resolution scale factor
     pub x_fac: f64,
+    /// Y resolution scale factor
     pub y_fac: f64,
+    /// Maximum transverse width of seams (i.e. curliness)
     pub curly_seams: f64,
+    /// Bias for non-straight seams
     pub bias_curly: f64,
 }
 
 type Quantum = magick_sys::Quantum;
+
+/// Apply content-aware scale to the given image buffer
+///
+/// # Errors
+/// This function returns an error if applying the resiza with `MagickCore`
+/// fails
+///
+/// # Panics
+/// This function panics if `MagickCore` produces an invalid buffer or is using
+/// an incompatible static configuration
 pub fn liquid_buffer(
     mut image: ImageBuffer<Rgba<Quantum>, Vec<Quantum>>,
     args: LiquidArgs,
 ) -> Result<ImageBuffer<Rgba<Quantum>, Vec<Quantum>>, Error> {
+    #![expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+
     let LiquidArgs {
         max_input_size,
         x_fac,
@@ -121,6 +141,15 @@ pub fn liquid_buffer(
     }
 }
 
+/// Apply content-aware scale to the given image buffer
+///
+/// # Errors
+/// This function returns an error if applying the resiza with `MagickCore`
+/// fails
+///
+/// # Panics
+/// This function panics if `MagickCore` produces an invalid buffer or is using
+/// an incompatible static configuration
 pub fn liquid_dynamic_image(image: DynamicImage, args: LiquidArgs) -> Result<DynamicImage, Error> {
     Ok(DynamicImage::ImageRgba32F(liquid_buffer(
         image.into_rgba32f(),

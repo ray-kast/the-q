@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -eo pipefail
 cd "$(dirname "$0")/.."
 
 [[ -z "$CARGO" ]] && CARGO=cargo
@@ -58,16 +58,18 @@ for pkg in $(jq -r '.packages | keys | join("\n")' <<<"$json"); do
     echo "==> $name ($kind)"
     [[ -t 1 ]] && echo -n $'\x1b[m'
 
-    # Check lints
-    i=0
-    for re in "${lint_res[@]}"; do
-      if ! grep -Pzq "$re" "$src"; then
-        echo "File '$src' missing required lints!"
-        echo $'Consider adding:\n'"${lint_pats[$i]}"
-        false
-      fi
-      i="$(( i + 1 ))"
-    done
+    if [[ "$name" != *sys ]]; then
+      # Check lints
+      i=0
+      for re in "${lint_res[@]}"; do
+        if ! grep -Pzq "$re" "$src"; then
+          echo "File '$src' missing required lints!"
+          echo $'Consider adding:\n'"${lint_pats[$i]}"
+          false
+        fi
+        i="$(( i + 1 ))"
+      done
+    fi
 
     case "$kind" in
       */*|*lib|proc-macro) flags=(--lib) ;;
