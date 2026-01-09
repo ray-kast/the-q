@@ -1,6 +1,11 @@
+use paracord::interaction::{response::ModalSource, rpc};
 use serenity::model::application::{ComponentInteraction, ModalInteraction};
 
 use super::prelude::*;
+use crate::proto::{
+    component, component::component::Payload as ComponentPayload, modal,
+    modal::modal::Payload as ModalPayload,
+};
 
 #[derive(Debug)]
 pub enum Schema {}

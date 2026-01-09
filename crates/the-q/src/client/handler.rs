@@ -8,7 +8,7 @@ use super::commands;
 use crate::prelude::*;
 
 pub struct Handler {
-    registry: interaction::Registry<commands::Schema>,
+    registry: interaction::Registry<crate::rpc::Schema>,
 }
 
 impl Handler {

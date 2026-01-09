@@ -1,8 +1,8 @@
 mod explode;
 mod jpeg;
+mod liquid;
 mod point;
 mod re;
-mod rpc;
 mod say;
 mod sound;
 mod test;
@@ -30,45 +30,22 @@ mod prelude {
         model::{channel::Attachment, id::GuildId, user::User},
     };
 
-    pub use super::{CommandOpts, ComponentKey, ModalKey, Schema};
+    pub use super::CommandOpts;
     pub use crate::{
         prelude::*,
         proto::{
             component, component::component::Payload as ComponentPayload, modal,
             modal::modal::Payload as ModalPayload,
         },
+        rpc::{ComponentKey, ModalKey, Schema},
+        util::{http_client, interaction::*},
     };
-
-    pub type MessageBody<E = response::id::Error> = response::MessageBody<component::Component, E>;
-    pub type CommandError<'a> = handler::CommandError<'a, Schema>;
-    pub type CommandResult<'a> = handler::CommandResult<'a, Schema>;
-    pub type CommandResponder<'a, 'b> = handler::CommandResponder<'a, 'b, Schema>;
-    // pub type ComponentError<'a> = handler::ComponentError<'a, Schema>;
-    pub type ComponentResult<'a> = handler::ComponentResult<'a, Schema>;
-    pub type ComponentResponder<'a, 'b> = handler::ComponentResponder<'a, 'b, Schema>;
-    // pub type ModalError<'a> = handler::ModalError<'a, Schema>;
-    // pub type ModalResult<'a> = handler::ModalResult<'a, Schema>;
-    // pub type ModalResponder<'a, 'b> = handler::ModalResponder<'a, 'b, Schema>;
 
     #[inline]
     pub fn id<T>(t: T) -> T { t }
-
-    pub fn http_client(timeout: Option<std::time::Duration>) -> reqwest::Client {
-        let timeout = timeout.unwrap_or(std::time::Duration::from_secs(10));
-        let client = reqwest::Client::builder()
-            .user_agent("the-q")
-            .gzip(true)
-            .brotli(true)
-            .deflate(true)
-            .timeout(timeout)
-            .connect_timeout(timeout);
-        client.build().unwrap()
-    }
 }
 
-pub use rpc::*;
-
-pub type Handlers = prelude::handler::Handlers<Schema>;
+pub type Handlers = prelude::handler::Handlers<prelude::Schema>;
 
 // TODO: set up command names
 #[derive(Debug, clap::Args)]
@@ -87,6 +64,8 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
     let explode = Arc::new(explode::ExplodeCommand::from(opts));
     let jpeg = Arc::new(jpeg::JpegCommand::from(opts));
     let jpeg_message = Arc::new(jpeg::JpegMessageCommand::from(opts));
+    let liquid = Arc::new(liquid::LiquidCommand::from(opts));
+    let liquid_message = Arc::new(liquid::LiquidMessageCommand::from(opts));
     let point = Arc::new(point::PointCommand::from(opts));
     let re = Arc::new(re::ReCommand::from(opts));
     let re_message = Arc::new(re::ReMessageCommand::from(opts));
@@ -99,6 +78,8 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
             explode,
             jpeg,
             jpeg_message,
+            liquid,
+            liquid_message,
             point,
             re,
             re_message,

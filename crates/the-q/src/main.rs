@@ -11,12 +11,13 @@
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::module_name_repetitions)]
 
-pub(crate) mod client;
+mod client;
 mod entry;
-pub(crate) mod proto;
-pub(crate) mod util;
+mod proto;
+mod rpc;
+mod util;
 
-pub(crate) mod prelude {
+mod prelude {
     #![expect(unused_imports, reason = "Some exports may not yet be used")]
 
     pub use std::{

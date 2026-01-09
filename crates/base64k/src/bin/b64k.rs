@@ -10,14 +10,13 @@
 )]
 #![warn(clippy::pedantic, missing_docs)]
 
-use std::{
-    fs::File,
-    io::{self, prelude::*},
-    path::PathBuf,
-};
-
 #[cfg(feature = "clap")]
-use clap::Parser;
+use {
+    clap::Parser,
+    std::fs::File,
+    std::io::{self, prelude::*},
+    std::path::PathBuf,
+};
 
 #[cfg(feature = "clap")]
 #[derive(Parser)]
@@ -44,6 +43,7 @@ fn main() {
     }
 }
 
+#[cfg(feature = "clap")]
 fn run(mut stream: impl Read, decode: bool) {
     let mut out = io::stdout().lock();
     if decode {

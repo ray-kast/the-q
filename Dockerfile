@@ -10,6 +10,9 @@ RUN apt-get update -y && \
     cmake \
     git \
     jq \
+    libclang-dev \
+    libmagickcore-6.q16hdri-dev \
+    pkgconf \
     protobuf-compiler \
   && \
   rm -rf /var/lib/apt/lists/*
@@ -73,6 +76,7 @@ RUN apt-get update -y && \
   apt-get install -y --no-install-recommends \
     ffmpeg \
     graphviz \
+    libmagickcore-6.q16hdri \
   && \
   rm -rf /var/lib/apt/lists/*
 
