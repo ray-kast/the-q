@@ -19,6 +19,8 @@ pub struct LiquidArgs {
     pub curly_seams: f64,
     /// Bias for non-straight seams
     pub bias_curly: f64,
+    /// Resize output image back to original size
+    pub resize_output: Option<bool>,
 }
 
 type Quantum = magick_sys::Quantum;
@@ -44,28 +46,30 @@ pub fn liquid_buffer(
         y_fac,
         curly_seams,
         bias_curly,
+        resize_output,
     } = args;
 
-    let (nwidth, nheight) = {
-        let width = image.width();
-        let height = image.height();
+    let orig_width = image.width();
+    let orig_height = image.height();
+    let resize_output = resize_output.unwrap_or(x_fac <= 1.0 && y_fac <= 1.0);
 
-        if width.max(height) > max_input_size {
-            if width > height {
+    let (nwidth, nheight) = {
+        if orig_width.max(orig_height) > max_input_size {
+            if orig_width > orig_height {
                 (
                     max_input_size,
-                    (f64::from(height) * f64::from(max_input_size) / f64::from(width)).round()
-                        as u32,
+                    (f64::from(orig_height) * f64::from(max_input_size) / f64::from(orig_width))
+                        .round() as u32,
                 )
             } else {
                 (
-                    (f64::from(width) * f64::from(max_input_size) / f64::from(height)).round()
-                        as u32,
+                    (f64::from(orig_width) * f64::from(max_input_size) / f64::from(orig_height))
+                        .round() as u32,
                     max_input_size,
                 )
             }
         } else {
-            (width, height)
+            (orig_width, orig_height)
         }
     };
 
@@ -80,7 +84,7 @@ pub fn liquid_buffer(
         let pixels = &mut *image;
         assert!(pixels.len() == width * height * 4);
 
-        let mut image = exc.catch(|e| {
+        let mut magick_image = exc.catch(|e| {
             magick_sys::ImageHandle::from_raw(magick_sys::ConstituteImage(
                 width,
                 height,
@@ -100,9 +104,9 @@ pub fn liquid_buffer(
         let iwidth = isize::try_from(width).unwrap();
         let iheight = isize::try_from(height).unwrap();
 
-        image = exc.catch(|e| {
+        magick_image = exc.catch(|e| {
             magick_sys::ImageHandle::from_raw(magick_sys::LiquidRescaleImage(
-                image.as_ptr(),
+                magick_image.as_ptr(),
                 swidth,
                 sheight,
                 curly_seams,
@@ -119,7 +123,7 @@ pub fn liquid_buffer(
         for y in 0..iheight {
             for x in 0..iwidth {
                 exc.catch(|e| {
-                    magick_sys::GetOneVirtualPixel(image.as_ptr(), x, y, buf.as_mut_ptr(), e)
+                    magick_sys::GetOneVirtualPixel(magick_image.as_ptr(), x, y, buf.as_mut_ptr(), e)
                 })?;
 
                 out_pixels.extend_from_slice(&[
@@ -131,7 +135,22 @@ pub fn liquid_buffer(
             }
         }
 
-        Ok(ImageBuffer::from_raw(width, height, out_pixels).expect("Wrong buffer size?"))
+        image = ImageBuffer::from_raw(width, height, out_pixels).expect("Wrong buffer size?");
+
+        if resize_output {
+            let x_scale = f64::from(orig_width) / f64::from(width);
+            let y_scale = f64::from(orig_height) / f64::from(height);
+
+            let (nwidth, nheight) = if x_scale < y_scale {
+                (orig_width, (f64::from(height) * y_scale).round() as u32)
+            } else {
+                ((f64::from(width) * x_scale).round() as u32, orig_height)
+            };
+
+            image = imageops::resize(&image, nwidth, nheight, imageops::FilterType::CatmullRom);
+        }
+
+        Ok(image)
     }
 }
 

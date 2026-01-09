@@ -21,6 +21,7 @@ fn liquid(
     y_percent: Option<f64>,
     curly_seams: Option<f64>,
     bias_curly: Option<f64>,
+    resize_output: Option<bool>,
 ) -> Result<(DynamicImage, ()), jpeggr::Error> {
     const DEFAULT_PERCENT: f64 = 50.0;
 
@@ -46,6 +47,7 @@ fn liquid(
         y_fac: y_percent / 100.0,
         curly_seams,
         bias_curly,
+        resize_output,
     })
     .map(|i| (i, ()))
 }
@@ -102,6 +104,11 @@ impl CommandHandler<Schema> for LiquidCommand {
                     false,
                     MIN_BIAS_CURLY..=MAX_BIAS_CURLY,
                 )
+                .bool(
+                    "resize-output",
+                    "Resize the output image back to the original size",
+                    false,
+                )
         })
         .unwrap()
     }
@@ -117,11 +124,21 @@ impl CommandHandler<Schema> for LiquidCommand {
         let y_percent = visitor.visit_number("y-percent")?.optional();
         let curly_seams = visitor.visit_number("curly-seams")?.optional();
         let bias_curly = visitor.visit_number("bias-curly")?.optional();
+        let resize_output = visitor.visit_bool("resize-output")?.optional();
 
         util::image::respond_slash(
             attachment,
             responder,
-            move |i| liquid(i, x_percent, y_percent, curly_seams, bias_curly),
+            move |i| {
+                liquid(
+                    i,
+                    x_percent,
+                    y_percent,
+                    curly_seams,
+                    bias_curly,
+                    resize_output,
+                )
+            },
             encode,
         )
         .await
@@ -155,7 +172,7 @@ impl CommandHandler<Schema> for LiquidMessageCommand {
         util::image::respond_msg(
             visitor,
             responder,
-            |i| liquid(i, None, None, None, None),
+            |i| liquid(i, None, None, None, None, None),
             encode,
         )
         .await
