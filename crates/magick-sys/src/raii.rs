@@ -40,7 +40,11 @@ impl ImageHandle {
         Self(image)
     }
 
+    #[inline]
     pub unsafe fn as_ptr(&mut self) -> *mut Image { self.0 }
+
+    #[inline]
+    pub unsafe fn as_ref(&self) -> &Image { unsafe { &*self.0 } }
 }
 
 impl Drop for ImageHandle {

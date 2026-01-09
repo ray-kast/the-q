@@ -2,6 +2,7 @@ use jpeggr::{
     image::{self, DynamicImage},
     liquid,
 };
+use paracord::interaction::command::Choice;
 
 use super::prelude::*;
 use crate::util;
@@ -21,7 +22,7 @@ fn liquid(
     y_percent: Option<f64>,
     curly_seams: Option<f64>,
     bias_curly: Option<f64>,
-    resize_output: Option<bool>,
+    resize_output: Option<i64>,
 ) -> Result<(DynamicImage, ()), jpeggr::Error> {
     const DEFAULT_PERCENT: f64 = 43.0;
 
@@ -39,6 +40,14 @@ fn liquid(
     };
     let bias_curly @ MIN_BIAS_CURLY..=MAX_BIAS_CURLY = bias_curly.unwrap_or(0.6) else {
         unreachable!()
+    };
+
+    let resize_output = match resize_output {
+        None => liquid::ResizeOutput::Upsample,
+        Some(0) => liquid::ResizeOutput::OutputSize,
+        Some(1) => liquid::ResizeOutput::FitToInput,
+        Some(2) => liquid::ResizeOutput::StretchToInput,
+        _ => unreachable!(),
     };
 
     liquid::liquid_dynamic_image(image, liquid::LiquidArgs {
@@ -104,10 +113,15 @@ impl CommandHandler<Schema> for LiquidCommand {
                     false,
                     MIN_BIAS_CURLY..=MAX_BIAS_CURLY,
                 )
-                .bool(
+                .int_choice(
                     "resize-output",
                     "Resize the output image back to the original size",
                     false,
+                    [
+                        Choice::new("off", 0),
+                        Choice::new("on", 1),
+                        Choice::new("stretch", 2),
+                    ],
                 )
         })
         .unwrap()
@@ -124,7 +138,7 @@ impl CommandHandler<Schema> for LiquidCommand {
         let y_percent = visitor.visit_number("y-percent")?.optional();
         let curly_seams = visitor.visit_number("curly-seams")?.optional();
         let bias_curly = visitor.visit_number("bias-curly")?.optional();
-        let resize_output = visitor.visit_bool("resize-output")?.optional();
+        let resize_output = visitor.visit_i64("resize-output")?.optional();
 
         util::image::respond_slash(
             attachment,

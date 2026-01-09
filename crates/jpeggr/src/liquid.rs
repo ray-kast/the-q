@@ -1,8 +1,22 @@
 //! Apply content-aware scale to an image
 
 use image::{imageops, DynamicImage, ImageBuffer, Rgba};
+use magick_sys::Quantum;
 
-use crate::Error;
+use crate::{magick, Error};
+
+/// Output resizing mode for the liquid functions
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ResizeOutput {
+    /// Keep output size
+    OutputSize,
+    /// Resize to fit within input size, preserving aspect ratio
+    FitToInput,
+    /// Resize to exact input size
+    StretchToInput,
+    /// Resize to fit within input size if output is smaller
+    Upsample,
+}
 
 /// Common arguments to the liquid functions
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -20,10 +34,8 @@ pub struct LiquidArgs {
     /// Bias for non-straight seams
     pub bias_curly: f64,
     /// Resize output image back to original size
-    pub resize_output: Option<bool>,
+    pub resize_output: ResizeOutput,
 }
-
-type Quantum = magick_sys::Quantum;
 
 /// Apply content-aware scale to the given image buffer
 ///
@@ -51,7 +63,12 @@ pub fn liquid_buffer(
 
     let orig_width = image.width();
     let orig_height = image.height();
-    let resize_output = resize_output.unwrap_or(x_fac <= 1.0 && y_fac <= 1.0);
+    let (resize_output, ignore_aspect_ratio) = match resize_output {
+        ResizeOutput::OutputSize => (false, false),
+        ResizeOutput::FitToInput => (true, false),
+        ResizeOutput::StretchToInput => (true, true),
+        ResizeOutput::Upsample => (true, x_fac <= 1.0 && y_fac <= 1.0),
+    };
 
     let (nwidth, nheight) = {
         if orig_width.max(orig_height) > max_input_size {
@@ -75,83 +92,45 @@ pub fn liquid_buffer(
 
     image = imageops::resize(&image, nwidth, nheight, imageops::FilterType::CatmullRom);
 
-    unsafe {
-        let mut exc = magick_sys::Exceptions::new();
+    image = unsafe {
+        magick::process(&image, |mut i, e| {
+            let width = (f64::from(nwidth) * x_fac).round() as usize;
+            let height = (f64::from(nheight) * y_fac).round() as usize;
 
-        let width = usize::try_from(image.width()).unwrap();
-        let height = usize::try_from(image.height()).unwrap();
+            e.catch(|e| {
+                magick_sys::ImageHandle::from_raw(magick_sys::LiquidRescaleImage(
+                    i.as_ptr(),
+                    width,
+                    height,
+                    curly_seams,
+                    bias_curly,
+                    e,
+                ))
+            })
+        })?
+    };
 
-        let pixels = &mut *image;
-        assert!(pixels.len() == width * height * 4);
+    let width = image.width();
+    let height = image.height();
 
-        let mut magick_image = exc.catch(|e| {
-            magick_sys::ImageHandle::from_raw(magick_sys::ConstituteImage(
-                width,
-                height,
-                c"RGBA".as_ptr(),
-                magick_sys::StorageType_FloatPixel,
-                pixels.as_ptr().cast(),
-                e,
-            ))
-        })?;
-
-        let width = (f64::from(nwidth) * x_fac).round() as u32;
-        let height = (f64::from(nheight) * y_fac).round() as u32;
-
-        let swidth = usize::try_from(width).unwrap();
-        let sheight = usize::try_from(height).unwrap();
-
-        let iwidth = isize::try_from(width).unwrap();
-        let iheight = isize::try_from(height).unwrap();
-
-        magick_image = exc.catch(|e| {
-            magick_sys::ImageHandle::from_raw(magick_sys::LiquidRescaleImage(
-                magick_image.as_ptr(),
-                swidth,
-                sheight,
-                curly_seams,
-                bias_curly,
-                e,
-            ))
-        })?;
-
-        let mut out_pixels = vec![];
-        let mut buf = [0.0_f32; magick_sys::MaxPixelChannels as usize];
-
-        assert_eq!(magick_sys::MagickQuantumRange, b"65535\0");
-
-        for y in 0..iheight {
-            for x in 0..iwidth {
-                exc.catch(|e| {
-                    magick_sys::GetOneVirtualPixel(magick_image.as_ptr(), x, y, buf.as_mut_ptr(), e)
-                })?;
-
-                out_pixels.extend_from_slice(&[
-                    buf[magick_sys::PixelChannel_RedPixelChannel as usize] / 65535.0,
-                    buf[magick_sys::PixelChannel_GreenPixelChannel as usize] / 65535.0,
-                    buf[magick_sys::PixelChannel_BluePixelChannel as usize] / 65535.0,
-                    buf[magick_sys::PixelChannel_AlphaPixelChannel as usize] / 65535.0,
-                ]);
-            }
-        }
-
-        image = ImageBuffer::from_raw(width, height, out_pixels).expect("Wrong buffer size?");
-
-        if resize_output {
+    if resize_output {
+        let (nwidth, nheight) = if ignore_aspect_ratio {
+            (orig_width, orig_height)
+        } else {
             let x_scale = f64::from(orig_width) / f64::from(width);
             let y_scale = f64::from(orig_height) / f64::from(height);
 
-            let (nwidth, nheight) = if x_scale < y_scale {
-                (orig_width, (f64::from(height) * y_scale).round() as u32)
+            if x_scale < y_scale {
+                (orig_width, (f64::from(height) * x_scale).round() as u32)
             } else {
-                ((f64::from(width) * x_scale).round() as u32, orig_height)
-            };
+                ((f64::from(width) * y_scale).round() as u32, orig_height)
+            }
+        };
 
-            image = imageops::resize(&image, nwidth, nheight, imageops::FilterType::CatmullRom);
-        }
-
-        Ok(image)
+        image = imageops::resize(&image, nwidth, nheight, imageops::FilterType::CatmullRom);
     }
+
+    Ok(image)
 }
 
 /// Apply content-aware scale to the given image buffer

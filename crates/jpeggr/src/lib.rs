@@ -15,6 +15,7 @@ use image::{ColorType, ImageError};
 
 pub mod jpeg;
 pub mod liquid;
+mod magick;
 
 pub extern crate image;
 
