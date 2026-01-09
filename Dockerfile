@@ -1,5 +1,5 @@
 # Image containing dev dependencies
-FROM rust:slim-bookworm AS tools
+FROM rust:slim-trixie AS tools
 WORKDIR /build
 
 # Remove the default, let the repo override choose its own
@@ -11,7 +11,7 @@ RUN apt-get update -y && \
     git \
     jq \
     libclang-dev \
-    libmagickcore-6.q16hdri-dev \
+    libmagickcore-7.q16hdri-dev \
     pkgconf \
     protobuf-compiler \
   && \
@@ -69,14 +69,14 @@ RUN scripts/install-skeleton.sh -t .
 RUN cargo build --locked --profile=docker --bin the-q
 
 # Base image for any output containers, to save space with common layers
-FROM debian:bookworm-slim AS base
+FROM debian:trixie-slim AS base
 WORKDIR /opt/the-q
 
 RUN apt-get update -y && \
   apt-get install -y --no-install-recommends \
     ffmpeg \
     graphviz \
-    libmagickcore-6.q16hdri \
+    libmagickcore-7.q16hdri \
   && \
   rm -rf /var/lib/apt/lists/*
 

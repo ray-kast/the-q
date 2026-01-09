@@ -119,13 +119,7 @@ pub fn liquid_buffer(
         for y in 0..iheight {
             for x in 0..iwidth {
                 exc.catch(|e| {
-                    magick_sys::GetOneVirtualPixel(
-                        image.as_ptr(),
-                        x,
-                        y,
-                        magick_sys::pack_quanta(buf.as_mut_ptr()),
-                        e,
-                    )
+                    magick_sys::GetOneVirtualPixel(image.as_ptr(), x, y, buf.as_mut_ptr(), e)
                 })?;
 
                 out_pixels.extend_from_slice(&[
