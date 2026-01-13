@@ -11,7 +11,7 @@ repository = "https://github.com/ray-kast/the-q/"
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0.103"
-quote = "1.0.42"
-syn = { version = "2.0.109", features = ["extra-traits", "fold", "full"] }
+proc-macro2 = "1.0.105"
+quote = "1.0.43"
+syn = { version = "2.0.114", features = ["extra-traits", "fold", "full"] }
 thiserror.workspace = true

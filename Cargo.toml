@@ -5,7 +5,7 @@ resolver = "2"
 
 [workspace.dependencies]
 futures-util = "0.3.31"
-hashbrown = "0.16.0"
+hashbrown = "0.16.1"
 proptest = "1.9.0"
 thiserror = "2.0.17"
 tracing = "0.1.44"
@@ -20,11 +20,11 @@ qcore = { version = "=0.1.0", path = "crates/qcore" }
 qmacros = { version = "=0.1.0", path = "crates/qmacros" }
 
 [workspace.dependencies.clap]
-version = "4.5.51"
+version = "4.5.54"
 features = ["env", "cargo", "derive", "wrap_help"]
 
 [workspace.dependencies.serenity]
-version = "0.12.4"
+version = "0.12.5"
 default-features = false
 features = [
   "parking_lot",
