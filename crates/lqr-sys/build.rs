@@ -2,8 +2,8 @@ use std::{env, path::PathBuf};
 
 fn main() {
     let cfg = pkg_config::Config::new()
-        .range_version("7.1.1".."8")
-        .probe("MagickCore-7.Q16HDRI")
+        .range_version("0.4.2".."0.5")
+        .probe("lqr-1")
         .unwrap();
 
     for path in cfg.link_paths {
@@ -22,16 +22,6 @@ fn main() {
         )
         .header("src/wrapper.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-        .blocklist_var("FP_INT_UPWARD")
-        .blocklist_var("FP_INT_DOWNWARD")
-        .blocklist_var("FP_INT_TOWARDZERO")
-        .blocklist_var("FP_INT_TONEARESTFROMZERO")
-        .blocklist_var("FP_INT_TONEAREST")
-        .blocklist_var("FP_NAN")
-        .blocklist_var("FP_INFINITE")
-        .blocklist_var("FP_ZERO")
-        .blocklist_var("FP_SUBNORMAL")
-        .blocklist_var("FP_NORMAL")
         .generate()
         .unwrap();
 

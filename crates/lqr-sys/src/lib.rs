@@ -5,7 +5,10 @@
     unnecessary_transmutes,
     clippy::approx_constant,
     clippy::missing_safety_doc,
-    clippy::ptr_offset_with_cast
+    clippy::ptr_offset_with_cast,
+    clippy::too_many_arguments,
+    clippy::useless_transmute,
+    rustdoc::broken_intra_doc_links
 )]
 
 mod error;

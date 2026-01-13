@@ -11,7 +11,8 @@ RUN apt-get update -y && \
     git \
     jq \
     libclang-dev \
-    libmagickcore-7.q16hdri-dev \
+    libglib2.0-dev \
+    liblqr-dev \
     pkgconf \
     protobuf-compiler \
   && \
@@ -76,7 +77,7 @@ RUN apt-get update -y && \
   apt-get install -y --no-install-recommends \
     ffmpeg \
     graphviz \
-    libmagickcore-7.q16hdri \
+    liblqr-1-0 \
   && \
   rm -rf /var/lib/apt/lists/*
 

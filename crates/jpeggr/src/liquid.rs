@@ -1,9 +1,9 @@
 //! Apply content-aware scale to an image
 
 use image::{imageops, DynamicImage, ImageBuffer, Rgba};
-use magick_sys::Quantum;
+use lqr_sys::Carver;
 
-use crate::{magick, Error};
+use crate::Error;
 
 /// Output resizing mode for the liquid functions
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,9 +30,9 @@ pub struct LiquidArgs {
     /// Y resolution scale factor
     pub y_fac: f64,
     /// Maximum transverse width of seams (i.e. curliness)
-    pub curly_seams: f64,
+    pub curly_seams: u16,
     /// Bias for non-straight seams
-    pub bias_curly: f64,
+    pub bias_curly: f32,
     /// Resize output image back to original size
     pub resize_output: ResizeOutput,
 }
@@ -40,16 +40,14 @@ pub struct LiquidArgs {
 /// Apply content-aware scale to the given image buffer
 ///
 /// # Errors
-/// This function returns an error if applying the resiza with `MagickCore`
-/// fails
+/// This function returns an error if applying the resize with `liblqr` fails
 ///
 /// # Panics
-/// This function panics if `MagickCore` produces an invalid buffer or is using
-/// an incompatible static configuration
+/// This function panics if the image is an invalid size
 pub fn liquid_buffer(
-    mut image: ImageBuffer<Rgba<Quantum>, Vec<Quantum>>,
+    mut image: ImageBuffer<Rgba<f32>, Vec<f32>>,
     args: LiquidArgs,
-) -> Result<ImageBuffer<Rgba<Quantum>, Vec<Quantum>>, Error> {
+) -> Result<ImageBuffer<Rgba<f32>, Vec<f32>>, Error> {
     #![expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 
     let LiquidArgs {
@@ -92,23 +90,26 @@ pub fn liquid_buffer(
 
     image = imageops::resize(&image, nwidth, nheight, imageops::FilterType::CatmullRom);
 
-    image = unsafe {
-        magick::process(&image, |mut i, e| {
-            let width = (f64::from(nwidth) * x_fac).round() as usize;
-            let height = (f64::from(nheight) * y_fac).round() as usize;
+    let mut carver = Carver::new(
+        &image,
+        image.width(),
+        image.height(),
+        lqr_sys::ColorType::Rgba,
+        curly_seams,
+        bias_curly,
+    )?;
 
-            e.catch(|e| {
-                magick_sys::ImageHandle::from_raw(magick_sys::LiquidRescaleImage(
-                    i.as_ptr(),
-                    width,
-                    height,
-                    curly_seams,
-                    bias_curly,
-                    e,
-                ))
-            })
-        })?
-    };
+    let nwidth = (f64::from(image.width()) * x_fac).round() as u32;
+    let nheight = (f64::from(image.height()) * y_fac).round() as u32;
+    carver.resize(nwidth, nheight)?;
+
+    let mut buf =
+        vec![0.0; usize::try_from(nwidth).unwrap() * usize::try_from(nheight).unwrap() * 4];
+    carver.read(&mut buf)?;
+
+    drop(carver);
+
+    image = ImageBuffer::from_raw(nwidth, nheight, buf).expect("Wrong buffer size?");
 
     let width = image.width();
     let height = image.height();
@@ -136,12 +137,10 @@ pub fn liquid_buffer(
 /// Apply content-aware scale to the given image buffer
 ///
 /// # Errors
-/// This function returns an error if applying the resiza with `MagickCore`
-/// fails
+/// This function returns an error if applying the resize with `liblqr` fails
 ///
 /// # Panics
-/// This function panics if `MagickCore` produces an invalid buffer or is using
-/// an incompatible static configuration
+/// This function panics if the image is an invalid size
 pub fn liquid_dynamic_image(image: DynamicImage, args: LiquidArgs) -> Result<DynamicImage, Error> {
     Ok(DynamicImage::ImageRgba32F(liquid_buffer(
         image.into_rgba32f(),

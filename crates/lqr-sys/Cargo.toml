@@ -1,5 +1,5 @@
 [package]
-name = "magick-sys"
+name = "lqr-sys"
 version = "0.1.0"
 edition = "2024"
 
@@ -10,3 +10,4 @@ tracing.workspace = true
 [build-dependencies]
 bindgen = "0.72.1"
 pkg-config = "0.3.32"
+thiserror.workspace = true

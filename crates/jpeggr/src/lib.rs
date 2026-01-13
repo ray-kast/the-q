@@ -15,7 +15,6 @@ use image::{ColorType, ImageError};
 
 pub mod jpeg;
 pub mod liquid;
-mod magick;
 
 pub extern crate image;
 
@@ -25,9 +24,9 @@ pub enum Error {
     /// The [`image`] crate raised an error
     #[error("Image format error")]
     Image(#[from] ImageError),
-    /// The `ImageMagick` library raised an error
+    /// The `liblqr` library raised an error
     #[error("ImageMagick error")]
-    Magick(#[from] magick_sys::Errors),
+    Magick(#[from] lqr_sys::Error),
     /// A [`ColorType`] was encountered that was not supported
     #[error("Unsupported color type {0:?}")]
     UnsupportedColorType(ColorType),

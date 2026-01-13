@@ -10,8 +10,8 @@ use crate::util;
 const MIN_PERCENT: f64 = 1.0;
 const MAX_PERCENT: f64 = 300.0;
 
-const MIN_CURLY: f64 = 0.0;
-const MAX_CURLY: f64 = 5.0;
+const MIN_CURLY: u16 = 0;
+const MAX_CURLY: u16 = 5;
 
 const MIN_BIAS_CURLY: f64 = -10.0;
 const MAX_BIAS_CURLY: f64 = 10.0;
@@ -20,7 +20,7 @@ fn liquid(
     image: DynamicImage,
     x_percent: Option<f64>,
     y_percent: Option<f64>,
-    curly_seams: Option<f64>,
+    curly_seams: Option<i64>,
     bias_curly: Option<f64>,
     resize_output: Option<i64>,
 ) -> Result<(DynamicImage, ()), jpeggr::Error> {
@@ -35,12 +35,14 @@ fn liquid(
         unreachable!()
     };
 
-    let curly_seams @ MIN_CURLY..=MAX_CURLY = curly_seams.unwrap_or(1.5) else {
+    let Ok(curly_seams @ MIN_CURLY..=MAX_CURLY) = curly_seams.unwrap_or(1).try_into() else {
         unreachable!()
     };
     let bias_curly @ MIN_BIAS_CURLY..=MAX_BIAS_CURLY = bias_curly.unwrap_or(0.6) else {
         unreachable!()
     };
+    #[allow(clippy::cast_possible_truncation)]
+    let bias_curly = bias_curly as f32;
 
     let resize_output = match resize_output {
         None => liquid::ResizeOutput::Upsample,
@@ -101,11 +103,11 @@ impl CommandHandler<Schema> for LiquidCommand {
                     false,
                     MIN_PERCENT..=MAX_PERCENT,
                 )
-                .real(
+                .int(
                     "curly-seams",
                     "Amount of deviation in the carved seams",
                     false,
-                    MIN_CURLY..=MAX_CURLY,
+                    MIN_CURLY.into()..=MAX_CURLY.into(),
                 )
                 .real(
                     "bias-curly",
@@ -136,7 +138,7 @@ impl CommandHandler<Schema> for LiquidCommand {
         let attachment = visitor.visit_attachment("image")?.required()?;
         let x_percent = visitor.visit_number("x-percent")?.optional();
         let y_percent = visitor.visit_number("y-percent")?.optional();
-        let curly_seams = visitor.visit_number("curly-seams")?.optional();
+        let curly_seams = visitor.visit_i64("curly-seams")?.optional();
         let bias_curly = visitor.visit_number("bias-curly")?.optional();
         let resize_output = visitor.visit_i64("resize-output")?.optional();
 
