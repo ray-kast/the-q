@@ -75,6 +75,7 @@ WORKDIR /opt/the-q
 
 RUN apt-get update -y && \
   apt-get install -y --no-install-recommends \
+    ca-certificates \
     ffmpeg \
     graphviz \
     liblqr-1-0 \
