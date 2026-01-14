@@ -21,7 +21,7 @@ fn liquid(
     seam_rigidity: Option<f64>,
     resize_output: Option<i64>,
 ) -> Result<DynamicImage, jpeggr::Error> {
-    const DEFAULT_PERCENT: f64 = 43.0;
+    const DEFAULT_PERCENT: f64 = 55.0;
 
     let (x_percent, y_percent) = (x_percent.or(y_percent), y_percent.or(x_percent));
 
