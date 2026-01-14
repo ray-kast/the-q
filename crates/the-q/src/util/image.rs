@@ -66,15 +66,36 @@ async fn process<
     }
 
     tokio::task::spawn_blocking(move || {
-        let format = content_type
-            .as_ref()
-            .and_then(ImageFormat::from_mime_type)
-            .or_else(|| filename.and_then(|f| ImageFormat::from_path(f).ok()))
-            .or_else(|| image::guess_format(&image_data).ok())
-            .context("Error determining format of input image")?;
+        let image = [
+            content_type.as_ref().and_then(ImageFormat::from_mime_type),
+            filename.and_then(|f| ImageFormat::from_path(f).ok()),
+            image::guess_format(&image_data).ok(),
+        ]
+        .into_iter()
+        .find_map(|f| {
+            let f = f?;
+            image::load_from_memory_with_format(&image_data, f)
+                .with_context(|| format!("Unable to load image with format {f:?}"))
+                .map_err(|err| trace!(?err))
+                .ok()
+        })
+        .or_else(|| {
+            webp::Decoder::new(&image_data)
+                .decode()
+                .map(|i| i.to_image())
+        })
+        .or_else(|| {
+            webp::AnimDecoder::new(&image_data)
+                .decode()
+                .map_err(|err| trace!(%err, "Error loading image as animated WebP"))
+                .ok()
+                .as_ref()
+                .and_then(|i| i.get_frame(0))
+                .as_ref()
+                .map(Into::into)
+        })
+        .ok_or_else(|| anyhow!("Unable to determine input image format"))?;
 
-        let image = image::load_from_memory_with_format(&image_data, format)
-            .context("Error reading image data")?;
         let (out, extra) = f(image).context("Error processing image")?;
 
         let mut bytes = Vec::new();
