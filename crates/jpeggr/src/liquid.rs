@@ -29,10 +29,10 @@ pub struct LiquidArgs {
     pub x_fac: f64,
     /// Y resolution scale factor
     pub y_fac: f64,
-    /// Maximum transverse width of seams (i.e. curliness)
-    pub curly_seams: u16,
-    /// Bias for non-straight seams
-    pub bias_curly: f32,
+    /// Maximum transverse slope for seams (i.e. maximum curl)
+    pub seam_wander: u16,
+    /// Bias towards more rigid seam paths
+    pub seam_rigidity: f32,
     /// Resize output image back to original size
     pub resize_output: ResizeOutput,
 }
@@ -54,8 +54,8 @@ pub fn liquid_buffer(
         max_input_size,
         x_fac,
         y_fac,
-        curly_seams,
-        bias_curly,
+        seam_wander,
+        seam_rigidity,
         resize_output,
     } = args;
 
@@ -95,8 +95,8 @@ pub fn liquid_buffer(
         image.width(),
         image.height(),
         lqr_sys::ColorType::Rgba,
-        curly_seams,
-        bias_curly,
+        seam_wander,
+        seam_rigidity,
     )?;
 
     let nwidth = (f64::from(image.width()) * x_fac).round() as u32;

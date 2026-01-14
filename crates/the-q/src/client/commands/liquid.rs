@@ -10,18 +10,18 @@ use crate::util;
 const MIN_PERCENT: f64 = 1.0;
 const MAX_PERCENT: f64 = 300.0;
 
-const MIN_CURLY: u16 = 0;
-const MAX_CURLY: u16 = 5;
+const MIN_WANDER: u16 = 0;
+const MAX_WANDER: u16 = 5;
 
-const MIN_BIAS_CURLY: f64 = -10.0;
-const MAX_BIAS_CURLY: f64 = 10.0;
+const MIN_RIGIDITY: f64 = -100.0;
+const MAX_RIGIDITY: f64 = 100.0;
 
 fn liquid(
     image: DynamicImage,
     x_percent: Option<f64>,
     y_percent: Option<f64>,
-    curly_seams: Option<i64>,
-    bias_curly: Option<f64>,
+    seam_wander: Option<i64>,
+    seam_rigidity: Option<f64>,
     resize_output: Option<i64>,
 ) -> Result<(DynamicImage, ()), jpeggr::Error> {
     const DEFAULT_PERCENT: f64 = 43.0;
@@ -35,14 +35,14 @@ fn liquid(
         unreachable!()
     };
 
-    let Ok(curly_seams @ MIN_CURLY..=MAX_CURLY) = curly_seams.unwrap_or(1).try_into() else {
+    let Ok(seam_wander @ MIN_WANDER..=MAX_WANDER) = seam_wander.unwrap_or(2).try_into() else {
         unreachable!()
     };
-    let bias_curly @ MIN_BIAS_CURLY..=MAX_BIAS_CURLY = bias_curly.unwrap_or(0.6) else {
+    let seam_rigidity @ MIN_RIGIDITY..=MAX_RIGIDITY = seam_rigidity.unwrap_or(-50.0) else {
         unreachable!()
     };
     #[allow(clippy::cast_possible_truncation)]
-    let bias_curly = bias_curly as f32;
+    let seam_rigidity = seam_rigidity as f32;
 
     let resize_output = match resize_output {
         None => liquid::ResizeOutput::Upsample,
@@ -56,8 +56,8 @@ fn liquid(
         max_input_size: 640,
         x_fac: x_percent / 100.0,
         y_fac: y_percent / 100.0,
-        curly_seams,
-        bias_curly,
+        seam_wander,
+        seam_rigidity,
         resize_output,
     })
     .map(|i| (i, ()))
@@ -104,16 +104,16 @@ impl CommandHandler<Schema> for LiquidCommand {
                     MIN_PERCENT..=MAX_PERCENT,
                 )
                 .int(
-                    "curly-seams",
-                    "Amount of deviation in the carved seams",
+                    "seam-wander",
+                    "Maximum allowed slope in the carved seams (0 is straight horizontal/vertical)",
                     false,
-                    MIN_CURLY.into()..=MAX_CURLY.into(),
+                    MIN_WANDER.into()..=MAX_WANDER.into(),
                 )
                 .real(
-                    "bias-curly",
-                    "Apply a bias for curly seams",
+                    "seam-rigidity",
+                    "Apply a bias toward (or against, if negative) more rigid seams",
                     false,
-                    MIN_BIAS_CURLY..=MAX_BIAS_CURLY,
+                    MIN_RIGIDITY..=MAX_RIGIDITY,
                 )
                 .int_choice(
                     "resize-output",
@@ -138,8 +138,8 @@ impl CommandHandler<Schema> for LiquidCommand {
         let attachment = visitor.visit_attachment("image")?.required()?;
         let x_percent = visitor.visit_number("x-percent")?.optional();
         let y_percent = visitor.visit_number("y-percent")?.optional();
-        let curly_seams = visitor.visit_i64("curly-seams")?.optional();
-        let bias_curly = visitor.visit_number("bias-curly")?.optional();
+        let seam_wander = visitor.visit_i64("seam-wander")?.optional();
+        let seam_rigidity = visitor.visit_number("seam-rigidity")?.optional();
         let resize_output = visitor.visit_i64("resize-output")?.optional();
 
         util::image::respond_slash(
@@ -150,8 +150,8 @@ impl CommandHandler<Schema> for LiquidCommand {
                     i,
                     x_percent,
                     y_percent,
-                    curly_seams,
-                    bias_curly,
+                    seam_wander,
+                    seam_rigidity,
                     resize_output,
                 )
             },
