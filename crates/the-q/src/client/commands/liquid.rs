@@ -1,7 +1,4 @@
-use jpeggr::{
-    image::{self, DynamicImage},
-    liquid,
-};
+use jpeggr::{image::DynamicImage, liquid};
 use paracord::interaction::command::Choice;
 
 use super::prelude::*;
@@ -23,7 +20,7 @@ fn liquid(
     seam_wander: Option<i64>,
     seam_rigidity: Option<f64>,
     resize_output: Option<i64>,
-) -> Result<(DynamicImage, ()), jpeggr::Error> {
+) -> Result<DynamicImage, jpeggr::Error> {
     const DEFAULT_PERCENT: f64 = 43.0;
 
     let (x_percent, y_percent) = (x_percent.or(y_percent), y_percent.or(x_percent));
@@ -60,17 +57,6 @@ fn liquid(
         seam_rigidity,
         resize_output,
     })
-    .map(|i| (i, ()))
-}
-
-fn encode(image: DynamicImage, (): (), buf: &mut Vec<u8>) -> Result<(), image::ImageError> {
-    let image = image.into_rgba8();
-    image::codecs::webp::WebPEncoder::new_lossless(buf).encode(
-        image.as_raw(),
-        image.width(),
-        image.height(),
-        image::ExtendedColorType::Rgba8,
-    )
 }
 
 #[derive(Debug)]
@@ -142,21 +128,16 @@ impl CommandHandler<Schema> for LiquidCommand {
         let seam_rigidity = visitor.visit_number("seam-rigidity")?.optional();
         let resize_output = visitor.visit_i64("resize-output")?.optional();
 
-        util::image::respond_slash(
-            attachment,
-            responder,
-            move |i| {
-                liquid(
-                    i,
-                    x_percent,
-                    y_percent,
-                    seam_wander,
-                    seam_rigidity,
-                    resize_output,
-                )
-            },
-            encode,
-        )
+        util::image::respond_slash(attachment, responder, false, move |i| {
+            liquid(
+                i,
+                x_percent,
+                y_percent,
+                seam_wander,
+                seam_rigidity,
+                resize_output,
+            )
+        })
         .await
     }
 }
@@ -185,12 +166,9 @@ impl CommandHandler<Schema> for LiquidMessageCommand {
         visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
-        util::image::respond_msg(
-            visitor,
-            responder,
-            |i| liquid(i, None, None, None, None, None),
-            encode,
-        )
+        util::image::respond_msg(visitor, responder, false, |i| {
+            liquid(i, None, None, None, None, None)
+        })
         .await
     }
 }

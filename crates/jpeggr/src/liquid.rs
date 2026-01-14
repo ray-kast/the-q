@@ -59,8 +59,6 @@ pub fn liquid_buffer(
         resize_output,
     } = args;
 
-    let orig_width = image.width();
-    let orig_height = image.height();
     let (resize_output, ignore_aspect_ratio) = match resize_output {
         ResizeOutput::OutputSize => (false, false),
         ResizeOutput::FitToInput => (true, false),
@@ -69,24 +67,29 @@ pub fn liquid_buffer(
     };
 
     let (nwidth, nheight) = {
-        if orig_width.max(orig_height) > max_input_size {
-            if orig_width > orig_height {
+        let width = image.width();
+        let height = image.height();
+
+        if width.max(height) > max_input_size {
+            if width > height {
                 (
                     max_input_size,
-                    (f64::from(orig_height) * f64::from(max_input_size) / f64::from(orig_width))
-                        .round() as u32,
+                    (f64::from(height) * f64::from(max_input_size) / f64::from(width)).round()
+                        as u32,
                 )
             } else {
                 (
-                    (f64::from(orig_width) * f64::from(max_input_size) / f64::from(orig_height))
-                        .round() as u32,
+                    (f64::from(width) * f64::from(max_input_size) / f64::from(height)).round()
+                        as u32,
                     max_input_size,
                 )
             }
         } else {
-            (orig_width, orig_height)
+            (width, height)
         }
     };
+    let orig_width = nwidth;
+    let orig_height = nheight;
 
     image = imageops::resize(&image, nwidth, nheight, imageops::FilterType::CatmullRom);
 
@@ -115,7 +118,7 @@ pub fn liquid_buffer(
     let height = image.height();
 
     if resize_output {
-        let (nwidth, nheight) = if ignore_aspect_ratio {
+        let (nwidth, nheight) = if ignore_aspect_ratio || (y_fac - x_fac).abs() < 1e-3 {
             (orig_width, orig_height)
         } else {
             let x_scale = f64::from(orig_width) / f64::from(width);

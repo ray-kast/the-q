@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use jpeggr::image::{self, DynamicImage, ImageFormat};
+use jpeggr::image::{self, ColorType, DynamicImage, ImageFormat};
 use paracord::interaction::{
     handler::{CommandVisitor, IntoErr},
     response::{prelude::*, Message, MessageOpts},
@@ -22,16 +22,12 @@ enum ImageInput<'a> {
 
 async fn process<
     F: FnOnce(DynamicImage) -> FR + Send + 'static,
-    FR: anyhow::Context<(DynamicImage, T), FE>,
+    FR: anyhow::Context<DynamicImage, FE>,
     FE,
-    T,
-    E: FnOnce(DynamicImage, T, &mut Vec<u8>) -> ER + Send + 'static,
-    ER: anyhow::Context<(), EE>,
-    EE,
 >(
     input: ImageInput<'_>,
+    lossless_out: bool,
     f: F,
-    enc: E,
 ) -> Result<Vec<u8>> {
     let image_data;
     let content_type;
@@ -96,10 +92,33 @@ async fn process<
         })
         .ok_or_else(|| anyhow!("Unable to determine input image format"))?;
 
-        let (out, extra) = f(image).context("Error processing image")?;
+        let out = f(image).context("Error processing image")?;
+        let bytes;
 
-        let mut bytes = Vec::new();
-        enc(out, extra, &mut bytes).context("Error encoding image")?;
+        {
+            let image = match out.color() {
+                ColorType::L8 | ColorType::L16 => out.into_luma8().into(),
+                ColorType::La8 | ColorType::La16 => out.into_luma_alpha8().into(),
+                ColorType::Rgb8 | ColorType::Rgb16 | ColorType::Rgb32F => out.into_rgb8().into(),
+                _ => out.into_rgba8().into(),
+            };
+
+            let enc = webp::Encoder::from_image(&image)
+                .map_err(|e| anyhow!(e.to_string()))
+                .context("Error creating WebP encoder")?;
+
+            let mem = enc
+                .encode_advanced(&webp::WebPConfig {
+                    lossless: lossless_out.into(),
+                    quality: 90.0,
+                    target_size: 8 << 20,
+                    ..webp::WebPConfig::new().expect("Unable to create base WebP config")
+                })
+                .map_err(|e| anyhow!("{e:?}"))
+                .context("Error encoding output image")?;
+
+            bytes = mem.to_vec();
+        }
 
         Ok(bytes)
     })
@@ -110,24 +129,20 @@ async fn process<
 pub async fn respond_slash<
     'a,
     F: FnOnce(DynamicImage) -> FR + Send + 'static,
-    FR: anyhow::Context<(DynamicImage, T), FE>,
+    FR: anyhow::Context<DynamicImage, FE>,
     FE,
-    T,
-    E: FnOnce(DynamicImage, T, &mut Vec<u8>) -> ER + Send + 'static,
-    ER: anyhow::Context<(), EE>,
-    EE,
 >(
     attachment: &'_ Attachment,
     responder: CommandResponder<'_, 'a>,
+    lossless_out: bool,
     f: F,
-    enc: E,
 ) -> CommandResult<'a> {
     let responder = responder
         .defer_message(MessageOpts::default())
         .await
         .context("Error sending deferred message")?;
 
-    let bytes = process(ImageInput::Attachment(attachment), f, enc).await?;
+    let bytes = process(ImageInput::Attachment(attachment), lossless_out, f).await?;
 
     let attachment = CreateAttachment::bytes(
         bytes,
@@ -147,17 +162,13 @@ pub async fn respond_slash<
 pub async fn respond_msg<
     'a,
     F: FnOnce(DynamicImage) -> FR + Send + 'static,
-    FR: anyhow::Context<(DynamicImage, T), FE>,
+    FR: anyhow::Context<DynamicImage, FE>,
     FE,
-    T,
-    E: FnOnce(DynamicImage, T, &mut Vec<u8>) -> ER + Send + 'static,
-    ER: anyhow::Context<(), EE>,
-    EE,
 >(
     visitor: &mut CommandVisitor<'_>,
     responder: CommandResponder<'_, 'a>,
+    lossless_out: bool,
     f: F,
-    enc: E,
 ) -> CommandResult<'a> {
     let message = visitor.target().message()?;
 
@@ -212,7 +223,7 @@ pub async fn respond_msg<
         .await
         .context("Error sending deferred message")?;
 
-    let bytes = process(input, f, enc).await?;
+    let bytes = process(input, lossless_out, f).await?;
 
     let attachment = CreateAttachment::bytes(
         bytes,

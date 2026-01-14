@@ -1,5 +1,5 @@
 use jpeggr::{
-    image::{self, imageops::FilterType, DynamicImage},
+    image::{imageops::FilterType, DynamicImage},
     jpeg,
 };
 
@@ -11,7 +11,7 @@ fn jpeg(
     iterations: Option<i64>,
     quality: Option<i64>,
     size: Option<i64>,
-) -> Result<(DynamicImage, u8), jpeggr::Error> {
+) -> Result<DynamicImage, jpeggr::Error> {
     let iterations @ 0..=10 = iterations.unwrap_or(1) else {
         unreachable!()
     };
@@ -34,15 +34,6 @@ fn jpeg(
         down_filter: FilterType::Nearest,
         up_filter: FilterType::Lanczos3,
     })
-    .map(|i| (i, quality))
-}
-
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Needs to match a type parameter"
-)]
-fn encode(image: DynamicImage, quality: u8, buf: &mut Vec<u8>) -> Result<(), image::ImageError> {
-    image::codecs::jpeg::JpegEncoder::new_with_quality(buf, quality).encode_image(&image)
 }
 
 #[derive(Debug)]
@@ -86,12 +77,9 @@ impl CommandHandler<Schema> for JpegCommand {
         let quality = visitor.visit_i64("quality")?.optional();
         let size = visitor.visit_i64("size")?.optional();
 
-        util::image::respond_slash(
-            attachment,
-            responder,
-            move |i| jpeg(i, iterations, quality, size),
-            encode,
-        )
+        util::image::respond_slash(attachment, responder, false, move |i| {
+            jpeg(i, iterations, quality, size)
+        })
         .await
     }
 }
@@ -120,6 +108,6 @@ impl CommandHandler<Schema> for JpegMessageCommand {
         visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
-        util::image::respond_msg(visitor, responder, |i| jpeg(i, None, None, None), encode).await
+        util::image::respond_msg(visitor, responder, false, |i| jpeg(i, None, None, None)).await
     }
 }
