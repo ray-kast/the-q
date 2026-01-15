@@ -218,10 +218,11 @@ pub async fn respond_msg<
             break 'found Some(ImageInput::Url(url));
         }
 
-        let mut matches = EMOJI_RE.find_iter(&message.content);
-        if let Some(emoji) = matches.next()
-            && matches.next().is_none()
+        let mut matches = EMOJI_RE.find_iter(&message.content).peekable();
+        if let Some(emoji) = matches.peek()
             && let Some(emoji) = serenity::utils::parse_emoji(emoji.as_str())
+            && matches
+                .all(|m| serenity::utils::parse_emoji(m.as_str()).is_some_and(|e| e.id == emoji.id))
             && let Ok(url) = emoji.url().parse()
         {
             break 'found Some(ImageInput::Url(url));
