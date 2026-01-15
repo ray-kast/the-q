@@ -323,7 +323,7 @@ impl<S: Schema> Registry<S> {
                 (inf.name().clone(), (c, inf))
             })
             .collect();
-        assert_eq!(new.len(), commands.len());
+        assert!(new.len() == commands.len(), "Command name clash detected");
 
         let mut unpaired_new = HashSet::new();
 

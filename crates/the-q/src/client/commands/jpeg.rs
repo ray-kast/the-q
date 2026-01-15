@@ -101,7 +101,6 @@ impl From<&CommandOpts> for JpegMessageCommand {
 impl CommandHandler<Schema> for JpegMessageCommand {
     fn register_global(&self) -> CommandInfo { CommandInfo::message(&self.name) }
 
-    // TODO: simplify error handling
     async fn respond<'a>(
         &self,
         _ctx: &Context,
@@ -109,5 +108,32 @@ impl CommandHandler<Schema> for JpegMessageCommand {
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         util::image::respond_msg(visitor, responder, false, |i| jpeg(i, None, None, None)).await
+    }
+}
+
+#[derive(Debug)]
+pub struct JpegUserCommand {
+    name: String,
+}
+
+impl From<&CommandOpts> for JpegUserCommand {
+    fn from(opts: &CommandOpts) -> Self {
+        Self {
+            name: format!("{}JPEG This User", opts.context_menu_base),
+        }
+    }
+}
+
+#[async_trait]
+impl CommandHandler<Schema> for JpegUserCommand {
+    fn register_global(&self) -> CommandInfo { CommandInfo::user(&self.name) }
+
+    async fn respond<'a>(
+        &self,
+        _ctx: &Context,
+        visitor: &mut CommandVisitor<'_>,
+        responder: CommandResponder<'_, 'a>,
+    ) -> CommandResult<'a> {
+        util::image::respond_user(visitor, responder, false, |i| jpeg(i, None, None, None)).await
     }
 }

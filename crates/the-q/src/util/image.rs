@@ -247,3 +247,34 @@ pub async fn respond_msg<
 
     process(input, responder, lossless_out, f).await
 }
+
+pub async fn respond_user<
+    'a,
+    F: FnOnce(DynamicImage) -> FR + Send + 'static,
+    FR: anyhow::Context<DynamicImage, FE>,
+    FE,
+>(
+    visitor: &mut CommandVisitor<'_>,
+    responder: CommandResponder<'_, 'a>,
+    lossless_out: bool,
+    f: F,
+) -> CommandResult<'a> {
+    let (user, _) = visitor.target().user()?;
+
+    let responder = responder
+        .defer_message(MessageOpts::default())
+        .await
+        .context("Error sending deferred message")?;
+
+    process(
+        ImageInput::Url(
+            user.static_face()
+                .parse()
+                .context("Error parsing avatar URL")?,
+        ),
+        responder,
+        lossless_out,
+        f,
+    )
+    .await
+}

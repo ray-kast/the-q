@@ -64,8 +64,10 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
     let explode = Arc::new(explode::ExplodeCommand::from(opts));
     let jpeg = Arc::new(jpeg::JpegCommand::from(opts));
     let jpeg_message = Arc::new(jpeg::JpegMessageCommand::from(opts));
+    let jpeg_user = Arc::new(jpeg::JpegUserCommand::from(opts));
     let liquid = Arc::new(liquid::LiquidCommand::from(opts));
     let liquid_message = Arc::new(liquid::LiquidMessageCommand::from(opts));
+    let liquid_user = Arc::new(liquid::LiquidUserCommand::from(opts));
     let point = Arc::new(point::PointCommand::from(opts));
     let re = Arc::new(re::ReCommand::from(opts));
     let re_message = Arc::new(re::ReMessageCommand::from(opts));
@@ -75,17 +77,19 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
 
     Handlers {
         commands: vec![
+            Arc::clone(&sound) as Arc<dyn CommandHandler<Schema>>,
             explode,
             jpeg,
             jpeg_message,
+            jpeg_user,
             liquid,
             liquid_message,
+            liquid_user,
             point,
             re,
             re_message,
             say,
             test,
-            Arc::clone(&sound) as Arc<dyn CommandHandler<Schema>>,
         ],
         components: vec![sound],
         modals: vec![],
