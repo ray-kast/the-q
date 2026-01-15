@@ -4267,6 +4267,7 @@ dependencies = [
  "prost 0.14.3",
  "prost-build",
  "qcore",
+ "regex",
  "reqwest 0.13.1",
  "serenity",
  "songbird",

@@ -70,6 +70,8 @@ pub type CommandError<'a, S> = HandlerError<'a, S, CommandInteraction>;
 pub type CommandResult<'a, S> = ResponseResult<'a, S, CommandInteraction>;
 /// Responder type provided to command interaction handlers
 pub type CommandResponder<'a, 'b, S> = response::BorrowingResponder<'a, 'b, S, CommandInteraction>;
+/// Responder type produced by creating a response in a command interaction handler
+pub type CreatedCommandResponder<'a, S> = response::CreatedResponder<'a, S, CommandInteraction>;
 /// Responder type to be returned by command interaction handlers
 pub type AckedCommandResponder<'a, S> = response::AckedResponder<'a, S, CommandInteraction>;
 

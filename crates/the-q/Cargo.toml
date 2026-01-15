@@ -25,6 +25,7 @@ ordered-float = "5.1.0"
 paracord.workspace = true
 prost = "0.14.3"
 qcore.workspace = true
+regex = "1.12.2"
 reqwest = { version = "0.13.1", features = ["deflate", "gzip", "brotli", "zstd"] }
 serenity.workspace = true
 songbird = { version = "0.5.0", features = ["serenity"] }

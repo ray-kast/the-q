@@ -1,17 +1,18 @@
-use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use jpeggr::image::{self, ColorType, DynamicImage, ImageFormat};
 use paracord::interaction::{
     handler::{CommandVisitor, IntoErr},
     response::{prelude::*, Message, MessageOpts},
 };
+use regex::Regex;
 use serenity::{builder::CreateAttachment, model::channel::Attachment};
 
 use crate::{
     prelude::*,
     util::{
         http_client,
-        interaction::{CommandResponder, CommandResult},
+        interaction::{CommandResponder, CommandResult, CreatedCommandResponder},
     },
 };
 
@@ -21,14 +22,16 @@ enum ImageInput<'a> {
 }
 
 async fn process<
+    'a,
     F: FnOnce(DynamicImage) -> FR + Send + 'static,
     FR: anyhow::Context<DynamicImage, FE>,
     FE,
 >(
     input: ImageInput<'_>,
+    responder: CreatedCommandResponder<'a>,
     lossless_out: bool,
     f: F,
-) -> Result<Vec<u8>> {
+) -> CommandResult<'a> {
     let image_data;
     let content_type;
     let filename;
@@ -61,7 +64,7 @@ async fn process<
         },
     }
 
-    tokio::task::spawn_blocking(move || {
+    let bytes = tokio::task::spawn_blocking(move || {
         let image = [
             content_type.as_ref().and_then(ImageFormat::from_mime_type),
             filename.and_then(|f| ImageFormat::from_path(f).ok()),
@@ -120,10 +123,18 @@ async fn process<
             bytes = mem.to_vec();
         }
 
-        Ok(bytes)
+        Result::<_>::Ok(bytes)
     })
     .await
-    .context("Error running image task")?
+    .context("Error running image task")??;
+
+    let attachment = CreateAttachment::bytes(bytes, "output.webp");
+    responder
+        .create_followup(Message::plain("").attach([attachment]))
+        .await
+        .context("Error sending processed image")?;
+
+    Ok(responder.into())
 }
 
 pub async fn respond_slash<
@@ -142,21 +153,13 @@ pub async fn respond_slash<
         .await
         .context("Error sending deferred message")?;
 
-    let bytes = process(ImageInput::Attachment(attachment), lossless_out, f).await?;
-
-    let attachment = CreateAttachment::bytes(
-        bytes,
-        PathBuf::from(&attachment.filename)
-            .with_extension("jpg")
-            .display()
-            .to_string(),
-    );
-    responder
-        .create_followup(Message::plain("").attach([attachment]))
-        .await
-        .context("Error sending processed image")?;
-
-    Ok(responder.into())
+    process(
+        ImageInput::Attachment(attachment),
+        responder,
+        lossless_out,
+        f,
+    )
+    .await
 }
 
 pub async fn respond_msg<
@@ -173,45 +176,64 @@ pub async fn respond_msg<
     let message = visitor.target().message()?;
 
     let input = 'found: {
+        static EMOJI_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"<[^:]*:[^:]+:\d+>").unwrap());
+
         if let [ref attachment] = *message.attachments {
-            break 'found Some((ImageInput::Attachment(attachment), &*attachment.filename));
+            break 'found Some(ImageInput::Attachment(attachment));
         }
 
         if let [ref embed] = *message.embeds {
             if let Some(ref image) = embed.image
                 && let Ok(url) = image.url.parse()
             {
-                break 'found Some((ImageInput::Url(url), "output.jpg"));
+                break 'found Some(ImageInput::Url(url));
             }
 
             if let Some(ref thumbnail) = embed.thumbnail
                 && let Ok(url) = thumbnail.url.parse()
             {
-                break 'found Some((ImageInput::Url(url), "thumb.jpg"));
+                break 'found Some(ImageInput::Url(url));
             }
 
             if let Some(ref author) = embed.author
                 && let Some(ref icon) = author.icon_url
                 && let Ok(url) = icon.parse()
             {
-                break 'found Some((ImageInput::Url(url), "icon.jpg"));
+                break 'found Some(ImageInput::Url(url));
             }
 
             if let Some(ref url) = embed.url
                 && let Ok(url) = url.parse::<Url>()
                 && ImageFormat::from_path(url.path()).is_ok()
             {
-                break 'found Some((ImageInput::Url(url), "embed.jpg"));
+                break 'found Some(ImageInput::Url(url));
             }
+        }
+
+        if let [ref sticker] = *message.sticker_items
+            && let Some(url) = sticker.image_url()
+            && let Ok(url) = url.parse()
+        {
+            break 'found Some(ImageInput::Url(url));
+        }
+
+        let mut matches = EMOJI_RE.find_iter(&message.content);
+        if let Some(emoji) = matches.next()
+            && matches.next().is_none()
+            && let Some(emoji) = serenity::utils::parse_emoji(emoji.as_str())
+            && let Ok(url) = emoji.url().parse()
+        {
+            break 'found Some(ImageInput::Url(url));
         }
 
         None
     };
 
-    let Some((input, filename)) = input else {
+    let Some(input) = input else {
         return Err(responder
             .create_message(
-                Message::plain("Target message must have exactly one attachment!").ephemeral(true),
+                Message::plain("Target message must have exactly one image!").ephemeral(true),
             )
             .await
             .context("Error sending attachment count error")?
@@ -223,19 +245,5 @@ pub async fn respond_msg<
         .await
         .context("Error sending deferred message")?;
 
-    let bytes = process(input, lossless_out, f).await?;
-
-    let attachment = CreateAttachment::bytes(
-        bytes,
-        PathBuf::from(filename)
-            .with_extension("jpg")
-            .display()
-            .to_string(),
-    );
-    responder
-        .create_followup(Message::plain("").attach([attachment]))
-        .await
-        .context("Error sending processed image")?;
-
-    Ok(responder.into())
+    process(input, responder, lossless_out, f).await
 }
