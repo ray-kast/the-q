@@ -1071,6 +1071,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af9673d8203fcb076b19dfd17e38b3d4ae9f44959416ea532ce72415a6020365"
 
 [[package]]
+name = "fast-srgb8"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd2e7510819d6fbf51a5545c8f922716ecfb14df168a3242f7d33e0239efe6a1"
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2375,6 +2381,16 @@ checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
 dependencies = [
  "hermit-abi",
  "libc",
+]
+
+[[package]]
+name = "oklab"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1e35ab3c8efa6bc97d651abe7fb051aebb30c925a450ff6722cf9c797a938cc"
+dependencies = [
+ "fast-srgb8",
+ "rgb",
 ]
 
 [[package]]
@@ -4260,6 +4276,7 @@ dependencies = [
  "jpeggr",
  "mid-tools",
  "notify",
+ "oklab",
  "once_cell",
  "ordered-float 5.1.0",
  "paracord",

@@ -1,6 +1,7 @@
 mod jpeg;
 mod liquid;
 mod re;
+mod saturate;
 mod say;
 mod sound;
 
@@ -66,6 +67,9 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
     let liquid_user = Arc::new(liquid::LiquidUserCommand::from(opts));
     let re = Arc::new(re::ReCommand::from(opts));
     let re_message = Arc::new(re::ReMessageCommand::from(opts));
+    let saturate = Arc::new(saturate::SaturateCommand::from(opts));
+    let saturate_message = Arc::new(saturate::SaturateMessageCommand::from(opts));
+    let saturate_user = Arc::new(saturate::SaturateUserCommand::from(opts));
     let say = Arc::new(say::SayCommand::from(opts));
     let sound = Arc::new(sound::SoundCommand::from(opts));
 
@@ -80,6 +84,9 @@ pub fn handlers(opts: &CommandOpts) -> Handlers {
             liquid_user,
             re,
             re_message,
+            saturate,
+            saturate_message,
+            saturate_user,
             say,
         ],
         components: vec![sound],
