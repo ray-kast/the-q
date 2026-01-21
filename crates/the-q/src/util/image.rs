@@ -16,6 +16,8 @@ use crate::{
     },
 };
 
+pub mod tonemap;
+
 enum ImageInput<'a> {
     Attachment(&'a Attachment),
     Url(Url),
