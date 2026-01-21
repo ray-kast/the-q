@@ -146,8 +146,6 @@ mod sigmoid {
             })
         }
 
-        fn biased_params() -> impl Strategy<Value = (Params, f64)> { sigmoid_params() }
-
         fn normalized_params() -> impl Strategy<Value = (Params, f64)> { (params(), 0.0..=1.0) }
 
         proptest! {
@@ -162,7 +160,6 @@ mod sigmoid {
                 let roundtrip = super::normalized(super::normalized_inv(x, params), params);
                 assert_eq(x, roundtrip);
             }
-
         }
     }
 }

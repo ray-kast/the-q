@@ -224,6 +224,61 @@ async fn post_response(
     Ok(responder.into())
 }
 
+fn open(image_data: &'_ [u8], format: ImageFormat) -> Result<ImageType<'_>> {
+    Ok(match format {
+        ImageFormat::Gif => ImageType::Frames(
+            image::codecs::gif::GifDecoder::new(Cursor::new(image_data))
+                .context("Error opening image as GIF")?
+                .into_frames(),
+        ),
+        ImageFormat::Png => {
+            let dec = image::codecs::png::PngDecoder::new(Cursor::new(image_data))
+                .context("Error opening image as PNG")?;
+
+            if dec
+                .is_apng()
+                .context("Error detecting APNG")
+                .unwrap_or_else(|err| {
+                    debug!(?err);
+                    false
+                })
+            {
+                ImageType::Frames(
+                    dec.apng()
+                        .context("Error opening image as APNG")?
+                        .into_frames(),
+                )
+            } else {
+                ImageType::Static(
+                    DynamicImage::from_decoder(dec).context("Error opening image as static PNG")?,
+                )
+            }
+        },
+        ImageFormat::WebP => {
+            let image = webp::AnimDecoder::new(image_data)
+                .decode()
+                .map_err(|e| anyhow!(e))
+                .context("Error opening image as animated WebP")?;
+
+            if image.has_animation() {
+                ImageType::WebpFrames(image)
+            } else {
+                ImageType::Static(
+                    image
+                        .get_frame(0)
+                        .as_ref()
+                        .context("Static WebP contained no frames")?
+                        .into(),
+                )
+            }
+        },
+        f => ImageType::Static(
+            image::load_from_memory_with_format(image_data, f)
+                .with_context(|| format!("Unable to load image with format {f:?}"))?,
+        ),
+    })
+}
+
 async fn process<
     'a,
     F: FnMut(DynamicImage) -> FR + Send + 'static,
@@ -276,63 +331,7 @@ async fn process<
             filename.and_then(|f| ImageFormat::from_path(f).ok()),
         ]
         .into_iter()
-        .find_map(|f| {
-            Some(match f? {
-                ImageFormat::Gif => ImageType::Frames(
-                    image::codecs::gif::GifDecoder::new(Cursor::new(&image_data))
-                        .context("Error opening image as GIF")
-                        .map_err(|err| debug!(?err))
-                        .ok()?
-                        .into_frames(),
-                ),
-                ImageFormat::Png => {
-                    let dec = image::codecs::png::PngDecoder::new(Cursor::new(&image_data))
-                        .context("Error opening image as PNG")
-                        .map_err(|err| debug!(?err))
-                        .ok()?;
-
-                    if dec
-                        .is_apng()
-                        .context("Error detecting APNG")
-                        .map_err(|err| debug!(?err))
-                        .unwrap_or(false)
-                    {
-                        ImageType::Frames(
-                            dec.apng()
-                                .context("Error opening image as APNG")
-                                .map_err(|err| debug!(?err))
-                                .ok()?
-                                .into_frames(),
-                        )
-                    } else {
-                        ImageType::Static(
-                            DynamicImage::from_decoder(dec)
-                                .context("Error opening image as static PNG")
-                                .map_err(|err| debug!(?err))
-                                .ok()?,
-                        )
-                    }
-                },
-                ImageFormat::WebP => {
-                    let image = webp::AnimDecoder::new(&image_data)
-                        .decode()
-                        .map_err(|err| debug!(%err, "Error loading image as animated WebP"))
-                        .ok()?;
-
-                    if image.has_animation() {
-                        ImageType::WebpFrames(image)
-                    } else {
-                        ImageType::Static(image.get_frame(0).as_ref().map(Into::into)?)
-                    }
-                },
-                f => ImageType::Static(
-                    image::load_from_memory_with_format(&image_data, f)
-                        .with_context(|| format!("Unable to load image with format {f:?}"))
-                        .map_err(|err| debug!(?err))
-                        .ok()?,
-                ),
-            })
-        })
+        .find_map(|f| open(&image_data, f?).map_err(|err| debug!(?err)).ok())
         .ok_or_else(|| anyhow!("Unable to determine input image format"))?;
 
         image.process(lossless_out, f)
