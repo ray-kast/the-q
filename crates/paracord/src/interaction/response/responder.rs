@@ -178,9 +178,8 @@ mod private {
 
         macro_rules! assert_interaction {
             ($ty:ident) => {
-                #[expect(non_snake_case)]
-                mod $ty {
-                    use super::super::$ty;
+                const _: () = {
+                    use super::$ty;
 
                     #[expect(
                         unused,
@@ -196,7 +195,7 @@ mod private {
                         let _ = $ty::edit_followup(todo!(), h, 0_u64, todo!());
                         let _ = $ty::delete_followup(todo!(), h, 0_u64);
                     }
-                }
+                };
             };
         }
 
@@ -522,8 +521,23 @@ impl<'a, S: Schema, I: private::Interaction> CreatedResponder<'a, S, I> {
     /// # Errors
     /// This method returns an error if an API error is received.
     #[inline]
-    pub async fn delete(self) -> Result<(), serenity::Error> {
-        self.0.int.delete_response(self.0.http).await
+    pub async fn delete(self) -> Result<VoidResponder<'a, S, I>, serenity::Error> {
+        self.0.int.delete_response(self.0.http).await?;
+        Ok(self.void())
+    }
+
+    /// Delete the interaction response message
+    ///
+    /// # Errors
+    /// This method returns an error if an API error is received.
+    #[inline]
+    pub async fn delete_and_followup(
+        self,
+        msg: Message<S::Component, id::Error>,
+    ) -> Result<(VoidResponder<'a, S, I>, Followup), ResponseError> {
+        self.0.int.delete_response(self.0.http).await?;
+        let fup = self.create_followup(msg).await?;
+        Ok((self.void(), fup))
     }
 }
 

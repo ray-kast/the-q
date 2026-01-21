@@ -11,7 +11,11 @@ RUN apt-get update -y && \
     git \
     jq \
     libclang-dev \
-    libglib2.0-dev \
+    # libges-1.0-dev \
+    # libglib2.0-dev \
+    # libgstreamer-plugins-base1.0-dev \
+    libgstreamer1.0-dev \
+    # libgstrtspserver-1.0-dev \
     liblqr-dev \
     pkgconf \
     protobuf-compiler \
@@ -78,6 +82,11 @@ RUN apt-get update -y && \
     ca-certificates \
     ffmpeg \
     graphviz \
+    gstreamer1.0-libav \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-ugly \
     liblqr-1-0 \
   && \
   rm -rf /var/lib/apt/lists/*

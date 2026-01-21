@@ -15,6 +15,7 @@ async-trait = "0.1.89" # TODO: remove async-trait?
 clap.workspace = true
 dotenvy = "0.15.7"
 futures-util.workspace = true
+gstreamer = "0.24.4"
 hashbrown.workspace = true
 hostname = "0.4.2"
 jpeggr.workspace = true
