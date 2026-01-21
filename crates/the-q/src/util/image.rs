@@ -380,7 +380,7 @@ pub async fn respond_msg<
     f: F,
 ) -> CommandResult<'a> {
     let message = visitor.target().message()?;
-    trace!(?message, "Looking for images");
+    trace!(payload = ?message, "Looking for images");
 
     let input = 'found: {
         static EMOJI_RE: LazyLock<Regex> =
