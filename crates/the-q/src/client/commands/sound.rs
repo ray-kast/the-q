@@ -24,7 +24,14 @@ pub struct SoundCommand {
 
 #[derive(DeserializeCommand)]
 #[deserialize(cx = HandlerCx)]
-pub struct SoundArgs {}
+pub enum SoundArgs<'a> {
+    Play {
+        gid: GuildId,
+        user: &'a User,
+        path: &'a str,
+    },
+    Board,
+}
 
 #[derive(DeserializeRpc)]
 #[deserialize(component, schema = Schema, cx = HandlerCx)]
@@ -228,13 +235,11 @@ impl SoundCommand {
     async fn play<'a>(
         &self,
         serenity_cx: &Context,
-        visitor: &mut CommandVisitor<'_>,
+        gid: GuildId,
+        user: &User,
+        path: &str,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
-        let (gid, _memb) = visitor.guild()?.required()?;
-        let user = visitor.user();
-        let path = visitor.visit_string("path")?.required()?;
-
         let responder = responder
             .defer_message(MessageOpts::default().ephemeral(true))
             .await
@@ -273,7 +278,6 @@ impl SoundCommand {
     async fn board<'a>(
         &self,
         _serenity_cx: &Context,
-        _visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         let responder = responder
@@ -295,7 +299,7 @@ impl SoundCommand {
 }
 
 impl CommandHandler<Schema, HandlerCx> for SoundCommand {
-    type Data<'a> = SoundArgs;
+    type Data<'a> = SoundArgs<'a>;
 
     // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
     //     CommandInfo::build_slash(cx.opts.command_name("sound"), ";)", |a| {
@@ -314,7 +318,6 @@ impl CommandHandler<Schema, HandlerCx> for SoundCommand {
         _cx: &'a HandlerCx,
         data: <Self::Data<'a> as DeserializeCommand<'a, HandlerCx>>::Completion,
     ) -> CompletionResult {
-        // TODO: CompletionVisitor should probably have a better API
         // match *visitor.visit_subcmd()? {
         //     ["play"] => {
         //         // TODO: unicase?
@@ -363,7 +366,7 @@ impl CommandHandler<Schema, HandlerCx> for SoundCommand {
         //     },
         //     ref s => Err(anyhow!("Unexpected subcommand {s:?}").into()),
         // }
-        todo!()
+        match data {}
     }
 
     async fn respond<'a, 'r>(
@@ -373,13 +376,12 @@ impl CommandHandler<Schema, HandlerCx> for SoundCommand {
         data: Self::Data<'a>,
         responder: handler::CommandResponder<'a, 'r, Schema>,
     ) -> handler::CommandResult<'r, Schema> {
-        // let subcmd = visitor.visit_subcmd()?;
-        // match *subcmd {
-        //     ["play"] => self.play(serenity_cx, visitor, responder).await,
-        //     ["board"] => self.board(serenity_cx, visitor, responder).await,
-        //     [..] => unreachable!(), // TODO: visitor should handle this
-        // }
-        todo!()
+        match data {
+            SoundArgs::Play { gid, user, path } => {
+                self.play(serenity_cx, gid, user, path, responder).await
+            },
+            SoundArgs::Board => self.board(serenity_cx, responder).await,
+        }
     }
 }
 

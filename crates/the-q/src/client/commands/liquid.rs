@@ -3,14 +3,14 @@ use jpeggr::{image::DynamicImage, liquid};
 use super::prelude::*;
 use crate::util;
 
-const MIN_PERCENT: f64 = 1.0;
-const MAX_PERCENT: f64 = 300.0;
+// const MIN_PERCENT: f64 = 1.0;
+// const MAX_PERCENT: f64 = 300.0;
 
-const MIN_WANDER: u16 = 0;
-const MAX_WANDER: u16 = 5;
+// const MIN_WANDER: u16 = 0;
+// const MAX_WANDER: u16 = 5;
 
-const MIN_RIGIDITY: f64 = -100.0;
-const MAX_RIGIDITY: f64 = 100.0;
+// const MIN_RIGIDITY: f64 = -100.0;
+// const MAX_RIGIDITY: f64 = 100.0;
 
 #[derive(Clone, Copy)]
 struct Params {

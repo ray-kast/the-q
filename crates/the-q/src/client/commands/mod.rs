@@ -44,9 +44,6 @@ mod prelude {
         rpc::{ComponentKey, ModalKey, Schema},
         util::{http_client, interaction::*},
     };
-
-    #[inline]
-    pub fn id<T>(t: T) -> T { t }
 }
 
 pub type Handlers = prelude::handler::Handlers<prelude::Schema, prelude::HandlerCx>;

@@ -90,26 +90,42 @@ pub enum CompletionError {
 /// Return type for the autocomplete interaction handler
 pub type CompletionResult = Result<Vec<Completion>, CompletionError>;
 
+/// Registration and parsing functionality for application commands
 pub trait DeserializeCommand<'a, C>: Sized + Send {
+    /// Deserialized type of autocomplete interactions
     type Completion: Send;
 
+    /// Provide registration data for this command within the global context
     fn register_global(cx: &C) -> CommandInfo;
 
+    /// Provide registration data for this command within the context of a guild
     fn register_guild(id: GuildId, cx: &C) -> Option<CommandInfo>;
 
+    /// Deserialize payload data for autocomplete invocations of this command
+    ///
+    /// # Errors
+    /// This method should return an error if the provided interaction data is
+    /// invalid
     fn deserialize_completion(
         visitor: &mut CompletionVisitor<'a>,
     ) -> Result<Self::Completion, visitor::Error>;
 
+    /// Deserialize payload data for invocations of this command
+    ///
+    /// # Errors
+    /// This method should return an error if the provided interaction data is
+    /// invalid
     fn deserialize(visitor: &mut CommandVisitor<'a>) -> Result<Self, visitor::Error>;
 }
 
+/// Type representing command data with no possible autocomplete interactions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum NoCompletion {}
 
 /// A handler for a command interaction and its associated autocomplete
 /// interactions
 pub trait CommandHandler<S, C: Sync>: fmt::Debug + Send + Sync {
+    /// Payload data for this handler
     type Data<'a>: DeserializeCommand<'a, C>
     where
         Self: 'a,
@@ -140,11 +156,16 @@ pub trait CommandHandler<S, C: Sync>: fmt::Debug + Send + Sync {
     ) -> impl Future<Output = CommandResult<'r, S>> + Send + use<'a, 'r, Self, S, C>;
 }
 
+/// Dyn-safe version of [`CommandHandler`] and [`DeserializeCommand`]
 pub trait DynCommandHandler<S, C: Sync>: fmt::Debug + Send + Sync {
+    /// Dyn-safe version of [`DeserializeCommand::register_global`]
     fn dyn_register_global(&self, cx: &C) -> CommandInfo;
 
+    /// Dyn-safe version of [`DeserializeCommand::register_guild`]
     fn dyn_register_guild(&self, id: GuildId, cx: &C) -> Option<CommandInfo>;
 
+    /// Dyn-safe version of [`DeserializeCommand::deserialize_completion`] and
+    /// [`CommandHandler::complete`]
     fn dyn_complete<'a>(
         &'a self,
         serenity_cx: &'a Context,
@@ -155,6 +176,8 @@ pub trait DynCommandHandler<S, C: Sync>: fmt::Debug + Send + Sync {
         S: 'a,
         C: 'a;
 
+    /// Dyn-safe version of [`DeserializeCommand::deserialize`] and
+    /// [`CommandHandler::respond`]
     fn dyn_respond<'a, 'r>(
         &'a self,
         serenity_cx: &'a Context,
@@ -232,9 +255,17 @@ pub type ModalResponder<'a, 'b, S> = response::BorrowingResponder<'a, 'b, S, Mod
 /// Responder type to be returned by modal-submit interaction handlers
 pub type AckedModalResponder<'a, S> = response::AckedResponder<'a, S, ModalInteraction>;
 
+/// Registration and parsing functionality for application components and
+/// modals
 pub trait DeserializeRpc<'a, K: rpc::Key, C>: Sized + Send {
+    /// Register the ID type keys to which this handler can respond
     fn register_keys(cx: &C) -> &[K];
 
+    /// Deserialize payload data for an RPC interaction
+    ///
+    /// # Errors
+    /// This method should return an error if the provided interaction data is
+    /// invalid
     fn deserialize(
         visitor: &mut visitor::BasicVisitor<'a, K::Interaction>,
     ) -> Result<Self, visitor::Error>;
@@ -242,6 +273,7 @@ pub trait DeserializeRpc<'a, K: rpc::Key, C>: Sized + Send {
 
 /// A handler for an RPC (i.e. component or modal-submit) interaction
 pub trait RpcHandler<S, K: rpc::Key, C: Sync>: fmt::Debug + Send + Sync {
+    /// Payload data for this handler
     type Data<'a>: DeserializeRpc<'a, K, C>
     where
         Self: 'a,
@@ -259,9 +291,12 @@ pub trait RpcHandler<S, K: rpc::Key, C: Sync>: fmt::Debug + Send + Sync {
     ) -> impl Future<Output = ResponseResult<'r, S, K::Interaction>> + Send + use<'a, 'r, Self, S, K, C>;
 }
 
+/// Dyn-safe version of [`RpcHandler`] and [`DeserializeRpc`]
 pub trait DynRpcHandler<S, K: rpc::Key, C: Sync>: fmt::Debug + Send + Sync {
+    /// Dyn-safe version of [`DeserializeRpc::register_keys`]
     fn dyn_register_keys<'k>(&self, cx: &'k C) -> &'k [K];
 
+    /// Dyn-safe version of [`DeserializeRpc::deserialize`] and [`RpcHandler::respond`]
     fn dyn_respond<'a, 'r>(
         &'a self,
         serenity_cx: &'a Context,

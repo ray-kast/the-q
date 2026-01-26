@@ -22,16 +22,16 @@ impl Kind for Command {
     }
 
     fn parse_outer_nested_meta(
-        attr: &mut Self::Attr,
-        meta: ParseNestedMeta<'_>,
+        _attr: &mut Self::Attr,
+        _meta: ParseNestedMeta<'_>,
     ) -> syn::Result<bool> {
         Ok(false)
     }
 
-    fn validate_outer_meta(attr: &Self::Attr) -> syn::Result<()> { Ok(()) }
+    fn validate_outer_meta(_attr: &Self::Attr) -> syn::Result<()> { Ok(()) }
 
     fn emit_trait_generics(
-        attr: &Self::Attr,
+        _attr: &Self::Attr,
         deser_lt: &Lifetime,
         cx_ty: &Type,
     ) -> Punctuated<syn::GenericArgument, Token![,]> {
@@ -39,7 +39,7 @@ impl Kind for Command {
     }
 
     fn emit_register_items<F: FnMut(&str, Punctuated<FnArg, Token![,]>, Pat, Type, Block)>(
-        attr: &Self::Attr,
+        _attr: &Self::Attr,
         mut f: F,
     ) {
         f(
@@ -66,7 +66,7 @@ impl Kind for Command {
     }
 
     fn emit_deserialize_items<F: FnMut(&str, PatType, Type, Block)>(
-        attr: &Self::Attr,
+        _attr: &Self::Attr,
         lt: &Lifetime,
         mut f: F,
     ) {
@@ -91,7 +91,7 @@ impl Kind for Command {
         );
     }
 
-    fn emit_extra<F: FnMut(syn::ImplItem)>(attr: &Self::Attr, mut f: F) {
+    fn emit_extra<F: FnMut(syn::ImplItem)>(_attr: &Self::Attr, mut f: F) {
         f(ImplItem::Type(parse_quote! {
             type Completion = ::paracord::interaction::handler::NoCompletion;
         }));

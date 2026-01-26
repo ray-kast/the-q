@@ -122,5 +122,6 @@ impl Kind for Rpc {
         );
     }
 
-    fn emit_extra<F: FnMut(syn::ImplItem)>(attr: &Self::Attr, f: F) {}
+    #[inline]
+    fn emit_extra<F: FnMut(syn::ImplItem)>(_attr: &Self::Attr, _f: F) {}
 }

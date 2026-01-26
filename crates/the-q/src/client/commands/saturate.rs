@@ -3,8 +3,8 @@ use jpeggr::image::{self, DynamicImage};
 use super::prelude::*;
 use crate::util::{self, image::tonemap};
 
-const MIN_PERCENT: f64 = 0.0;
-const MAX_PERCENT: f64 = 1_000.0;
+// const MIN_PERCENT: f64 = 0.0;
+// const MAX_PERCENT: f64 = 1_000.0;
 
 #[derive(Clone, Copy)]
 struct Params {

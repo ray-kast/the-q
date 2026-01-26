@@ -15,14 +15,14 @@ impl FromStr for RateLimitParams {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (window_limit, window) = s.split_once("/").context("Missing / delimiter")?;
+        let (window_limit, window) = s.split_once('/').context("Missing / delimiter")?;
         let window_limit = window_limit
             .trim()
             .parse()
             .with_context(|| format!("Invalid window limit {window_limit}"))?;
 
         let (window_buckets, bucket_mins) = window
-            .split_once("x")
+            .split_once('x')
             .context("Window format must be of the form '{N}x{M}min'")?;
 
         let window_buckets = window_buckets

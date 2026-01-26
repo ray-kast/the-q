@@ -53,62 +53,15 @@ pub(super) trait Kind {
     fn emit_extra<F: FnMut(ImplItem)>(attr: &Self::Attr, f: F);
 }
 
-#[expect(clippy::needless_pass_by_value)]
-pub(super) fn run<K: Kind>(input: syn::DeriveInput, _kind: K) -> TokenStream {
-    let mut diag = TokenStream::new();
+fn emit<K: Kind>(
+    items: &mut Vec<ImplItem>,
+    kind_attr: &K::Attr,
+    deser_lt: &Lifetime,
+    cx_ty: &Type,
+) {
+    K::emit_extra(kind_attr, |item| items.push(item));
 
-    let mut cx_ty = None;
-    let mut kind_attr = K::Attr::default();
-
-    if let Some(attr) = get_one(
-        input
-            .attrs
-            .iter()
-            .filter(|a| a.path().is_ident("deserialize")),
-        |a| diag.extend(a.span().error("").into_compile_error()),
-    ) {
-        attr.parse_nested_meta(|meta| {
-            if meta.path.is_ident("cx") {
-                cx_ty = Some((meta.path.span(), Type::parse(meta.value()?)?));
-            } else {
-                let invalid = meta.error("Invalid argument");
-                if !K::parse_outer_nested_meta(&mut kind_attr, meta)? {
-                    return Err(invalid);
-                }
-            }
-
-            Ok(())
-        })
-        .unwrap_or_else(|e| diag.extend(e.into_compile_error()));
-    }
-
-    match cx_ty
-        .as_ref()
-        .ok_or_else(|| Span::call_site().error("Missing #[deserialize(cx = ...)]"))
-        .and_then(|_| K::validate_outer_meta(&kind_attr))
-    {
-        Ok(()) => (),
-        Err(e) => return [diag, e.into_compile_error()].into_iter().collect(),
-    }
-
-    let (cx_span, cx_ty) = cx_ty.unwrap();
-
-    let mut impl_generics = input.generics.clone();
-
-    if impl_generics.lifetimes().next().is_none() {
-        impl_generics.params.insert(0, K::default_lt().into());
-    }
-
-    let deser_lt = impl_generics.lifetimes().next().unwrap();
-
-    let (impl_generics, ..) = impl_generics.split_for_impl();
-    let (_, ty_generics, where_clause) = input.generics.split_for_impl();
-
-    let mut items = vec![];
-
-    K::emit_extra(&kind_attr, |item| items.push(item));
-
-    K::emit_register_items(&kind_attr, |ident, mut inputs, cx_pat, ret, block| {
+    K::emit_register_items(kind_attr, |ident, mut inputs, cx_pat, ret, block| {
         inputs.push(parse_quote! { #cx_pat: &#cx_ty });
         items.push(ImplItem::from(ImplItemFn {
             attrs: vec![],
@@ -138,11 +91,8 @@ pub(super) fn run<K: Kind>(input: syn::DeriveInput, _kind: K) -> TokenStream {
         }));
     });
 
-    K::emit_deserialize_items(
-        &kind_attr,
-        &deser_lt.lifetime,
-        |ident, visitor_arg, ret_ty, block| {
-            items.push(ImplItem::from(ImplItemFn {
+    K::emit_deserialize_items(kind_attr, deser_lt, |ident, visitor_arg, ret_ty, block| {
+        items.push(ImplItem::from(ImplItemFn {
             attrs: vec![],
             vis: Visibility::Inherited,
             defaultness: None,
@@ -168,8 +118,63 @@ pub(super) fn run<K: Kind>(input: syn::DeriveInput, _kind: K) -> TokenStream {
             },
             block,
         }));
-        },
-    );
+    });
+}
+
+#[expect(clippy::needless_pass_by_value)]
+pub(super) fn run<K: Kind>(input: syn::DeriveInput, _kind: K) -> TokenStream {
+    let mut diag = TokenStream::new();
+
+    let mut cx_ty = None;
+    let mut kind_attr = K::Attr::default();
+
+    if let Some(attr) = get_one(
+        input
+            .attrs
+            .iter()
+            .filter(|a| a.path().is_ident("deserialize")),
+        |a| diag.extend(a.span().error("").into_compile_error()),
+    ) {
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("cx") {
+                cx_ty = Some(Type::parse(meta.value()?)?);
+            } else {
+                let invalid = meta.error("Invalid argument");
+                if !K::parse_outer_nested_meta(&mut kind_attr, meta)? {
+                    return Err(invalid);
+                }
+            }
+
+            Ok(())
+        })
+        .unwrap_or_else(|e| diag.extend(e.into_compile_error()));
+    }
+
+    match cx_ty
+        .as_ref()
+        .ok_or_else(|| Span::call_site().error("Missing #[deserialize(cx = ...)]"))
+        .and_then(|_| K::validate_outer_meta(&kind_attr))
+    {
+        Ok(()) => (),
+        Err(e) => return [diag, e.into_compile_error()].into_iter().collect(),
+    }
+
+    let cx_ty = cx_ty.unwrap();
+
+    let mut impl_generics = input.generics.clone();
+
+    if impl_generics.lifetimes().next().is_none() {
+        impl_generics.params.insert(0, K::default_lt().into());
+    }
+
+    let deser_lt = impl_generics.lifetimes().next().unwrap();
+
+    let (impl_generics, ..) = impl_generics.split_for_impl();
+    let (_, ty_generics, where_clause) = input.generics.split_for_impl();
+
+    let mut items = vec![];
+
+    emit::<K>(&mut items, &kind_attr, &deser_lt.lifetime, &cx_ty);
 
     let ty = &input.ident;
     let trait_path = K::trait_path();
