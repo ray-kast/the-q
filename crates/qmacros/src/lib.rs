@@ -15,11 +15,12 @@ use proc_macro::TokenStream as TokenStream1;
 
 mod borrow;
 mod builder;
+mod deserialize;
 
 pub(crate) mod prelude {
     pub use proc_macro2::{Span, TokenStream};
     pub use quote::{quote_spanned, ToTokens};
-    pub use syn::spanned::Spanned;
+    pub use syn::{parse_quote, spanned::Spanned};
 
     pub trait SpanExt {
         fn error(self, msg: impl std::fmt::Display) -> syn::Error;
@@ -53,4 +54,22 @@ pub fn builder(arg_stream: TokenStream1, body: TokenStream1) -> TokenStream1 {
         syn::parse_macro_input!(body),
     )
     .into()
+}
+
+/// Implement `paracord::interaction::handler::DeserializeCommand` for a type
+#[expect(clippy::let_and_return)]
+#[proc_macro_derive(DeserializeCommand, attributes(deserialize, arg, target))]
+pub fn deserialize_command(input: TokenStream1) -> TokenStream1 {
+    let ret = deserialize::run(syn::parse_macro_input!(input), deserialize::Command).into();
+    // eprintln!("{ret}");
+    ret
+}
+
+/// Implement `paracord::interaction::handler::DeserializeRpc` for a type
+#[expect(clippy::let_and_return)]
+#[proc_macro_derive(DeserializeRpc, attributes(deserialize))]
+pub fn deserialize_rpc(input: TokenStream1) -> TokenStream1 {
+    let ret = deserialize::run(syn::parse_macro_input!(input), deserialize::Rpc).into();
+    // eprintln!("{ret}");
+    ret
 }

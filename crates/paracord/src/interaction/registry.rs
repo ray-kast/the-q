@@ -267,17 +267,17 @@ fn ms_issuer(cache: &Cache, ms: &ModalInteraction) -> String {
     write_string(|s| write_issuer(s, cache, &ms.user, ms.guild_id, ms.channel_id))
 }
 
-type CommandHandler<S> = Arc<dyn handler::CommandHandler<S>>;
-type CommandHandlerMap<S> = HashMap<CommandId, CommandHandler<S>>;
-type RpcHandler<S, K> = Arc<dyn handler::RpcHandler<S, K>>;
-type RpcHandlerMap<S, K> = HashMap<K, RpcHandler<S, K>>;
+type CommandHandler<S, C> = Arc<dyn handler::DynCommandHandler<S, C>>;
+type CommandHandlerMap<S, C> = HashMap<CommandId, CommandHandler<S, C>>;
+type RpcHandler<S, K, C> = Arc<dyn handler::DynRpcHandler<S, K, C>>;
+type RpcHandlerMap<S, K, C> = HashMap<K, RpcHandler<S, K, C>>;
 
-type ComponentInfo<'a, S> = (
-    &'a RpcHandler<S, <S as Schema>::ComponentKey>,
+type ComponentInfo<'a, S, C> = (
+    &'a RpcHandler<S, <S as Schema>::ComponentKey, C>,
     <S as Schema>::ComponentPayload,
 );
-type ModalInfo<'a, S> = (
-    &'a RpcHandler<S, <S as Schema>::ModalKey>,
+type ModalInfo<'a, S, C> = (
+    &'a RpcHandler<S, <S as Schema>::ModalKey, C>,
     ModalSource,
     <S as Schema>::ModalPayload,
 );
@@ -285,20 +285,21 @@ type ModalInfo<'a, S> = (
 /// A self-contained registry of interaction handlers, which can register and
 /// dispatch response logic to each handler
 #[derive(Debug)]
-pub struct Registry<S: Schema> {
-    handlers: handler::Handlers<S>,
-    commands: RwLock<Option<CommandHandlerMap<S>>>,
-    components: RwLock<Option<RpcHandlerMap<S, S::ComponentKey>>>,
-    modals: RwLock<Option<RpcHandlerMap<S, S::ModalKey>>>,
+pub struct Registry<S: Schema, C> {
+    handlers: handler::Handlers<S, C>,
+    commands: RwLock<Option<CommandHandlerMap<S, C>>>,
+    components: RwLock<Option<RpcHandlerMap<S, S::ComponentKey, C>>>,
+    modals: RwLock<Option<RpcHandlerMap<S, S::ModalKey, C>>>,
 }
 
-impl<S: Schema> Registry<S> {
-    #[tracing::instrument(level = "info", skip(ctx))]
+impl<S: Schema, C: fmt::Debug + Sync> Registry<S, C> {
+    #[tracing::instrument(level = "info", skip(serenity_cx))]
     async fn patch_commands(
-        ctx: &Context,
-        init: &handler::Handlers<S>,
+        init: &handler::Handlers<S, C>,
+        serenity_cx: &Context,
+        cx: &C,
         guild: Option<GuildId>,
-    ) -> Result<CommandHandlerMap<S>, anyhow::Error> {
+    ) -> Result<CommandHandlerMap<S, C>, anyhow::Error> {
         if let Some(guild) = guild {
             todo!("handle guild {guild}");
         }
@@ -306,7 +307,7 @@ impl<S: Schema> Registry<S> {
         let handler::Handlers { commands, .. } = init;
         let mut handlers = HashMap::new();
 
-        let existing = Command::get_global_commands(&ctx.http)
+        let existing = Command::get_global_commands(&serenity_cx.http)
             .await
             .context("Error fetching initial command list")?
             .into_iter()
@@ -319,7 +320,7 @@ impl<S: Schema> Registry<S> {
         let mut new: HashMap<_, _> = commands
             .iter()
             .map(|c| {
-                let inf = c.register_global();
+                let inf = c.dyn_register_global(cx);
                 (inf.name().clone(), (c, inf))
             })
             .collect();
@@ -365,7 +366,7 @@ impl<S: Schema> Registry<S> {
                 old = ?existing.info.name(),
                 "Updating global command {new_name:?}"
             );
-            let res = Command::edit_global_command(&ctx.http, existing.id, inf.into())
+            let res = Command::edit_global_command(&serenity_cx.http, existing.id, inf.into())
                 .await
                 .with_context(|| format!("Error updating command {new_name:?}"))?;
             assert_eq!(existing.id, res.id);
@@ -377,7 +378,7 @@ impl<S: Schema> Registry<S> {
         for name in unpaired_new {
             let (cmd, inf) = new.remove(&name).unwrap_or_else(|| unreachable!());
             tracing::info!("Creating global command {name:?}");
-            let res = Command::create_global_command(&ctx.http, inf.into())
+            let res = Command::create_global_command(&serenity_cx.http, inf.into())
                 .await
                 .with_context(|| format!("Error creating command {name:?}"))?;
 
@@ -390,7 +391,7 @@ impl<S: Schema> Registry<S> {
                 inf.name(),
                 reg.id,
             );
-            Command::delete_global_command(&ctx.http, reg.id)
+            Command::delete_global_command(&serenity_cx.http, reg.id)
                 .await
                 .with_context(|| format!("Error deleting command {:?}", inf.name()))?;
         }
@@ -399,11 +400,11 @@ impl<S: Schema> Registry<S> {
         Ok(handlers)
     }
 
-    fn collate_rpc<K: Key>(handlers: &[RpcHandler<S, K>]) -> RpcHandlerMap<S, K> {
+    fn collate_rpc<K: Key>(handlers: &[RpcHandler<S, K, C>], cx: &C) -> RpcHandlerMap<S, K, C> {
         let mut map = HashMap::new();
 
         for handler in handlers {
-            for key in handler.register_keys().iter().copied() {
+            for key in handler.dyn_register_keys(cx).iter().copied() {
                 assert!(map.insert(key, Arc::clone(handler)).is_none());
             }
         }
@@ -412,9 +413,9 @@ impl<S: Schema> Registry<S> {
     }
 
     fn resolve_command<'a>(
-        map: &'a tokio::sync::RwLockReadGuard<'a, Option<CommandHandlerMap<S>>>,
+        map: &'a tokio::sync::RwLockReadGuard<'a, Option<CommandHandlerMap<S, C>>>,
         id: CommandId,
-    ) -> Result<&'a CommandHandler<S>, &'static str> {
+    ) -> Result<&'a CommandHandler<S, C>, &'static str> {
         let Some(ref map) = **map else {
             tracing::warn!("Rejecting command due to uninitialized registry");
             return Err("Still starting!  Please try again later.");
@@ -429,9 +430,9 @@ impl<S: Schema> Registry<S> {
     }
 
     fn resolve_component<'a>(
-        map: &'a tokio::sync::RwLockReadGuard<'a, Option<RpcHandlerMap<S, S::ComponentKey>>>,
+        map: &'a tokio::sync::RwLockReadGuard<'a, Option<RpcHandlerMap<S, S::ComponentKey, C>>>,
         id: &id::Id<'_>,
-    ) -> Result<ComponentInfo<'a, S>, &'static str> {
+    ) -> Result<ComponentInfo<'a, S, C>, &'static str> {
         let Some(ref map) = **map else {
             tracing::warn!("Rejecting component due to uninitialized registry");
             return Err("Still starting!  Please try again later.");
@@ -461,9 +462,9 @@ impl<S: Schema> Registry<S> {
     }
 
     fn resolve_modal<'a>(
-        map: &'a tokio::sync::RwLockReadGuard<'a, Option<RpcHandlerMap<S, S::ModalKey>>>,
+        map: &'a tokio::sync::RwLockReadGuard<'a, Option<RpcHandlerMap<S, S::ModalKey, C>>>,
         id: &id::Id<'_>,
-    ) -> Result<ModalInfo<'a, S>, &'static str> {
+    ) -> Result<ModalInfo<'a, S, C>, &'static str> {
         let Some(ref map) = **map else {
             tracing::warn!("Rejecting modal due to uninitialized registry");
             return Err("Still starting!  Please try again later.");
@@ -547,7 +548,7 @@ impl<S: Schema> Registry<S> {
 
     /// Construct a new registry from the given set of handlers
     #[must_use]
-    pub fn new(handlers: handler::Handlers<S>) -> Self {
+    pub fn new(handlers: handler::Handlers<S, C>) -> Self {
         Self {
             handlers,
             commands: None.into(),
@@ -563,24 +564,30 @@ impl<S: Schema> Registry<S> {
     /// This method returns an error if an API error response is received during
     /// registration.
     #[inline]
-    pub async fn init(&self, ctx: &Context) -> Result<(), anyhow::Error> {
+    pub async fn init(&self, serenity_cx: &Context, cx: &C) -> Result<(), anyhow::Error> {
         let mut commands = self.commands.write().await;
         let mut components = self.components.write().await;
         let mut modals = self.modals.write().await;
 
-        *commands = Some(Self::patch_commands(ctx, &self.handlers, None).await?);
-        *components = Some(Self::collate_rpc(&self.handlers.components));
-        *modals = Some(Self::collate_rpc(&self.handlers.modals));
+        *commands = Some(Self::patch_commands(&self.handlers, serenity_cx, cx, None).await?);
+        *components = Some(Self::collate_rpc(&self.handlers.components, cx));
+        *modals = Some(Self::collate_rpc(&self.handlers.modals, cx));
 
         // TODO: handle guild commands
 
         Ok(())
     }
 
-    #[tracing::instrument(level = "error", name = "handle_command", err, skip(self, ctx, aci))]
+    #[tracing::instrument(
+        level = "error",
+        name = "handle_command",
+        err,
+        skip(self, serenity_cx, aci)
+    )]
     async fn try_handle_command(
         &self,
-        ctx: &Context,
+        serenity_cx: &Context,
+        cx: &C,
         aci: CommandInteraction,
         name: String,
         id: String,
@@ -589,7 +596,7 @@ impl<S: Schema> Registry<S> {
         tracing::info!("Handling application command");
 
         let map = self.commands.read().await;
-        let responder = InitResponder::new(&ctx.http, &aci);
+        let responder = InitResponder::new(&serenity_cx.http, &aci);
         let handler = match Self::resolve_command(&map, aci.data.id) {
             Ok(h) => h,
             Err(e) => {
@@ -603,8 +610,9 @@ impl<S: Schema> Registry<S> {
 
         let mut vis = visitor::CommandVisitor::new(&aci);
         let mut responder = BorrowedResponder::Init(responder);
-        let res = AssertUnwindSafe(handler.respond(
-            ctx,
+        let res = AssertUnwindSafe(handler.dyn_respond(
+            serenity_cx,
+            cx,
             &mut vis,
             BorrowingResponder::new(&mut responder),
         ))
@@ -640,10 +648,16 @@ impl<S: Schema> Registry<S> {
         Ok(())
     }
 
-    #[tracing::instrument(level = "error", name = "handle_component", err, skip(self, ctx, mc))]
+    #[tracing::instrument(
+        level = "error",
+        name = "handle_component",
+        err,
+        skip(self, serenity_cx, mc)
+    )]
     async fn try_handle_component(
         &self,
-        ctx: &Context,
+        serenity_cx: &Context,
+        cx: &C,
         mc: ComponentInteraction,
         name: String,
         id: String,
@@ -652,7 +666,7 @@ impl<S: Schema> Registry<S> {
         tracing::info!("Handling message component");
 
         let map = self.components.read().await;
-        let responder = InitResponder::new(&ctx.http, &mc);
+        let responder = InitResponder::new(&serenity_cx.http, &mc);
         let id = unsafe { &id::Id::from_inner(mc.data.custom_id.as_str().into()) };
         let (handler, payload) = match Self::resolve_component(&map, id) {
             Ok(h) => h,
@@ -668,8 +682,9 @@ impl<S: Schema> Registry<S> {
         let mut vis = visitor::BasicVisitor { int: &mc };
         let mut responder = BorrowedResponder::Init(responder);
         let res = handler
-            .respond(
-                ctx,
+            .dyn_respond(
+                serenity_cx,
+                cx,
                 payload,
                 &mut vis,
                 BorrowingResponder::new(&mut responder),
@@ -690,11 +705,12 @@ impl<S: Schema> Registry<S> {
         level = "error",
         name = "handle_autocomplete",
         err,
-        skip(self, ctx, ac)
+        skip(self, serenity_cx, ac)
     )]
     async fn try_handle_autocomplete(
         &self,
-        ctx: &Context,
+        serenity_cx: &Context,
+        cx: &C,
         ac: CommandInteraction,
         name: String,
         id: String,
@@ -708,7 +724,7 @@ impl<S: Schema> Registry<S> {
         let mut vis = visitor::CommandVisitor::new(&ac);
         let choices = if let Some(handler) = handler {
             handler
-                .complete(ctx, &mut vis)
+                .dyn_complete(serenity_cx, cx, &mut vis)
                 .await
                 .map_err(|err| tracing::error!(%err, "Error in command completion"))
                 .ok()
@@ -718,7 +734,7 @@ impl<S: Schema> Registry<S> {
         tracing::trace!(?handler, "Command handler selected");
 
         ac.create_response(
-            &ctx.http,
+            &serenity_cx.http,
             CreateInteractionResponse::Autocomplete({
                 let ac = CreateAutocompleteResponse::new();
                 if let Some(choices) = choices {
@@ -731,10 +747,16 @@ impl<S: Schema> Registry<S> {
         .await
     }
 
-    #[tracing::instrument(level = "error", name = "handle_modal", err, skip(self, ctx, ms))]
+    #[tracing::instrument(
+        level = "error",
+        name = "handle_modal",
+        err,
+        skip(self, serenity_cx, ms)
+    )]
     async fn try_handle_modal(
         &self,
-        ctx: &Context,
+        serenity_cx: &Context,
+        cx: &C,
         ms: ModalInteraction,
         name: String,
         id: String,
@@ -743,7 +765,7 @@ impl<S: Schema> Registry<S> {
         tracing::info!("Handling modal submit");
 
         let map = self.modals.read().await;
-        let responder = InitResponder::new(&ctx.http, &ms);
+        let responder = InitResponder::new(&serenity_cx.http, &ms);
         let id = unsafe { &id::Id::from_inner(ms.data.custom_id.as_str().into()) };
         let (handler, src, payload) = match Self::resolve_modal(&map, id) {
             Ok(p) => p,
@@ -760,8 +782,9 @@ impl<S: Schema> Registry<S> {
         let mut vis = visitor::BasicVisitor { int: &ms };
         let mut responder = BorrowedResponder::Init(responder);
         let res = handler
-            .respond(
-                ctx,
+            .dyn_respond(
+                serenity_cx,
+                cx,
                 payload,
                 &mut vis,
                 BorrowingResponder::new(&mut responder),
@@ -781,28 +804,32 @@ impl<S: Schema> Registry<S> {
     /// Dispatch a command interaction to the proper handler and submit a
     /// response
     #[inline]
-    pub async fn handle_command(&self, ctx: &Context, aci: CommandInteraction) {
-        let cache = &ctx.cache;
+    pub async fn handle_command(&self, serenity_cx: &Context, cx: &C, aci: CommandInteraction) {
+        let cache = &serenity_cx.cache;
         let (name, id, iss) = (aci_name(cache, &aci), aci_id(&aci), aci_issuer(cache, &aci));
-        self.try_handle_command(ctx, aci, name, id, iss).await.ok();
+        self.try_handle_command(serenity_cx, cx, aci, name, id, iss)
+            .await
+            .ok();
     }
 
     /// Dispatch a component interaction to the proper handler and submit a
     /// response
     #[inline]
-    pub async fn handle_component(&self, ctx: &Context, mc: ComponentInteraction) {
-        let cache = &ctx.cache;
+    pub async fn handle_component(&self, serenity_cx: &Context, cx: &C, mc: ComponentInteraction) {
+        let cache = &serenity_cx.cache;
         let (name, id, iss) = (mc_name::<S>(&mc), mc_id(&mc), mc_issuer(cache, &mc));
-        self.try_handle_component(ctx, mc, name, id, iss).await.ok();
+        self.try_handle_component(serenity_cx, cx, mc, name, id, iss)
+            .await
+            .ok();
     }
 
     /// Dispatch an autocomplete interaction to the proper handler and submit a
     /// response
     #[inline]
-    pub async fn handle_autocomplete(&self, ctx: &Context, ac: CommandInteraction) {
-        let cache = &ctx.cache;
+    pub async fn handle_autocomplete(&self, serenity_cx: &Context, cx: &C, ac: CommandInteraction) {
+        let cache = &serenity_cx.cache;
         let (name, id, iss) = (ac_name(cache, &ac), ac_id(&ac), ac_issuer(cache, &ac));
-        self.try_handle_autocomplete(ctx, ac, name, id, iss)
+        self.try_handle_autocomplete(serenity_cx, cx, ac, name, id, iss)
             .await
             .ok();
     }
@@ -810,9 +837,11 @@ impl<S: Schema> Registry<S> {
     /// Dispatch a modal-submit interaction to the proper handler and submit a
     /// response
     #[inline]
-    pub async fn handle_modal(&self, ctx: &Context, ms: ModalInteraction) {
-        let cache = &ctx.cache;
+    pub async fn handle_modal(&self, serenity_cx: &Context, cx: &C, ms: ModalInteraction) {
+        let cache = &serenity_cx.cache;
         let (name, id, iss) = (ms_name::<S>(&ms), ms_id(&ms), ms_issuer(cache, &ms));
-        self.try_handle_modal(ctx, ms, name, id, iss).await.ok();
+        self.try_handle_modal(serenity_cx, cx, ms, name, id, iss)
+            .await
+            .ok();
     }
 }

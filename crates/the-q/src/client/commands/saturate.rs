@@ -7,9 +7,16 @@ const MIN_PERCENT: f64 = 0.0;
 const MAX_PERCENT: f64 = 1_000.0;
 
 #[derive(Clone, Copy)]
-struct Params;
+struct Params {
+    percent: f64,
+}
 
-impl tonemap::SigmoidParams for Params {
+const DEFAULT_PARAMS: Params = Params { percent: 400.0 };
+
+#[derive(Clone, Copy)]
+struct Tonemap;
+
+impl tonemap::SigmoidParams for Tonemap {
     type Scalar = f32;
 
     fn gain_negative(self) -> Self::Scalar { -16.0 }
@@ -22,10 +29,10 @@ impl tonemap::SigmoidParams for Params {
 }
 
 #[inline]
-fn tonemap(x: f32) -> f32 { tonemap::sigmoid(x, Params) }
+fn tonemap(x: f32) -> f32 { tonemap::sigmoid(x, Tonemap) }
 
 #[inline]
-fn tonemap_inv(x: f32) -> f32 { tonemap::sigmoid_inv(x, Params) }
+fn tonemap_inv(x: f32) -> f32 { tonemap::sigmoid_inv(x, Tonemap) }
 
 const fn luma_dropoff(x: f32) -> f32 {
     const fn sigmoid(mut x: f32) -> f32 {
@@ -36,10 +43,8 @@ const fn luma_dropoff(x: f32) -> f32 {
     sigmoid(x) / sigmoid(0.0)
 }
 
-fn saturate(image: DynamicImage, percent: Option<f64>) -> Result<DynamicImage, jpeggr::Error> {
-    let percent @ MIN_PERCENT..=MAX_PERCENT = percent.unwrap_or(400.0) else {
-        unreachable!();
-    };
+fn saturate(image: DynamicImage, params: Params) -> Result<DynamicImage, jpeggr::Error> {
+    let Params { percent } = params;
 
     #[expect(clippy::cast_possible_truncation)]
     let saturation = (percent / 100.0) as f32;
@@ -86,97 +91,126 @@ fn saturate(image: DynamicImage, percent: Option<f64>) -> Result<DynamicImage, j
     Ok(buf.into())
 }
 
-#[derive(Debug)]
-pub struct SaturateCommand {
-    name: String,
+#[derive(Debug, Default)]
+pub struct SaturateCommand;
+
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct SaturateArgs<'a> {
+    image: &'a Attachment,
+    percent: f64,
 }
 
-impl From<&CommandOpts> for SaturateCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}saturate", opts.command_base),
-        }
+impl CommandHandler<Schema, HandlerCx> for SaturateCommand {
+    type Data<'a> = SaturateArgs<'a>;
+
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::build_slash(
+    //         cx.opts.command_name("saturate"),
+    //         "Adjusts the saturation of an image",
+    //         |a| {
+    //             a.attachment("image", "The input image", true).real(
+    //                 "percent",
+    //                 "Saturation percentage (defaults to 400%)",
+    //                 false,
+    //                 MIN_PERCENT..=MAX_PERCENT,
+    //             )
+    //         },
+    //     )
+    //     .unwrap()
+    // }
+
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let SaturateArgs { image, percent } = data;
+
+        util::image::respond_slash(
+            &cx.opts.image_rate_limit,
+            &cx.redis,
+            image,
+            responder,
+            false,
+            move |i| saturate(i, Params { percent }),
+        )
+        .await
     }
 }
 
-#[async_trait]
-impl CommandHandler<Schema> for SaturateCommand {
-    fn register_global(&self) -> CommandInfo {
-        CommandInfo::build_slash(&self.name, "Adjusts the saturation of an image", |a| {
-            a.attachment("image", "The input image", true).real(
-                "percent",
-                "Saturation percentage (defaults to 400%)",
-                false,
-                MIN_PERCENT..=MAX_PERCENT,
-            )
-        })
-        .unwrap()
-    }
+#[derive(Debug, Default)]
+pub struct SaturateMessageCommand;
 
-    async fn respond<'a>(
-        &self,
-        _ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        let attachment = visitor.visit_attachment("image")?.required()?;
-        let percent = visitor.visit_number("percent")?.optional();
-
-        util::image::respond_slash(attachment, responder, false, move |i| saturate(i, percent))
-            .await
-    }
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct SaturateMessageArgs<'a> {
+    message: &'a MessageBase,
 }
 
-#[derive(Debug)]
-pub struct SaturateMessageCommand {
-    name: String,
-}
+impl CommandHandler<Schema, HandlerCx> for SaturateMessageCommand {
+    type Data<'a> = SaturateMessageArgs<'a>;
 
-impl From<&CommandOpts> for SaturateMessageCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}Saturate This", opts.context_menu_base),
-        }
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::message(cx.opts.menu_name("Saturate This"))
+    // }
+
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let SaturateMessageArgs { message } = data;
+
+        util::image::respond_msg(
+            &cx.opts.image_rate_limit,
+            &cx.redis,
+            message,
+            responder,
+            false,
+            |i| saturate(i, DEFAULT_PARAMS),
+        )
+        .await
     }
 }
 
-#[async_trait]
-impl CommandHandler<Schema> for SaturateMessageCommand {
-    fn register_global(&self) -> CommandInfo { CommandInfo::message(&self.name) }
+#[derive(Debug, Default)]
+pub struct SaturateUserCommand;
 
-    async fn respond<'a>(
-        &self,
-        _ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        util::image::respond_msg(visitor, responder, false, |i| saturate(i, None)).await
-    }
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct SaturateUserArgs<'a> {
+    user: &'a User,
 }
 
-#[derive(Debug)]
-pub struct SaturateUserCommand {
-    name: String,
-}
+impl CommandHandler<Schema, HandlerCx> for SaturateUserCommand {
+    type Data<'a> = SaturateUserArgs<'a>;
 
-impl From<&CommandOpts> for SaturateUserCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}Saturate This User", opts.context_menu_base),
-        }
-    }
-}
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::user(cx.opts.menu_name("Saturate This User"))
+    // }
 
-#[async_trait]
-impl CommandHandler<Schema> for SaturateUserCommand {
-    fn register_global(&self) -> CommandInfo { CommandInfo::user(&self.name) }
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let SaturateUserArgs { user } = data;
 
-    async fn respond<'a>(
-        &self,
-        _ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        util::image::respond_user(visitor, responder, false, |i| saturate(i, None)).await
+        util::image::respond_user(
+            &cx.opts.image_rate_limit,
+            &cx.redis,
+            user,
+            responder,
+            false,
+            |i| saturate(i, DEFAULT_PARAMS),
+        )
+        .await
     }
 }

@@ -1,7 +1,8 @@
 //! Traits for defining handler logic for various interactions
 
-use std::{fmt, sync::Arc};
+use std::{fmt, pin::Pin, sync::Arc};
 
+use futures_util::TryFutureExt;
 use serenity::{
     client::Context,
     model::{
@@ -21,13 +22,13 @@ pub trait IntoErr<E> {
 /// A set of handlers from which a [`Registry`](super::registry::Registry) can
 /// be created
 #[derive(Debug)]
-pub struct Handlers<S: rpc::Schema> {
+pub struct Handlers<S: rpc::Schema, C> {
     /// Command (and autocomplete) interaction handlers
-    pub commands: Vec<Arc<dyn CommandHandler<S>>>,
+    pub commands: Vec<Arc<dyn DynCommandHandler<S, C>>>,
     /// Component interaction handlers
-    pub components: Vec<Arc<dyn RpcHandler<S, S::ComponentKey>>>,
+    pub components: Vec<Arc<dyn DynRpcHandler<S, S::ComponentKey, C>>>,
     /// Modal-submit interaction handlers
-    pub modals: Vec<Arc<dyn RpcHandler<S, S::ModalKey>>>,
+    pub modals: Vec<Arc<dyn DynRpcHandler<S, S::ModalKey, C>>>,
 }
 
 // TODO: Component and Modal should have dedicated visitors
@@ -89,41 +90,128 @@ pub enum CompletionError {
 /// Return type for the autocomplete interaction handler
 pub type CompletionResult = Result<Vec<Completion>, CompletionError>;
 
+pub trait DeserializeCommand<'a, C>: Sized + Send {
+    type Completion: Send;
+
+    fn register_global(cx: &C) -> CommandInfo;
+
+    fn register_guild(id: GuildId, cx: &C) -> Option<CommandInfo>;
+
+    fn deserialize_completion(
+        visitor: &mut CompletionVisitor<'a>,
+    ) -> Result<Self::Completion, visitor::Error>;
+
+    fn deserialize(visitor: &mut CommandVisitor<'a>) -> Result<Self, visitor::Error>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum NoCompletion {}
+
 /// A handler for a command interaction and its associated autocomplete
 /// interactions
-#[async_trait::async_trait]
-pub trait CommandHandler<S>: fmt::Debug + Send + Sync {
-    /// Provide registration data for this command within the global context
-    fn register_global(&self) -> CommandInfo;
-
-    /// Provide registration data for this command within the context of a guild
-    #[inline]
-    fn register_guild(&self, id: GuildId) -> Option<CommandInfo> {
-        let _ = (id,);
-        None
-    }
+pub trait CommandHandler<S, C: Sync>: fmt::Debug + Send + Sync {
+    type Data<'a>: DeserializeCommand<'a, C>
+    where
+        Self: 'a,
+        C: 'a;
 
     /// Respond to an autocomplete interaction
     ///
     /// The default behavior of this method is to return an empty list.
     #[inline]
-    async fn complete(
-        &self,
-        ctx: &Context,
-        visitor: &mut CompletionVisitor<'_>,
-    ) -> CompletionResult {
-        let _ = (ctx, visitor);
-        Ok(vec![])
+    fn complete<'a>(
+        &'a self,
+        serenity_cx: &'a Context,
+        cx: &'a C,
+        data: <Self::Data<'a> as DeserializeCommand<'a, C>>::Completion,
+    ) -> impl Future<Output = CompletionResult> + Send + use<'a, Self, S, C> {
+        let _ = (serenity_cx, cx, data);
+        std::future::ready(Ok(vec![]))
     }
 
     /// Respond to a command interaction
     // TODO: set timeout for non-deferred commands?
-    async fn respond<'a>(
-        &self,
-        ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a, S>,
-    ) -> CommandResult<'a, S>;
+    fn respond<'a, 'r>(
+        &'a self,
+        serenity_cx: &'a Context,
+        cx: &'a C,
+        data: Self::Data<'a>,
+        responder: CommandResponder<'a, 'r, S>,
+    ) -> impl Future<Output = CommandResult<'r, S>> + Send + use<'a, 'r, Self, S, C>;
+}
+
+pub trait DynCommandHandler<S, C: Sync>: fmt::Debug + Send + Sync {
+    fn dyn_register_global(&self, cx: &C) -> CommandInfo;
+
+    fn dyn_register_guild(&self, id: GuildId, cx: &C) -> Option<CommandInfo>;
+
+    fn dyn_complete<'a>(
+        &'a self,
+        serenity_cx: &'a Context,
+        cx: &'a C,
+        visitor: &'a mut CompletionVisitor<'a>,
+    ) -> Pin<Box<dyn Future<Output = CompletionResult> + Send + 'a>>
+    where
+        S: 'a,
+        C: 'a;
+
+    fn dyn_respond<'a, 'r>(
+        &'a self,
+        serenity_cx: &'a Context,
+        cx: &'a C,
+        visitor: &mut CommandVisitor<'a>,
+        responder: CommandResponder<'a, 'r, S>,
+    ) -> Pin<Box<dyn Future<Output = CommandResult<'r, S>> + Send + 'a>>
+    where
+        S: 'a,
+        C: 'a;
+}
+
+impl<S, C: Sync, H: CommandHandler<S, C>> DynCommandHandler<S, C> for H {
+    #[inline]
+    fn dyn_register_global(&self, cx: &C) -> CommandInfo { H::Data::register_global(cx) }
+
+    #[inline]
+    fn dyn_register_guild(&self, id: GuildId, cx: &C) -> Option<CommandInfo> {
+        H::Data::register_guild(id, cx)
+    }
+
+    #[inline]
+    fn dyn_complete<'a>(
+        &'a self,
+        serenity_cx: &'a Context,
+        cx: &'a C,
+        visitor: &'a mut CompletionVisitor<'a>,
+    ) -> Pin<Box<dyn Future<Output = CompletionResult> + Send + 'a>>
+    where
+        S: 'a,
+        C: 'a,
+    {
+        Box::pin(
+            std::future::ready(H::Data::deserialize_completion(visitor))
+                .map_err(Into::into)
+                .and_then(|data| self.complete(serenity_cx, cx, data)),
+        )
+    }
+
+    #[inline]
+    fn dyn_respond<'a, 'r>(
+        &'a self,
+        serenity_cx: &'a Context,
+        cx: &'a C,
+        visitor: &mut CommandVisitor<'a>,
+        responder: CommandResponder<'a, 'r, S>,
+    ) -> Pin<Box<dyn Future<Output = CommandResult<'r, S>> + Send + 'a>>
+    where
+        S: 'a,
+        C: 'a,
+    {
+        Box::pin(
+            std::future::ready(H::Data::deserialize(visitor))
+                .map_err(Into::into)
+                .and_then(|data| self.respond(serenity_cx, cx, data, responder)),
+        )
+    }
 }
 
 /// An error returned from a component interaction handler
@@ -144,18 +232,68 @@ pub type ModalResponder<'a, 'b, S> = response::BorrowingResponder<'a, 'b, S, Mod
 /// Responder type to be returned by modal-submit interaction handlers
 pub type AckedModalResponder<'a, S> = response::AckedResponder<'a, S, ModalInteraction>;
 
+pub trait DeserializeRpc<'a, K: rpc::Key, C>: Sized + Send {
+    fn register_keys(cx: &C) -> &[K];
+
+    fn deserialize(
+        visitor: &mut visitor::BasicVisitor<'a, K::Interaction>,
+    ) -> Result<Self, visitor::Error>;
+}
+
 /// A handler for an RPC (i.e. component or modal-submit) interaction
-#[async_trait::async_trait]
-pub trait RpcHandler<S, K: rpc::Key>: fmt::Debug + Send + Sync {
-    /// Register the ID type keys to which this handler can respond
-    fn register_keys(&self) -> &'static [K];
+pub trait RpcHandler<S, K: rpc::Key, C: Sync>: fmt::Debug + Send + Sync {
+    type Data<'a>: DeserializeRpc<'a, K, C>
+    where
+        Self: 'a,
+        K: 'a,
+        C: 'a;
 
     /// Respond to an RPC interaction
-    async fn respond<'a>(
-        &self,
-        ctx: &Context,
+    fn respond<'a, 'r>(
+        &'a self,
+        serenity_cx: &'a Context,
+        cx: &'a C,
         payload: K::Payload,
-        visitor: &mut visitor::BasicVisitor<'_, K::Interaction>,
-        responder: response::BorrowingResponder<'_, 'a, S, K::Interaction>,
-    ) -> ResponseResult<'a, S, K::Interaction>;
+        visitor: &'a mut visitor::BasicVisitor<'a, K::Interaction>,
+        responder: response::BorrowingResponder<'a, 'r, S, K::Interaction>,
+    ) -> impl Future<Output = ResponseResult<'r, S, K::Interaction>> + Send + use<'a, 'r, Self, S, K, C>;
+}
+
+pub trait DynRpcHandler<S, K: rpc::Key, C: Sync>: fmt::Debug + Send + Sync {
+    fn dyn_register_keys<'k>(&self, cx: &'k C) -> &'k [K];
+
+    fn dyn_respond<'a, 'r>(
+        &'a self,
+        serenity_cx: &'a Context,
+        cx: &'a C,
+        payload: K::Payload,
+        visitor: &'a mut visitor::BasicVisitor<'a, K::Interaction>,
+        responder: response::BorrowingResponder<'a, 'r, S, K::Interaction>,
+    ) -> Pin<Box<dyn Future<Output = ResponseResult<'r, S, K::Interaction>> + Send + 'a>>
+    where
+        S: 'a,
+        K: 'a,
+        C: 'a;
+}
+
+impl<S, K: rpc::Key, C: Sync, H: RpcHandler<S, K, C>> DynRpcHandler<S, K, C> for H {
+    #[inline]
+    fn dyn_register_keys<'k>(&self, cx: &'k C) -> &'k [K] { H::Data::register_keys(cx) }
+
+    #[inline]
+    fn dyn_respond<'a, 'r>(
+        &'a self,
+        serenity_cx: &'a Context,
+        cx: &'a C,
+        payload: K::Payload,
+        visitor: &'a mut visitor::BasicVisitor<'a, K::Interaction>,
+        responder: response::BorrowingResponder<'a, 'r, S, K::Interaction>,
+    ) -> Pin<Box<dyn Future<Output = ResponseResult<'r, S, K::Interaction>> + Send + 'a>>
+    where
+        S: 'a,
+        K: 'a,
+        C: 'a,
+    {
+        Box::pin(self.respond(serenity_cx, cx, payload, visitor, responder))
+    }
 }

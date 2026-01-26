@@ -14,7 +14,8 @@ mod prelude {
         handler,
         handler::{
             CommandHandler, CommandVisitor, CompletionError, CompletionResult, CompletionVisitor,
-            ComponentVisitor, HandlerError, IntoErr, ModalVisitor, RpcHandler,
+            ComponentVisitor, DeserializeCommand, DeserializeRpc, HandlerError, IntoErr,
+            ModalVisitor, RpcHandler,
         },
         response,
         response::{
@@ -23,12 +24,17 @@ mod prelude {
         },
         rpc, visitor,
     };
+    pub use qcore::{DeserializeCommand, DeserializeRpc};
     pub(super) use serenity::{
         client::Context,
-        model::{channel::Attachment, id::GuildId, user::User},
+        model::{
+            channel::{Attachment, Message as MessageBase},
+            id::GuildId,
+            user::User,
+        },
     };
 
-    pub use super::CommandOpts;
+    pub use super::{super::handler::HandlerCx, CommandOpts};
     pub use crate::{
         prelude::*,
         proto::{
@@ -43,53 +49,75 @@ mod prelude {
     pub fn id<T>(t: T) -> T { t }
 }
 
-pub type Handlers = prelude::handler::Handlers<prelude::Schema>;
+pub type Handlers = prelude::handler::Handlers<prelude::Schema, prelude::HandlerCx>;
 
-// TODO: set up command names
-#[derive(Debug, clap::Args)]
-pub struct CommandOpts {
-    #[arg(long, env, default_value = "q")]
-    command_base: String,
+mod opts {
+    use crate::{prelude::*, util::rate_limit::RateLimitParams};
 
-    #[arg(long, env, default_value = "")]
-    context_menu_base: String,
+    // TODO: set up command names
+    #[derive(Debug, clap::Args)]
+    pub struct CommandOpts {
+        #[arg(long, env, default_value = "q")]
+        command_base: String,
+
+        #[arg(long, env, default_value = "")]
+        context_menu_base: String,
+
+        #[arg(long, env)]
+        pub image_rate_limit: RateLimitParams,
+    }
+
+    impl CommandOpts {
+        pub fn command_name<N: fmt::Display + ?Sized>(&self, name: &N) -> String {
+            format!("{}{name}", self.command_base)
+        }
+
+        pub fn menu_name<N: fmt::Display + ?Sized>(&self, name: &N) -> String {
+            format!("{}{name}", self.context_menu_base)
+        }
+    }
+}
+
+pub use opts::CommandOpts;
+
+macro_rules! command {
+    ($ty:ty) => {
+        Arc::new(<$ty as Default>::default())
+            as Arc<dyn handler::DynCommandHandler<Schema, HandlerCx>>
+    };
+
+    (rpc $ty:ty) => {{
+        let handler = Arc::new(<$ty as Default>::default());
+        (
+            Arc::clone(&handler) as Arc<dyn handler::DynCommandHandler<Schema, HandlerCx>>,
+            handler as Arc<dyn handler::DynRpcHandler<Schema, ComponentKey, HandlerCx>>,
+        )
+    }};
 }
 
 // TODO: can this be attribute-macro-ified?
-pub fn handlers(opts: &CommandOpts) -> Handlers {
+pub fn handlers() -> Handlers {
     use prelude::*;
 
-    let jpeg = Arc::new(jpeg::JpegCommand::from(opts));
-    let jpeg_message = Arc::new(jpeg::JpegMessageCommand::from(opts));
-    let jpeg_user = Arc::new(jpeg::JpegUserCommand::from(opts));
-    let liquid = Arc::new(liquid::LiquidCommand::from(opts));
-    let liquid_message = Arc::new(liquid::LiquidMessageCommand::from(opts));
-    let liquid_user = Arc::new(liquid::LiquidUserCommand::from(opts));
-    let re = Arc::new(re::ReCommand::from(opts));
-    let re_message = Arc::new(re::ReMessageCommand::from(opts));
-    let saturate = Arc::new(saturate::SaturateCommand::from(opts));
-    let saturate_message = Arc::new(saturate::SaturateMessageCommand::from(opts));
-    let saturate_user = Arc::new(saturate::SaturateUserCommand::from(opts));
-    let say = Arc::new(say::SayCommand::from(opts));
-    let sound = Arc::new(sound::SoundCommand::from(opts));
+    let (sound, sound_rpc) = command!(rpc sound::SoundCommand);
 
     Handlers {
         commands: vec![
-            Arc::clone(&sound) as Arc<dyn CommandHandler<Schema>>,
-            jpeg,
-            jpeg_message,
-            jpeg_user,
-            liquid,
-            liquid_message,
-            liquid_user,
-            re,
-            re_message,
-            saturate,
-            saturate_message,
-            saturate_user,
-            say,
+            command!(jpeg::JpegCommand),
+            command!(jpeg::JpegMessageCommand),
+            command!(jpeg::JpegUserCommand),
+            command!(liquid::LiquidCommand),
+            command!(liquid::LiquidMessageCommand),
+            command!(liquid::LiquidUserCommand),
+            command!(re::ReCommand),
+            command!(re::ReMessageCommand),
+            command!(saturate::SaturateCommand),
+            command!(saturate::SaturateMessageCommand),
+            command!(saturate::SaturateUserCommand),
+            command!(say::SayCommand),
+            sound,
         ],
-        components: vec![sound],
+        components: vec![sound_rpc],
         modals: vec![],
     }
 }

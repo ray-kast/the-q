@@ -1,5 +1,4 @@
 use jpeggr::{image::DynamicImage, liquid};
-use paracord::interaction::command::Choice;
 
 use super::prelude::*;
 use crate::util;
@@ -13,41 +12,38 @@ const MAX_WANDER: u16 = 5;
 const MIN_RIGIDITY: f64 = -100.0;
 const MAX_RIGIDITY: f64 = 100.0;
 
-fn liquid(
-    image: DynamicImage,
+#[derive(Clone, Copy)]
+struct Params {
     x_percent: Option<f64>,
     y_percent: Option<f64>,
-    seam_wander: Option<i64>,
-    seam_rigidity: Option<f64>,
-    resize_output: Option<i64>,
-) -> Result<DynamicImage, jpeggr::Error> {
+    seam_wander: u16,
+    seam_rigidity: f32,
+    resize_output: ResizeOutput,
+}
+
+const DEFAULT_PARAMS: Params = Params {
+    x_percent: None,
+    y_percent: None,
+    seam_wander: 2,
+    seam_rigidity: -50.0,
+    resize_output: ResizeOutput::Upsample,
+};
+
+fn liquid(image: DynamicImage, params: Params) -> Result<DynamicImage, jpeggr::Error> {
     const DEFAULT_PERCENT: f64 = 55.0;
 
-    let (x_percent, y_percent) = (x_percent.or(y_percent), y_percent.or(x_percent));
+    let Params {
+        x_percent,
+        y_percent,
+        seam_wander,
+        seam_rigidity,
+        resize_output,
+    } = params;
 
-    let x_percent @ MIN_PERCENT..=MAX_PERCENT = x_percent.unwrap_or(DEFAULT_PERCENT) else {
-        unreachable!()
-    };
-    let y_percent @ MIN_PERCENT..=MAX_PERCENT = y_percent.unwrap_or(DEFAULT_PERCENT) else {
-        unreachable!()
-    };
-
-    let Ok(seam_wander @ MIN_WANDER..=MAX_WANDER) = seam_wander.unwrap_or(2).try_into() else {
-        unreachable!()
-    };
-    let seam_rigidity @ MIN_RIGIDITY..=MAX_RIGIDITY = seam_rigidity.unwrap_or(-50.0) else {
-        unreachable!()
-    };
-    #[allow(clippy::cast_possible_truncation)]
-    let seam_rigidity = seam_rigidity as f32;
-
-    let resize_output = match resize_output {
-        None => liquid::ResizeOutput::Upsample,
-        Some(0) => liquid::ResizeOutput::OutputSize,
-        Some(1) => liquid::ResizeOutput::FitToInput,
-        Some(2) => liquid::ResizeOutput::StretchToInput,
-        _ => unreachable!(),
-    };
+    let (x_percent, y_percent) = (
+        x_percent.or(y_percent).unwrap_or(DEFAULT_PERCENT),
+        y_percent.or(x_percent).unwrap_or(DEFAULT_PERCENT),
+    );
 
     liquid::liquid_dynamic_image(image, liquid::LiquidArgs {
         max_input_size: 640,
@@ -55,149 +51,209 @@ fn liquid(
         y_fac: y_percent / 100.0,
         seam_wander,
         seam_rigidity,
-        resize_output,
+        resize_output: resize_output.into(),
     })
 }
 
-#[derive(Debug)]
-pub struct LiquidCommand {
-    name: String,
+#[derive(Debug, Default)]
+pub struct LiquidCommand;
+
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct LiquidArgs<'a> {
+    image: &'a Attachment,
+    x_percent: Option<f64>,
+    y_percent: Option<f64>,
+    seam_wander: u16,
+    seam_rigidity: f32,
+    resize_output: ResizeOutput,
 }
 
-impl From<&CommandOpts> for LiquidCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}liquid", opts.command_base),
+#[derive(Debug, Clone, Copy, DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub enum ResizeOutput {
+    OutputSize,
+    FitToInput,
+    StretchToInput,
+    Upsample,
+}
+
+impl From<ResizeOutput> for liquid::ResizeOutput {
+    fn from(value: ResizeOutput) -> Self {
+        match value {
+            ResizeOutput::OutputSize => Self::OutputSize,
+            ResizeOutput::FitToInput => Self::FitToInput,
+            ResizeOutput::StretchToInput => Self::StretchToInput,
+            ResizeOutput::Upsample => Self::Upsample,
         }
     }
 }
 
-#[async_trait]
-impl CommandHandler<Schema> for LiquidCommand {
-    fn register_global(&self) -> CommandInfo {
-        CommandInfo::build_slash(&self.name, "Content-aware scales an image", |a| {
-            a.attachment("image", "The input image", true)
-                .real(
-                    "x-percent",
-                    "X resize percentage (defaults to Y percent or 50%)",
-                    false,
-                    MIN_PERCENT..=MAX_PERCENT,
-                )
-                .real(
-                    "y-percent",
-                    "Y resize percentage (defaults to X percent or 50%)",
-                    false,
-                    MIN_PERCENT..=MAX_PERCENT,
-                )
-                .int(
-                    "seam-wander",
-                    "Maximum allowed slope in the carved seams (0 is straight horizontal/vertical)",
-                    false,
-                    MIN_WANDER.into()..=MAX_WANDER.into(),
-                )
-                .real(
-                    "seam-rigidity",
-                    "Apply a bias toward (or against, if negative) more rigid seams",
-                    false,
-                    MIN_RIGIDITY..=MAX_RIGIDITY,
-                )
-                .int_choice(
-                    "resize-output",
-                    "Resize the output image back to the original size",
-                    false,
-                    [
-                        Choice::new("off", 0),
-                        Choice::new("on", 1),
-                        Choice::new("stretch", 2),
-                    ],
-                )
-        })
-        .unwrap()
+impl From<liquid::ResizeOutput> for ResizeOutput {
+    fn from(value: liquid::ResizeOutput) -> Self {
+        match value {
+            liquid::ResizeOutput::OutputSize => Self::OutputSize,
+            liquid::ResizeOutput::FitToInput => Self::FitToInput,
+            liquid::ResizeOutput::StretchToInput => Self::StretchToInput,
+            liquid::ResizeOutput::Upsample => Self::Upsample,
+        }
     }
+}
 
-    async fn respond<'a>(
-        &self,
-        _ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        let attachment = visitor.visit_attachment("image")?.required()?;
-        let x_percent = visitor.visit_number("x-percent")?.optional();
-        let y_percent = visitor.visit_number("y-percent")?.optional();
-        let seam_wander = visitor.visit_i64("seam-wander")?.optional();
-        let seam_rigidity = visitor.visit_number("seam-rigidity")?.optional();
-        let resize_output = visitor.visit_i64("resize-output")?.optional();
+impl CommandHandler<Schema, HandlerCx> for LiquidCommand {
+    type Data<'a> = LiquidArgs<'a>;
 
-        util::image::respond_slash(attachment, responder, false, move |i| {
-            liquid(
-                i,
-                x_percent,
-                y_percent,
-                seam_wander,
-                seam_rigidity,
-                resize_output,
-            )
-        })
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::build_slash(
+    //         cx.opts.command_name("liquid"),
+    //         "Content-aware scales an image",
+    //         |a| {
+    //             a.attachment("image", "The input image", true)
+    //             .real(
+    //                 "x-percent",
+    //                 "X resize percentage (defaults to Y percent or 50%)",
+    //                 false,
+    //                 MIN_PERCENT..=MAX_PERCENT,
+    //             )
+    //             .real(
+    //                 "y-percent",
+    //                 "Y resize percentage (defaults to X percent or 50%)",
+    //                 false,
+    //                 MIN_PERCENT..=MAX_PERCENT,
+    //             )
+    //             .int(
+    //                 "seam-wander",
+    //                 "Maximum allowed slope in the carved seams (0 is straight horizontal/vertical)",
+    //                 false,
+    //                 MIN_WANDER.into()..=MAX_WANDER.into(),
+    //             )
+    //             .real(
+    //                 "seam-rigidity",
+    //                 "Apply a bias toward (or against, if negative) more rigid seams",
+    //                 false,
+    //                 MIN_RIGIDITY..=MAX_RIGIDITY,
+    //             )
+    //             .int_choice(
+    //                 "resize-output",
+    //                 "Resize the output image back to the original size",
+    //                 false,
+    //                 [
+    //                     Choice::new("off", 0),
+    //                     Choice::new("on", 1),
+    //                     Choice::new("stretch", 2),
+    //                 ],
+    //             )
+    //         },
+    //     )
+    //     .unwrap()
+    // }
+
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let LiquidArgs {
+            image,
+            x_percent,
+            y_percent,
+            seam_wander,
+            seam_rigidity,
+            resize_output,
+        } = data;
+
+        util::image::respond_slash(
+            &cx.opts.image_rate_limit,
+            &cx.redis,
+            image,
+            responder,
+            false,
+            move |i| {
+                liquid(i, Params {
+                    x_percent,
+                    y_percent,
+                    seam_wander,
+                    seam_rigidity,
+                    resize_output,
+                })
+            },
+        )
         .await
     }
 }
 
-#[derive(Debug)]
-pub struct LiquidMessageCommand {
-    name: String,
+#[derive(Debug, Default)]
+pub struct LiquidMessageCommand;
+
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct LiquidMessageArgs<'a> {
+    message: &'a MessageBase,
 }
 
-impl From<&CommandOpts> for LiquidMessageCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}Liquefy This", opts.context_menu_base),
-        }
-    }
-}
+impl CommandHandler<Schema, HandlerCx> for LiquidMessageCommand {
+    type Data<'a> = LiquidMessageArgs<'a>;
 
-#[async_trait]
-impl CommandHandler<Schema> for LiquidMessageCommand {
-    fn register_global(&self) -> CommandInfo { CommandInfo::message(&self.name) }
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::message(cx.opts.command_name("Liquefy This"))
+    // }
 
-    async fn respond<'a>(
-        &self,
-        _ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        util::image::respond_msg(visitor, responder, false, |i| {
-            liquid(i, None, None, None, None, None)
-        })
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let LiquidMessageArgs { message } = data;
+
+        util::image::respond_msg(
+            &cx.opts.image_rate_limit,
+            &cx.redis,
+            message,
+            responder,
+            false,
+            |i| liquid(i, DEFAULT_PARAMS),
+        )
         .await
     }
 }
 
-#[derive(Debug)]
-pub struct LiquidUserCommand {
-    name: String,
+#[derive(Debug, Default)]
+pub struct LiquidUserCommand;
+
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct LiquidUserData<'a> {
+    user: &'a User,
 }
 
-impl From<&CommandOpts> for LiquidUserCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}Liquefy This User", opts.context_menu_base),
-        }
-    }
-}
+impl CommandHandler<Schema, HandlerCx> for LiquidUserCommand {
+    type Data<'a> = LiquidUserData<'a>;
 
-#[async_trait]
-impl CommandHandler<Schema> for LiquidUserCommand {
-    fn register_global(&self) -> CommandInfo { CommandInfo::user(&self.name) }
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::user(cx.opts.menu_name("Liquefy This User"))
+    // }
 
-    async fn respond<'a>(
-        &self,
-        _ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        util::image::respond_user(visitor, responder, false, |i| {
-            liquid(i, None, None, None, None, None)
-        })
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let LiquidUserData { user } = data;
+
+        util::image::respond_user(
+            &cx.opts.image_rate_limit,
+            &cx.redis,
+            user,
+            responder,
+            false,
+            |i| liquid(i, DEFAULT_PARAMS),
+        )
         .await
     }
 }

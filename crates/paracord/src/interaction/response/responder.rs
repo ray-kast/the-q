@@ -76,41 +76,46 @@ mod private {
     use super::super::modal;
 
     // serenity why
-    #[async_trait::async_trait]
     pub trait Interaction: Sync {
-        async fn create_response(
+        fn create_response<'h>(
             &self,
-            http: &Http,
+            http: &'h Http,
             res: CreateInteractionResponse,
-        ) -> Result<(), serenity::Error>;
+        ) -> impl Future<Output = Result<(), serenity::Error>> + Send + use<'_, 'h, Self>;
 
-        async fn edit_response(
+        fn edit_response<'h>(
             &self,
-            http: &Http,
+            http: &'h Http,
             res: EditInteractionResponse,
-        ) -> Result<Message, serenity::Error>;
+        ) -> impl Future<Output = Result<Message, serenity::Error>> + Send + use<'_, 'h, Self>;
 
-        async fn delete_response(&self, http: &Http) -> Result<(), serenity::Error>;
-
-        async fn create_followup(
+        fn delete_response<'h>(
             &self,
-            http: &Http,
+            http: &'h Http,
+        ) -> impl Future<Output = Result<(), serenity::Error>> + Send + use<'_, 'h, Self>;
+
+        fn create_followup<'h>(
+            &self,
+            http: &'h Http,
             fup: CreateInteractionResponseFollowup,
-        ) -> Result<Message, serenity::Error>;
+        ) -> impl Future<Output = Result<Message, serenity::Error>> + Send + use<'_, 'h, Self>;
 
-        async fn edit_followup(
+        fn edit_followup<'h>(
             &self,
-            http: &Http,
+            http: &'h Http,
             id: MessageId,
             fup: CreateInteractionResponseFollowup,
-        ) -> Result<Message, serenity::Error>;
+        ) -> impl Future<Output = Result<Message, serenity::Error>> + Send + use<'_, 'h, Self>;
 
-        async fn delete_followup(&self, http: &Http, id: MessageId) -> Result<(), serenity::Error>;
+        fn delete_followup<'h>(
+            &self,
+            http: &'h Http,
+            id: MessageId,
+        ) -> impl Future<Output = Result<(), serenity::Error>> + Send + use<'_, 'h, Self>;
     }
 
     macro_rules! interaction {
         ($ty:ident) => {
-            #[async_trait::async_trait]
             impl Interaction for $ty {
                 #[inline]
                 async fn create_response(
@@ -295,17 +300,41 @@ pub enum ResponseError {
 pub struct Followup(serenity::model::channel::Message);
 
 /// Common methods for all responder types
-#[async_trait::async_trait]
 pub trait ResponderExt<S: Schema>: private::Responder {
     /// Create a followup message for this interaction
+    fn create_followup(
+        &self,
+        msg: Message<S::Component, id::Error>,
+    ) -> impl Future<Output = Result<Followup, ResponseError>> + Send + use<'_, Self, S>
+    where
+        Self: private::CreateFollowup;
+
+    /// Edit the given followup message for this interaction
+    fn edit_followup<'f>(
+        &self,
+        fup: &'f mut Followup,
+        msg: Message<S::Component>,
+    ) -> impl Future<Output = Result<(), ResponseError>> + Send + use<'_, 'f, Self, S>
+    where
+        Self: private::CreateFollowup;
+
+    /// Delete the given followup message for this interaction
+    fn delete_followup(
+        &self,
+        fup: Followup,
+    ) -> impl Future<Output = Result<(), serenity::Error>> + Send + use<'_, Self, S>
+    where
+        Self: private::CreateFollowup;
+}
+
+impl<R: private::Responder + Sync> ResponderExt<R::Schema> for R {
     #[inline]
     async fn create_followup(
         &self,
-        msg: Message<S::Component, id::Error>,
+        msg: Message<<R::Schema as Schema>::Component, id::Error>,
     ) -> Result<Followup, ResponseError>
     where
         Self: private::CreateFollowup,
-        S::Component: 'async_trait,
     {
         let ResponderCore {
             http,
@@ -318,16 +347,14 @@ pub trait ResponderExt<S: Schema>: private::Responder {
             .map(Followup)?)
     }
 
-    /// Edit the given followup message for this interaction
     #[inline]
     async fn edit_followup(
         &self,
         fup: &mut Followup,
-        msg: Message<S::Component>,
+        msg: Message<<R::Schema as Schema>::Component>,
     ) -> Result<(), ResponseError>
     where
         Self: private::CreateFollowup,
-        S::Component: 'async_trait,
     {
         let ResponderCore {
             http,
@@ -342,7 +369,6 @@ pub trait ResponderExt<S: Schema>: private::Responder {
         Ok(())
     }
 
-    /// Delete the given followup message for this interaction
     #[inline]
     async fn delete_followup(&self, fup: Followup) -> Result<(), serenity::Error>
     where Self: private::CreateFollowup {
@@ -354,8 +380,6 @@ pub trait ResponderExt<S: Schema>: private::Responder {
         int.delete_followup(http, fup.0.id).await
     }
 }
-
-impl<R: private::Responder> ResponderExt<R::Schema> for R {}
 
 /// A responder in its initial state
 ///

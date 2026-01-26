@@ -2,7 +2,7 @@ use std::{io::Cursor, sync::LazyLock};
 
 use jpeggr::image::{self, AnimationDecoder, ColorType, DynamicImage, ImageFormat};
 use paracord::interaction::{
-    handler::{CommandVisitor, IntoErr},
+    handler::IntoErr,
     response::{prelude::*, Message, MessageOpts},
 };
 use regex::Regex;
@@ -13,6 +13,7 @@ use crate::{
     util::{
         http_client,
         interaction::{CommandResponder, CommandResult, CreatedCommandResponder},
+        rate_limit::RateLimitParams,
     },
 };
 
@@ -285,11 +286,36 @@ async fn process<
     FR: anyhow::Context<DynamicImage, FE>,
     FE,
 >(
+    rate_limit: &RateLimitParams,
+    redis: &redis::Client,
     input: ImageInput<'_>,
     responder: CreatedCommandResponder<'a>,
     lossless_out: bool,
     f: F,
 ) -> CommandResult<'a> {
+    if !tokio::task::spawn_local(
+        rate_limit.check(
+            "image_manip",
+            redis
+                .get_multiplexed_async_connection()
+                .await
+                .context("Error connecting to RESP-compatible database")?,
+        ),
+    )
+    .await
+    .context("Rate limit check panicked")?
+    .context("Error checking rate limit")?
+    {
+        return Ok(responder
+            .delete_and_followup(
+                Message::plain("Too many requests!  Try again later.").ephemeral(true),
+            )
+            .await
+            .context("Error sending ratelimit message")?
+            .0
+            .into());
+    }
+
     let image_data;
     let content_type;
     let filename;
@@ -348,6 +374,8 @@ pub async fn respond_slash<
     FR: anyhow::Context<DynamicImage, FE>,
     FE,
 >(
+    rate_limit: &RateLimitParams,
+    redis: &redis::Client,
     attachment: &'_ Attachment,
     responder: CommandResponder<'_, 'a>,
     lossless_out: bool,
@@ -359,6 +387,8 @@ pub async fn respond_slash<
         .context("Error sending deferred message")?;
 
     process(
+        rate_limit,
+        redis,
         ImageInput::Attachment(attachment),
         responder,
         lossless_out,
@@ -373,12 +403,13 @@ pub async fn respond_msg<
     FR: anyhow::Context<DynamicImage, FE>,
     FE,
 >(
-    visitor: &mut CommandVisitor<'_>,
+    rate_limit: &RateLimitParams,
+    redis: &redis::Client,
+    message: &serenity::all::Message,
     responder: CommandResponder<'_, 'a>,
     lossless_out: bool,
     f: F,
 ) -> CommandResult<'a> {
-    let message = visitor.target().message()?;
     trace!(payload = ?message, "Looking for images");
 
     let input = 'found: {
@@ -461,7 +492,7 @@ pub async fn respond_msg<
         .await
         .context("Error sending deferred message")?;
 
-    process(input, responder, lossless_out, f).await
+    process(rate_limit, redis, input, responder, lossless_out, f).await
 }
 
 pub async fn respond_user<
@@ -470,19 +501,21 @@ pub async fn respond_user<
     FR: anyhow::Context<DynamicImage, FE>,
     FE,
 >(
-    visitor: &mut CommandVisitor<'_>,
+    rate_limit: &RateLimitParams,
+    redis: &redis::Client,
+    user: &serenity::all::User,
     responder: CommandResponder<'_, 'a>,
     lossless_out: bool,
     f: F,
 ) -> CommandResult<'a> {
-    let (user, _) = visitor.target().user()?;
-
     let responder = responder
         .defer_message(MessageOpts::default())
         .await
         .context("Error sending deferred message")?;
 
     process(
+        rate_limit,
+        redis,
         ImageInput::Url(
             user.static_face()
                 .parse()

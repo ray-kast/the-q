@@ -7,14 +7,22 @@ use serenity::{
 use super::commands;
 use crate::prelude::*;
 
+#[derive(Debug)]
+pub struct HandlerCx {
+    pub opts: commands::CommandOpts,
+    pub redis: redis::Client,
+}
+
 pub struct Handler {
-    registry: interaction::Registry<crate::rpc::Schema>,
+    registry: interaction::Registry<crate::rpc::Schema, HandlerCx>,
+    cx: HandlerCx,
 }
 
 impl Handler {
-    pub fn new_rc(command_opts: &commands::CommandOpts) -> Arc<Self> {
+    pub fn new_rc(cx: HandlerCx) -> Arc<Self> {
         Arc::new(Self {
-            registry: interaction::Registry::new(commands::handlers(command_opts)),
+            registry: interaction::Registry::new(commands::handlers()),
+            cx,
         })
     }
 }
@@ -27,16 +35,30 @@ async fn handler(method: &'static str, f: impl Future<Output = Result>) {
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl serenity::client::EventHandler for Handler {
-    async fn interaction_create(&self, ctx: Context, int: Interaction) {
+    async fn interaction_create(&self, serenity_cx: Context, int: Interaction) {
         match int {
             Interaction::Ping(_) => (),
 
-            Interaction::Command(c) => self.registry.handle_command(&ctx, c).await,
-            Interaction::Component(c) => self.registry.handle_component(&ctx, c).await,
-            Interaction::Autocomplete(a) => self.registry.handle_autocomplete(&ctx, a).await,
-            Interaction::Modal(m) => self.registry.handle_modal(&ctx, m).await,
+            Interaction::Command(c) => {
+                self.registry
+                    .handle_command(&serenity_cx, &self.cx, c)
+                    .await;
+            },
+            Interaction::Component(c) => {
+                self.registry
+                    .handle_component(&serenity_cx, &self.cx, c)
+                    .await;
+            },
+            Interaction::Autocomplete(a) => {
+                self.registry
+                    .handle_autocomplete(&serenity_cx, &self.cx, a)
+                    .await;
+            },
+            Interaction::Modal(m) => {
+                self.registry.handle_modal(&serenity_cx, &self.cx, m).await;
+            },
 
             i => warn!(interaction = ?i, "Unknown interaction"),
         }
@@ -44,7 +66,7 @@ impl serenity::client::EventHandler for Handler {
 
     async fn ready(&self, ctx: Context, _: Ready) {
         handler("ready", async move {
-            self.registry.init(&ctx).await?;
+            self.registry.init(&ctx, &self.cx).await?;
             Ok(())
         })
         .await;

@@ -6,26 +6,25 @@ use jpeggr::{
 use super::prelude::*;
 use crate::util;
 
-fn jpeg(
-    image: DynamicImage,
-    iterations: Option<i64>,
-    quality: Option<i64>,
-    size: Option<i64>,
-) -> Result<DynamicImage, jpeggr::Error> {
-    let iterations @ 0..=10 = iterations.unwrap_or(1) else {
-        unreachable!()
-    };
-    let iterations = usize::try_from(iterations).unwrap_or_else(|_| unreachable!());
+#[derive(Clone, Copy)]
+struct Params {
+    iterations: usize,
+    quality: u8,
+    size: u32,
+}
 
-    let quality @ 0..=100 = quality.unwrap_or(1) else {
-        unreachable!()
-    };
-    let quality = u8::try_from(quality).unwrap_or_else(|_| unreachable!());
+const DEFAULT_PARAMS: Params = Params {
+    iterations: 1,
+    quality: 1,
+    size: 227,
+};
 
-    let size @ 1..=512 = size.unwrap_or(227) else {
-        unreachable!()
-    };
-    let size = u32::try_from(size).unwrap_or_else(|_| unreachable!());
+fn jpeg(image: DynamicImage, params: Params) -> Result<DynamicImage, jpeggr::Error> {
+    let Params {
+        iterations,
+        quality,
+        size,
+    } = params;
 
     jpeg::jpeg_dynamic_image(image, jpeg::JpegArgs {
         iterations,
@@ -36,104 +35,142 @@ fn jpeg(
     })
 }
 
-#[derive(Debug)]
-pub struct JpegCommand {
-    name: String,
+#[derive(Debug, Default)]
+pub struct JpegCommand;
+
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct JpegArgs<'a> {
+    image: &'a Attachment,
+    iterations: usize,
+    quality: u8,
+    size: u32,
 }
 
-impl From<&CommandOpts> for JpegCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}jpeg", opts.command_base),
-        }
-    }
-}
+impl CommandHandler<Schema, HandlerCx> for JpegCommand {
+    type Data<'a> = JpegArgs<'a>;
 
-#[async_trait]
-impl CommandHandler<Schema> for JpegCommand {
-    fn register_global(&self) -> CommandInfo {
-        CommandInfo::build_slash(&self.name, "Applies a JPEG effect to an image", |a| {
-            a.attachment("image", "The input image", true)
-                .int(
-                    "iterations",
-                    "Number of times to JPEG the image",
-                    false,
-                    1..=10,
-                )
-                .int("quality", "The compression quality", false, 1..=100)
-                .int("size", "Maximum output size", false, 1..=512)
-        })
-        .unwrap()
-    }
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::build_slash(
+    //         cx.opts.command_name("jpeg"),
+    //         "Applies a JPEG effect to an image",
+    //         |a| {
+    //             a.attachment("image", "The input image", true)
+    //                 .int(
+    //                     "iterations",
+    //                     "Number of times to JPEG the image",
+    //                     false,
+    //                     1..=10,
+    //                 )
+    //                 .int("quality", "The compression quality", false, 1..=100)
+    //                 .int("size", "Maximum output size", false, 1..=512)
+    //         },
+    //     )
+    //     .unwrap()
+    // }
 
-    async fn respond<'a>(
-        &self,
-        _ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        let attachment = visitor.visit_attachment("image")?.required()?;
-        let iterations = visitor.visit_i64("iterations")?.optional();
-        let quality = visitor.visit_i64("quality")?.optional();
-        let size = visitor.visit_i64("size")?.optional();
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let JpegArgs {
+            image,
+            iterations,
+            quality,
+            size,
+        } = data;
 
-        util::image::respond_slash(attachment, responder, false, move |i| {
-            jpeg(i, iterations, quality, size)
-        })
+        util::image::respond_slash(
+            &cx.opts.image_rate_limit,
+            &cx.redis,
+            image,
+            responder,
+            false,
+            move |i| {
+                jpeg(i, Params {
+                    iterations,
+                    quality,
+                    size,
+                })
+            },
+        )
         .await
     }
 }
 
-#[derive(Debug)]
-pub struct JpegMessageCommand {
-    name: String,
+#[derive(Debug, Default)]
+pub struct JpegMessageCommand;
+
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct JpegMessageData<'a> {
+    message: &'a MessageBase,
 }
 
-impl From<&CommandOpts> for JpegMessageCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}JPEG This", opts.context_menu_base),
-        }
+impl CommandHandler<Schema, HandlerCx> for JpegMessageCommand {
+    type Data<'a> = JpegMessageData<'a>;
+
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::message(cx.opts.menu_name("JPEG This"))
+    // }
+
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let JpegMessageData { message } = data;
+
+        util::image::respond_msg(
+            &cx.opts.image_rate_limit,
+            &cx.redis,
+            message,
+            responder,
+            false,
+            |i| jpeg(i, DEFAULT_PARAMS),
+        )
+        .await
     }
 }
 
-#[async_trait]
-impl CommandHandler<Schema> for JpegMessageCommand {
-    fn register_global(&self) -> CommandInfo { CommandInfo::message(&self.name) }
+#[derive(Debug, Default)]
+pub struct JpegUserCommand;
 
-    async fn respond<'a>(
-        &self,
-        _ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        util::image::respond_msg(visitor, responder, false, |i| jpeg(i, None, None, None)).await
-    }
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct JpegUserData<'a> {
+    user: &'a User,
 }
 
-#[derive(Debug)]
-pub struct JpegUserCommand {
-    name: String,
-}
+impl CommandHandler<Schema, HandlerCx> for JpegUserCommand {
+    type Data<'a> = JpegUserData<'a>;
 
-impl From<&CommandOpts> for JpegUserCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}JPEG This User", opts.context_menu_base),
-        }
-    }
-}
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::user(cx.opts.menu_name("JPEG This User"))
+    // }
 
-#[async_trait]
-impl CommandHandler<Schema> for JpegUserCommand {
-    fn register_global(&self) -> CommandInfo { CommandInfo::user(&self.name) }
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let JpegUserData { user } = data;
 
-    async fn respond<'a>(
-        &self,
-        _ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        util::image::respond_user(visitor, responder, false, |i| jpeg(i, None, None, None)).await
+        util::image::respond_user(
+            &cx.opts.image_rate_limit,
+            &cx.redis,
+            user,
+            responder,
+            false,
+            |i| jpeg(i, DEFAULT_PARAMS),
+        )
+        .await
     }
 }

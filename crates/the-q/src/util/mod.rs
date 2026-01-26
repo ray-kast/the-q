@@ -2,6 +2,8 @@ use crate::prelude::*;
 
 pub mod image;
 pub mod interaction;
+pub mod rate_limit;
+pub mod redis;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]

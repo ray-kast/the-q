@@ -87,37 +87,35 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
     .context("Error attaching graph file")
 }
 
-#[derive(Debug)]
-pub struct ReCommand {
-    name: String,
+#[derive(Debug, Default)]
+pub struct ReCommand;
+
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct ReArgs<'a> {
+    regex: &'a str,
 }
 
-impl From<&CommandOpts> for ReCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}regex", opts.command_base),
-        }
-    }
-}
+impl CommandHandler<Schema, HandlerCx> for ReCommand {
+    type Data<'a> = ReArgs<'a>;
 
-#[async_trait]
-impl CommandHandler<Schema> for ReCommand {
-    fn register_global(&self) -> CommandInfo {
-        CommandInfo::build_slash(
-            &self.name,
-            "Compiles and visualizes a regular expression",
-            |a| a.string("regex", "The regular expression to compile", true, ..),
-        )
-        .unwrap()
-    }
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::build_slash(
+    //         cx.opts.command_name("regex"),
+    //         "Compiles and visualizes a regular expression",
+    //         |a| a.string("regex", "The regular expression to compile", true, ..),
+    //     )
+    //     .unwrap()
+    // }
 
-    async fn respond<'a>(
-        &self,
-        _: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        let regex = visitor.visit_string("regex")?.required()?;
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        _cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let ReArgs { regex } = data;
 
         let responder = responder
             .defer_message(MessageOpts::default())
@@ -145,30 +143,30 @@ impl CommandHandler<Schema> for ReCommand {
     }
 }
 
-#[derive(Debug)]
-pub struct ReMessageCommand {
-    name: String,
+#[derive(Debug, Default)]
+pub struct ReMessageCommand;
+
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct ReMessageArgs<'a> {
+    message: &'a MessageBase,
 }
 
-impl From<&CommandOpts> for ReMessageCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}Compile Regexes", opts.context_menu_base),
-        }
-    }
-}
+impl CommandHandler<Schema, HandlerCx> for ReMessageCommand {
+    type Data<'a> = ReMessageArgs<'a>;
 
-#[async_trait]
-impl CommandHandler<Schema> for ReMessageCommand {
-    fn register_global(&self) -> CommandInfo { CommandInfo::message(&self.name) }
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::message(cx.opts.menu_name("Compile Regexes"))
+    // }
 
-    async fn respond<'a>(
-        &self,
-        _: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        let target = visitor.target().message()?;
+    async fn respond<'a, 'r>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        _cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let ReMessageArgs { message } = data;
 
         let responder = responder
             .defer_message(MessageOpts::default())
@@ -176,7 +174,7 @@ impl CommandHandler<Schema> for ReMessageCommand {
             .context("Error sending deferred message")?;
 
         let msg = {
-            match scan_any(&target.content) {
+            match scan_any(&message.content) {
                 Ok(r) if r.is_empty() => {
                     Message::plain("No regular expressions detected.").ephemeral(true)
                 },

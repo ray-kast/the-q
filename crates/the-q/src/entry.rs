@@ -235,8 +235,6 @@ async fn run(opts: Opts) -> Result {
         r = client.start() => StopType::Closed(r),
     };
 
-    let shutdown = !matches!(ret, StopType::Closed(Err(_)));
-
     let ret = match ret {
         StopType::Signal(Ok(Some(s))) => {
             warn!("{s:?} received, shutting down...");
@@ -248,9 +246,7 @@ async fn run(opts: Opts) -> Result {
         StopType::Closed(Err(e)) => Err(e).context("Fatal client error occurred"),
     };
 
-    if shutdown {
-        client.shard_manager.shutdown_all().await;
-    }
+    client.shutdown().await;
 
     ret
 }

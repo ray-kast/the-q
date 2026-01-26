@@ -1,40 +1,41 @@
+use serenity::model::guild::Member;
+
 use super::prelude::*;
 
-#[derive(Debug)]
-pub struct SayCommand {
-    name: String,
+#[derive(Debug, Default)]
+pub struct SayCommand;
+
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct SayArgs<'a> {
+    message: &'a str,
+
+    member: Option<&'a Member>,
 }
 
-impl From<&CommandOpts> for SayCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}say", opts.command_base),
-        }
-    }
-}
+impl CommandHandler<Schema, HandlerCx> for SayCommand {
+    type Data<'a> = SayArgs<'a>;
 
-#[async_trait]
-impl CommandHandler<Schema> for SayCommand {
-    fn register_global(&self) -> CommandInfo {
-        CommandInfo::build_slash(&self.name, "Say something!", |a| {
-            a.string("message", "The message to send", true, ..)
-        })
-        .unwrap()
-    }
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::build_slash(cx.opts.command_name("say"), "Say something!", |a| {
+    //         a.string("message", "The message to send", true, ..)
+    //     })
+    //     .unwrap()
+    // }
 
-    async fn respond<'a>(
-        &self,
-        ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        let msg = visitor.visit_string("message")?.required()?;
-        let guild = visitor.guild()?.optional();
+    async fn respond<'a, 'r>(
+        &'a self,
+        serenity_cx: &'a Context,
+        _cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        let SayArgs { message, member } = data;
 
-        let color = guild.and_then(|(_, m)| m.colour(&ctx.cache));
+        let color = member.and_then(|m| m.colour(&serenity_cx.cache));
 
         Ok(responder
-            .create_message(Embed::default().desc_plain(msg).color_opt(color).into())
+            .create_message(Embed::default().desc_plain(message).color_opt(color).into())
             .await
             .context("Error speaking message")?
             .into())

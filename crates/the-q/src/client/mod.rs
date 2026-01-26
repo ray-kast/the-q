@@ -1,4 +1,4 @@
-use serenity::{model::gateway::GatewayIntents, Client};
+use serenity::model::gateway::GatewayIntents;
 use songbird::SerenityInit;
 
 use crate::{prelude::*, util::DebugShim};
@@ -12,22 +12,49 @@ pub struct ClientOpts {
     #[arg(long, env)]
     discord_token: DebugShim<String>,
 
+    /// Connection string for RESP-compatible database
+    #[arg(long, env)]
+    redis_endpoint: String,
+
     #[command(flatten)]
     commands: commands::CommandOpts,
+}
+
+pub struct Client {
+    serenity: serenity::Client,
 }
 
 pub async fn build(opts: ClientOpts) -> Result<Client> {
     let ClientOpts {
         discord_token,
+        redis_endpoint,
         commands,
     } = opts;
 
-    let intents = GatewayIntents::non_privileged(); // TODO
-    let handler = handler::Handler::new_rc(&commands);
+    let redis = redis::Client::open(redis_endpoint)
+        .context("Error connecting to RESP-compatible database")?;
 
-    Client::builder(discord_token.0, intents)
+    let intents = GatewayIntents::non_privileged(); // TODO
+    let handler = handler::Handler::new_rc(handler::HandlerCx {
+        opts: commands,
+        redis,
+    });
+
+    let serenity = serenity::Client::builder(discord_token.0, intents)
         .event_handler_arc(handler)
         .register_songbird()
         .await
-        .context("Error constructing Serenity client")
+        .context("Error constructing Serenity client")?;
+
+    Ok(Client { serenity })
+}
+
+impl Client {
+    #[inline]
+    pub async fn start(&mut self) -> Result<(), serenity::Error> { self.serenity.start().await }
+
+    #[inline]
+    pub async fn shutdown(&self) {
+        let ((),) = tokio::join!(self.serenity.shard_manager.shutdown_all(),);
+    }
 }

@@ -15,24 +15,20 @@ struct FileMap {
     _task_handle: oneshot::Sender<Infallible>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SoundCommand {
-    name: String,
     files: Mutex<std::sync::Weak<FileMap>>,
     songbird_handle: Mutex<HashMap<GuildId, std::sync::Weak<()>>>,
     _notify_handle: RwLock<Option<oneshot::Sender<()>>>,
 }
 
-impl From<&CommandOpts> for SoundCommand {
-    fn from(opts: &CommandOpts) -> Self {
-        Self {
-            name: format!("{}sound", opts.command_base),
-            files: Mutex::default(),
-            songbird_handle: Mutex::default(),
-            _notify_handle: RwLock::default(),
-        }
-    }
-}
+#[derive(DeserializeCommand)]
+#[deserialize(cx = HandlerCx)]
+pub struct SoundArgs {}
+
+#[derive(DeserializeRpc)]
+#[deserialize(component, schema = Schema, cx = HandlerCx)]
+pub struct SoundComponentArgs {}
 
 impl SoundCommand {
     async fn files(&self) -> Result<Arc<FileMap>> {
@@ -133,7 +129,7 @@ impl SoundCommand {
 
     async fn play_impl<X, E: From<Error>, F: Future<Output = E>>(
         &self,
-        ctx: &Context,
+        serenity_cx: &Context,
         gid: GuildId,
         user: &User,
         path: &str,
@@ -144,7 +140,9 @@ impl SoundCommand {
 
         let voice_chan = {
             // gay baby jail to keep rustc from freaking out
-            let guild = gid.to_guild_cached(&ctx.cache).context("Missing guild")?;
+            let guild = gid
+                .to_guild_cached(&serenity_cx.cache)
+                .context("Missing guild")?;
             guild.voice_states.get(&user.id).and_then(|s| s.channel_id)
         };
 
@@ -157,7 +155,7 @@ impl SoundCommand {
             .await);
         };
 
-        let sb = songbird::get(ctx)
+        let sb = songbird::get(serenity_cx)
             .await
             .context("Missing songbird context")?;
 
@@ -229,7 +227,7 @@ impl SoundCommand {
     #[inline]
     async fn play<'a>(
         &self,
-        ctx: &Context,
+        serenity_cx: &Context,
         visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
@@ -243,12 +241,19 @@ impl SoundCommand {
             .context("Error sending deferred message")?;
 
         let responder = self
-            .play_impl(ctx, gid, user, path, responder, |r, m, e| async move {
-                match r.edit(m).await.context("Error sending error message") {
-                    Ok(_) => r.into_err(e),
-                    Err(e) => CommandError::from(e),
-                }
-            })
+            .play_impl(
+                serenity_cx,
+                gid,
+                user,
+                path,
+                responder,
+                |r, m, e| async move {
+                    match r.edit(m).await.context("Error sending error message") {
+                        Ok(_) => r.into_err(e),
+                        Err(e) => CommandError::from(e),
+                    }
+                },
+            )
             .await?;
 
         responder
@@ -267,7 +272,7 @@ impl SoundCommand {
 
     async fn board<'a>(
         &self,
-        _ctx: &Context,
+        _serenity_cx: &Context,
         _visitor: &mut CommandVisitor<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
@@ -289,92 +294,106 @@ impl SoundCommand {
     }
 }
 
-#[async_trait]
-impl CommandHandler<Schema> for SoundCommand {
-    fn register_global(&self) -> CommandInfo {
-        CommandInfo::build_slash(&self.name, ";)", |a| {
-            a.build_subcmd("play", "Play a single file", |a| {
-                a.string("path", "Path to the file to play", true, ..)
-                    .autocomplete(true, ["path"])
-            })
-            .build_subcmd("board", "Create a soundboard message", id)
-        })
-        .unwrap()
-    }
+impl CommandHandler<Schema, HandlerCx> for SoundCommand {
+    type Data<'a> = SoundArgs;
 
-    async fn complete(&self, _: &Context, visitor: &mut CompletionVisitor<'_>) -> CompletionResult {
+    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
+    //     CommandInfo::build_slash(cx.opts.command_name("sound"), ";)", |a| {
+    //         a.build_subcmd("play", "Play a single file", |a| {
+    //             a.string("path", "Path to the file to play", true, ..)
+    //                 .autocomplete(true, ["path"])
+    //         })
+    //         .build_subcmd("board", "Create a soundboard message", id)
+    //     })
+    //     .unwrap()
+    // }
+
+    async fn complete<'a>(
+        &'a self,
+        _serenity_cx: &'a Context,
+        _cx: &'a HandlerCx,
+        data: <Self::Data<'a> as DeserializeCommand<'a, HandlerCx>>::Completion,
+    ) -> CompletionResult {
         // TODO: CompletionVisitor should probably have a better API
-        match *visitor.visit_subcmd()? {
-            ["play"] => {
-                // TODO: unicase?
-                let path = visitor
-                    .visit_string_autocomplete("path")?
-                    .optional()
-                    .map(|a| {
-                        // TODO 2: okay now this really sucks
-                        match a {
-                            Autocomplete::Complete(s) | Autocomplete::Partial(s) => s,
-                        }
-                        .to_lowercase()
-                    });
-                let path = path.as_deref().unwrap_or("");
-                let files = self.files().await?;
-                let files = files.files.read().await;
+        // match *visitor.visit_subcmd()? {
+        //     ["play"] => {
+        //         // TODO: unicase?
+        //         let path = visitor
+        //             .visit_string_autocomplete("path")?
+        //             .optional()
+        //             .map(|a| {
+        //                 // TODO 2: okay now this really sucks
+        //                 match a {
+        //                     Autocomplete::Complete(s) | Autocomplete::Partial(s) => s,
+        //                 }
+        //                 .to_lowercase()
+        //             });
+        //         let path = path.as_deref().unwrap_or("");
+        //         let files = self.files().await?;
+        //         let files = files.files.read().await;
 
-                let mut heap: BinaryHeap<_> = {
-                    let all = once_cell::unsync::OnceCell::new();
-                    files
-                        .keys()
-                        .map(|s| {
-                            (
-                                OrderedFloat(strsim::normalized_damerau_levenshtein(
-                                    path,
-                                    &s.to_lowercase(),
-                                )),
-                                s,
-                            )
-                        })
-                        .filter(|(s, _)| {
-                            let matching = s.0 >= 0.07;
-                            *all.get_or_init(|| !matching) || matching
-                        })
-                        .collect()
-                };
+        //         let mut heap: BinaryHeap<_> = {
+        //             let all = once_cell::unsync::OnceCell::new();
+        //             files
+        //                 .keys()
+        //                 .map(|s| {
+        //                     (
+        //                         OrderedFloat(strsim::normalized_damerau_levenshtein(
+        //                             path,
+        //                             &s.to_lowercase(),
+        //                         )),
+        //                         s,
+        //                     )
+        //                 })
+        //                 .filter(|(s, _)| {
+        //                     let matching = s.0 >= 0.07;
+        //                     *all.get_or_init(|| !matching) || matching
+        //                 })
+        //                 .collect()
+        //         };
 
-                debug!(?heap, "File completion list accumulated");
+        //         debug!(?heap, "File completion list accumulated");
 
-                Ok(std::iter::from_fn(move || heap.pop())
-                    .map(|(_, s)| Completion {
-                        name: s.into(),
-                        value: s.into(),
-                    })
-                    .collect())
-            },
-            ref s => Err(anyhow!("Unexpected subcommand {s:?}").into()),
-        }
+        //         Ok(std::iter::from_fn(move || heap.pop())
+        //             .map(|(_, s)| Completion {
+        //                 name: s.into(),
+        //                 value: s.into(),
+        //             })
+        //             .collect())
+        //     },
+        //     ref s => Err(anyhow!("Unexpected subcommand {s:?}").into()),
+        // }
+        todo!()
     }
 
-    async fn respond<'a>(
-        &self,
-        ctx: &Context,
-        visitor: &mut CommandVisitor<'_>,
-        responder: CommandResponder<'_, 'a>,
-    ) -> CommandResult<'a> {
-        match *visitor.visit_subcmd()? {
-            ["play"] => self.play(ctx, visitor, responder).await,
-            ["board"] => self.board(ctx, visitor, responder).await,
-            [..] => unreachable!(), // TODO: visitor should handle this
-        }
+    async fn respond<'a, 'r>(
+        &'a self,
+        serenity_cx: &'a Context,
+        _cx: &'a HandlerCx,
+        data: Self::Data<'a>,
+        responder: handler::CommandResponder<'a, 'r, Schema>,
+    ) -> handler::CommandResult<'r, Schema> {
+        // let subcmd = visitor.visit_subcmd()?;
+        // match *subcmd {
+        //     ["play"] => self.play(serenity_cx, visitor, responder).await,
+        //     ["board"] => self.board(serenity_cx, visitor, responder).await,
+        //     [..] => unreachable!(), // TODO: visitor should handle this
+        // }
+        todo!()
     }
 }
 
-#[async_trait]
-impl RpcHandler<Schema, ComponentKey> for SoundCommand {
-    fn register_keys(&self) -> &'static [ComponentKey] { &[ComponentKey::Soundboard] }
+impl RpcHandler<Schema, ComponentKey, HandlerCx> for SoundCommand {
+    type Data<'a> = SoundComponentArgs;
+
+    // fn register_keys(&self, _cx: &HandlerCx) -> &'static [ComponentKey] {
+    //     &[ComponentKey::Soundboard]
+    // }
 
     async fn respond<'a>(
         &self,
-        ctx: &Context,
+        serenity_cx: &Context,
+        _cx: &HandlerCx,
         payload: ComponentPayload,
         visitor: &mut ComponentVisitor<'_>,
         responder: ComponentResponder<'_, 'a>,
@@ -395,12 +414,21 @@ impl RpcHandler<Schema, ComponentKey> for SoundCommand {
                     .context("Error sending deferred update")?;
 
                 let responder = self
-                    .play_impl(ctx, gid, user, &file, responder, |r, m, e| async move {
-                        match r.create_followup(Message::from(m).ephemeral(true)).await {
-                            Ok(_) => r.into_err(e),
-                            Err(e) => Error::from(e).context("Error sending error message").into(),
-                        }
-                    })
+                    .play_impl(
+                        serenity_cx,
+                        gid,
+                        user,
+                        &file,
+                        responder,
+                        |r, m, e| async move {
+                            match r.create_followup(Message::from(m).ephemeral(true)).await {
+                                Ok(_) => r.into_err(e),
+                                Err(e) => {
+                                    Error::from(e).context("Error sending error message").into()
+                                },
+                            }
+                        },
+                    )
                     .await?;
 
                 Ok(responder.into())
@@ -415,7 +443,7 @@ struct SongbirdHandler(
     Arc<Mutex<songbird::Call>>,
 );
 
-#[async_trait]
+#[async_trait::async_trait]
 impl songbird::EventHandler for SongbirdHandler {
     async fn act(&self, ctx: &songbird::EventContext<'_>) -> Option<songbird::Event> {
         match *ctx {
