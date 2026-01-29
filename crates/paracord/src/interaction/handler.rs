@@ -277,6 +277,7 @@ pub trait RpcHandler<S, K: rpc::Key, C: Sync>: fmt::Debug + Send + Sync {
     type Data<'a>: DeserializeRpc<'a, K, C>
     where
         Self: 'a,
+        S: 'a,
         K: 'a,
         C: 'a;
 
@@ -286,7 +287,7 @@ pub trait RpcHandler<S, K: rpc::Key, C: Sync>: fmt::Debug + Send + Sync {
         serenity_cx: &'a Context,
         cx: &'a C,
         payload: K::Payload,
-        visitor: &'a mut visitor::BasicVisitor<'a, K::Interaction>,
+        data: Self::Data<'a>,
         responder: response::BorrowingResponder<'a, 'r, S, K::Interaction>,
     ) -> impl Future<Output = ResponseResult<'r, S, K::Interaction>> + Send + use<'a, 'r, Self, S, K, C>;
 }
@@ -329,6 +330,10 @@ impl<S, K: rpc::Key, C: Sync, H: RpcHandler<S, K, C>> DynRpcHandler<S, K, C> for
         K: 'a,
         C: 'a,
     {
-        Box::pin(self.respond(serenity_cx, cx, payload, visitor, responder))
+        Box::pin(
+            std::future::ready(H::Data::deserialize(visitor))
+                .map_err(Into::into)
+                .and_then(|data| self.respond(serenity_cx, cx, payload, data, responder)),
+        )
     }
 }

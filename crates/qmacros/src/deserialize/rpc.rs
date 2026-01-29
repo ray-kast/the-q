@@ -9,28 +9,7 @@ pub(crate) struct Rpc;
 
 #[derive(Default)]
 pub(crate) struct RpcAttr {
-    kind: Option<RpcKind>,
-    schema: Option<Type>,
-}
-
-impl RpcAttr {
-    fn key(&self) -> Type {
-        let schema = self.schema.as_ref().unwrap();
-        match self.kind.unwrap() {
-            RpcKind::Component => parse_quote! {
-                <#schema as ::paracord::interaction::rpc::Schema>::ComponentKey
-            },
-            RpcKind::Modal => parse_quote! {
-                <#schema as ::paracord::interaction::rpc::Schema>::ModalKey
-            },
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum RpcKind {
-    Component,
-    Modal,
+    key: Option<Type>,
 }
 
 impl Kind for Rpc {
@@ -48,12 +27,8 @@ impl Kind for Rpc {
         attr: &mut Self::Attr,
         meta: ParseNestedMeta<'_>,
     ) -> syn::Result<bool> {
-        if meta.path.is_ident("component") {
-            attr.kind = Some(RpcKind::Component);
-        } else if meta.path.is_ident("modal") {
-            attr.kind = Some(RpcKind::Modal);
-        } else if meta.path.is_ident("schema") {
-            attr.schema = Some(Type::parse(meta.value()?)?);
+        if meta.path.is_ident("key") {
+            attr.key = Some(Type::parse(meta.value()?)?);
         } else {
             return Ok(false);
         }
@@ -62,13 +37,9 @@ impl Kind for Rpc {
     }
 
     fn validate_outer_meta(attr: &Self::Attr) -> syn::Result<()> {
-        attr.kind.ok_or_else(|| {
-            Span::call_site().error("Missing #[deserialize(component)] or #[deserialize(modal)]")
-        })?;
-
-        attr.schema
+        attr.key
             .as_ref()
-            .ok_or_else(|| Span::call_site().error("Missing #[deserialize(schema = ...)]"))?;
+            .ok_or_else(|| Span::call_site().error("Missing #[deserialize(key = ...)]"))?;
 
         Ok(())
     }
@@ -78,7 +49,7 @@ impl Kind for Rpc {
         deser_lt: &Lifetime,
         cx_ty: &Type,
     ) -> Punctuated<syn::GenericArgument, Token![,]> {
-        let key_ty = attr.key();
+        let key_ty = attr.key.as_ref().unwrap();
         parse_quote! { #deser_lt, #key_ty, #cx_ty }
     }
 
@@ -86,7 +57,7 @@ impl Kind for Rpc {
         attr: &Self::Attr,
         mut f: F,
     ) {
-        let key_ty = attr.key();
+        let key_ty = attr.key.as_ref().unwrap();
         f(
             "keys",
             Punctuated::new(),
@@ -103,17 +74,14 @@ impl Kind for Rpc {
         lt: &Lifetime,
         mut f: F,
     ) {
-        let kind = attr.kind.unwrap();
-
+        let key_ty = attr.key.as_ref().unwrap();
         f(
             "",
-            match kind {
-                RpcKind::Component => parse_quote! {
-                    __visitor: &mut ::paracord::interaction::handler::ComponentVisitor<#lt>
-                },
-                RpcKind::Modal => parse_quote! {
-                    __visitor: &mut ::paracord::interaction::handler::ModalVisitor<#lt>
-                },
+            parse_quote! {
+                __visitor: &mut ::paracord::interaction::visitor::BasicVisitor<
+                    #lt,
+                    <#key_ty as ::paracord::interaction::rpc::Key>::Interaction,
+                >
             },
             parse_quote! { Self },
             parse_quote! {{

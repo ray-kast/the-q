@@ -18,9 +18,9 @@ where for<'a> Self: From<&'a Self::Payload>
     /// The payload type for this set of keys, containing enough data to produce
     /// an instance of [`Self`] as well as any arguments that should be
     /// forwarded
-    type Payload: fmt::Debug;
+    type Payload: fmt::Debug + Send;
     /// The interaction event type for which this key is valid
-    type Interaction;
+    type Interaction: Sync;
 }
 
 /// A helper trait intended to be implemented on a marker unit struct for

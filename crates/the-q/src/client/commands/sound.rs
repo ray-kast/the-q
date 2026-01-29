@@ -6,9 +6,6 @@ use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 
 use super::prelude::*;
 
-// TODO: make this configurable
-const SAMPLE_DIR: &str = "etc/samples";
-
 #[derive(Debug)]
 struct FileMap {
     files: RwLock<HashMap<String, PathBuf>>,
@@ -25,20 +22,25 @@ pub struct SoundCommand {
 #[derive(DeserializeCommand)]
 #[deserialize(cx = HandlerCx)]
 pub enum SoundArgs<'a> {
-    Play {
-        gid: GuildId,
-        user: &'a User,
-        path: &'a str,
-    },
+    Play(PlayArgs<'a>),
     Board,
 }
 
+pub struct PlayArgs<'a> {
+    gid: GuildId,
+    user: &'a User,
+    path: &'a str,
+}
+
 #[derive(DeserializeRpc)]
-#[deserialize(component, schema = Schema, cx = HandlerCx)]
-pub struct SoundComponentArgs {}
+#[deserialize(key = ComponentKey, cx = HandlerCx)]
+pub struct SoundComponentArgs<'a> {
+    gid: GuildId,
+    user: &'a User,
+}
 
 impl SoundCommand {
-    async fn files(&self) -> Result<Arc<FileMap>> {
+    async fn files(&self, sample_dir: &str) -> Result<Arc<FileMap>> {
         let mut guard = self.files.lock().await;
         if let Some(files) = guard.upgrade() {
             return Ok(files);
@@ -53,6 +55,7 @@ impl SoundCommand {
 
         let (ready_tx, ready_rx) = oneshot::channel();
         let map = Arc::clone(&files);
+        let sample_dir = sample_dir.to_owned();
         tokio::task::spawn(
             async move {
                 let mut ready_tx = Some(ready_tx);
@@ -62,29 +65,33 @@ impl SoundCommand {
                     .try_send(Ok(notify::Event::new(notify::EventKind::Any)))
                     .unwrap_or_else(|_| unreachable!());
 
-                let watcher = tokio::task::spawn_blocking(move || {
-                    use notify::Watcher;
+                let watcher = tokio::task::spawn_blocking({
+                    let sample_dir = sample_dir.clone();
+                    move || {
+                        use notify::Watcher;
 
-                    let mut w = notify::recommended_watcher(move |r| {
-                        // TODO: how to gracefully handle send error?
-                        watch_tx.blocking_send(r).unwrap();
-                    })
-                    .context("Error creating filesystem watcher")?;
+                        let mut w = notify::recommended_watcher(move |r| {
+                            // TODO: how to gracefully handle send error?
+                            watch_tx.blocking_send(r).unwrap();
+                        })
+                        .context("Error creating filesystem watcher")?;
 
-                    w.watch(SAMPLE_DIR.as_ref(), notify::RecursiveMode::Recursive)?;
+                        w.watch(sample_dir.as_ref(), notify::RecursiveMode::Recursive)?;
 
-                    Result::<_>::Ok(w)
+                        Result::<_>::Ok(w)
+                    }
                 })
                 .await
                 .unwrap()?;
 
+                let sample_dir = &sample_dir;
                 let recv = async move {
                     while let Some(evt) = watch_rx.recv().await {
                         let evt = evt?;
 
                         info!(?evt, "Scanning sample table...");
 
-                        let files = walkdir::WalkDir::new(SAMPLE_DIR)
+                        let files = walkdir::WalkDir::new(sample_dir)
                             .same_file_system(true)
                             .into_iter()
                             .filter_map(|f| {
@@ -94,7 +101,7 @@ impl SoundCommand {
                                     .then(|| {
                                         let f = f.into_path();
                                         let s = f.display().to_string();
-                                        let s = s.strip_prefix(SAMPLE_DIR).unwrap();
+                                        let s = s.strip_prefix(sample_dir).unwrap();
                                         let s = s.strip_prefix('/').unwrap_or(s);
                                         (s.into(), f)
                                     })
@@ -137,13 +144,14 @@ impl SoundCommand {
     async fn play_impl<X, E: From<Error>, F: Future<Output = E>>(
         &self,
         serenity_cx: &Context,
-        gid: GuildId,
-        user: &User,
-        path: &str,
+        cx: &HandlerCx,
+        args: PlayArgs<'_>,
         extra: X,
         fail: impl FnOnce(X, MessageBody, &'static str) -> F,
     ) -> Result<X, E> {
         const PATH_ERR: &str = "That isn't a valid file.";
+
+        let PlayArgs { gid, user, path } = args;
 
         let voice_chan = {
             // gay baby jail to keep rustc from freaking out
@@ -166,7 +174,10 @@ impl SoundCommand {
             .await
             .context("Missing songbird context")?;
 
-        let files = self.files().await.context("Error getting sample list")?;
+        let files = self
+            .files(&cx.opts.sample_dir)
+            .await
+            .context("Error getting sample list")?;
         let files = files.files.read().await;
         let path = files.get(path);
 
@@ -235,9 +246,8 @@ impl SoundCommand {
     async fn play<'a>(
         &self,
         serenity_cx: &Context,
-        gid: GuildId,
-        user: &User,
-        path: &str,
+        cx: &HandlerCx,
+        args: PlayArgs<'_>,
         responder: CommandResponder<'_, 'a>,
     ) -> CommandResult<'a> {
         let responder = responder
@@ -246,19 +256,12 @@ impl SoundCommand {
             .context("Error sending deferred message")?;
 
         let responder = self
-            .play_impl(
-                serenity_cx,
-                gid,
-                user,
-                path,
-                responder,
-                |r, m, e| async move {
-                    match r.edit(m).await.context("Error sending error message") {
-                        Ok(_) => r.into_err(e),
-                        Err(e) => CommandError::from(e),
-                    }
-                },
-            )
+            .play_impl(serenity_cx, cx, args, responder, |r, m, e| async move {
+                match r.edit(m).await.context("Error sending error message") {
+                    Ok(_) => r.into_err(e),
+                    Err(e) => CommandError::from(e),
+                }
+            })
             .await?;
 
         responder
@@ -372,34 +375,34 @@ impl CommandHandler<Schema, HandlerCx> for SoundCommand {
     async fn respond<'a, 'r>(
         &'a self,
         serenity_cx: &'a Context,
-        _cx: &'a HandlerCx,
+        cx: &'a HandlerCx,
         data: Self::Data<'a>,
         responder: handler::CommandResponder<'a, 'r, Schema>,
     ) -> handler::CommandResult<'r, Schema> {
         match data {
-            SoundArgs::Play { gid, user, path } => {
-                self.play(serenity_cx, gid, user, path, responder).await
-            },
+            SoundArgs::Play(args) => self.play(serenity_cx, cx, args, responder).await,
             SoundArgs::Board => self.board(serenity_cx, responder).await,
         }
     }
 }
 
 impl RpcHandler<Schema, ComponentKey, HandlerCx> for SoundCommand {
-    type Data<'a> = SoundComponentArgs;
+    type Data<'a> = SoundComponentArgs<'a>;
 
     // fn register_keys(&self, _cx: &HandlerCx) -> &'static [ComponentKey] {
     //     &[ComponentKey::Soundboard]
     // }
 
-    async fn respond<'a>(
-        &self,
-        serenity_cx: &Context,
-        _cx: &HandlerCx,
-        payload: ComponentPayload,
-        visitor: &mut ComponentVisitor<'_>,
-        responder: ComponentResponder<'_, 'a>,
-    ) -> ComponentResult<'a> {
+    async fn respond<'a, 'r>(
+        &'a self,
+        serenity_cx: &'a Context,
+        cx: &'a HandlerCx,
+        payload: <ComponentKey as rpc::Key>::Payload,
+        data: Self::Data<'a>,
+        responder: ComponentResponder<'a, 'r>,
+    ) -> ComponentResult<'r> {
+        let SoundComponentArgs { gid, user } = data;
+
         #[expect(
             clippy::match_wildcard_for_single_variants,
             reason = "This will have more variants in the future"
@@ -407,8 +410,6 @@ impl RpcHandler<Schema, ComponentKey, HandlerCx> for SoundCommand {
         match payload {
             ComponentPayload::Soundboard(s) => {
                 let component::Soundboard { file } = s;
-                let (gid, _memb) = visitor.guild()?.required()?;
-                let user = visitor.user();
 
                 let responder = responder
                     .defer_update()
@@ -418,9 +419,12 @@ impl RpcHandler<Schema, ComponentKey, HandlerCx> for SoundCommand {
                 let responder = self
                     .play_impl(
                         serenity_cx,
-                        gid,
-                        user,
-                        &file,
+                        cx,
+                        PlayArgs {
+                            gid,
+                            user,
+                            path: &file,
+                        },
                         responder,
                         |r, m, e| async move {
                             match r.create_followup(Message::from(m).ephemeral(true)).await {

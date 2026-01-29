@@ -62,6 +62,9 @@ mod opts {
 
         #[arg(long, env)]
         pub image_rate_limit: RateLimitParams,
+
+        #[arg(long, env)]
+        pub sample_dir: String,
     }
 
     impl CommandOpts {
