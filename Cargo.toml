@@ -6,11 +6,12 @@ resolver = "2"
 [workspace.dependencies]
 futures-util = "0.3.31"
 hashbrown = "0.16.1"
+marten = "0.1.0"
 proptest = "1.9.0"
 thiserror = "2.0.17"
 tracing = "0.1.44"
 
-mid-tools = { version = "0.0.0", git = "https://github.com/ray-kast/compiler-stuff.git", rev = "a28f400" }
+mid-tools = { version = "0.0.0", git = "https://github.com/ray-kast/compiler-stuff.git", rev = "1148416" }
 
 base64k = { version = "=0.1.0", path = "crates/base64k" }
 jpeggr = { version = "=0.1.0", path = "crates/jpeggr" }

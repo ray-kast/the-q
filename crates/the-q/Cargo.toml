@@ -20,6 +20,7 @@ hashbrown.workspace = true
 hostname = "0.4.2"
 jiff = "0.2.18"
 jpeggr.workspace = true
+marten = { workspace = true, features = ["loki", "signal"] }
 mid-tools.workspace = true
 notify = "8.2.0"
 num-traits = "0.2.19"

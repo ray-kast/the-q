@@ -87,7 +87,9 @@ impl Kind for Command {
                 __visitor: &mut ::paracord::interaction::handler::CommandVisitor<#lt>
             },
             parse_quote! { Self },
-            parse_quote! { { todo!() } },
+            parse_quote! {{
+                todo!()
+            }},
         );
     }
 

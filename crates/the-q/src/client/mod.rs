@@ -49,12 +49,19 @@ pub async fn build(opts: ClientOpts) -> Result<Client> {
     Ok(Client { serenity })
 }
 
-impl Client {
-    #[inline]
-    pub async fn start(&mut self) -> Result<(), serenity::Error> { self.serenity.start().await }
+impl marten::RunService for Client {
+    type Output = ();
 
-    #[inline]
-    pub async fn shutdown(&self) {
-        let ((),) = tokio::join!(self.serenity.shard_manager.shutdown_all(),);
+    async fn run(&mut self) -> Result<Self::Output> {
+        self.serenity
+            .start()
+            .await
+            .context("Fatal client error occurred")
+            .and_then(|()| bail!("Client hung up unexpectedly"))
+    }
+
+    async fn stop(self) -> Result {
+        self.serenity.shard_manager.shutdown_all().await;
+        Ok(())
     }
 }
