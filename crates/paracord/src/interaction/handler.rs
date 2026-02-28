@@ -99,16 +99,24 @@ pub trait DeserializeCommand<'a, C>: Sized + Send {
     fn register_global(cx: &C) -> CommandInfo;
 
     /// Provide registration data for this command within the context of a guild
-    fn register_guild(id: GuildId, cx: &C) -> Option<CommandInfo>;
+    #[inline]
+    fn register_guild(id: GuildId, cx: &C) -> Option<CommandInfo> {
+        _ = (id, cx);
+        None
+    }
 
     /// Deserialize payload data for autocomplete invocations of this command
     ///
     /// # Errors
     /// This method should return an error if the provided interaction data is
     /// invalid
+    #[inline]
     fn deserialize_completion(
         visitor: &mut CompletionVisitor<'a>,
-    ) -> Result<Self::Completion, visitor::Error>;
+    ) -> Result<Self::Completion, visitor::Error> {
+        _ = visitor;
+        Err(visitor::Error::Malformed("Completion not implemented"))
+    }
 
     /// Deserialize payload data for invocations of this command
     ///

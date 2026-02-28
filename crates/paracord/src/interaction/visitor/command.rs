@@ -111,7 +111,7 @@ macro_rules! visit_basic {
         /// This method returns an error if the command does not take arguments
         #[doc = concat!("or the named argument is not ", $desc)]
         /// or an equivalent autocomplete argument
-        $vis fn $name(&mut self, name: &'a str) -> Result<AutocompleteOptionVisitor<'_, $ty>> {
+        $vis fn $name(&mut self, name: &'a str) -> Result<AutocompleteOptionVisitor<'a, $ty>> {
             let opt = self.visit_opt(name)?;
             if let Some(opt) = opt {
                 match opt.value {
@@ -316,10 +316,20 @@ impl<T> OptionVisitor<'_, T> {
 
 pub type AutocompleteOptionVisitor<'a, T> = OptionVisitor<'a, Autocomplete<'a, T>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Autocomplete<'a, T> {
     Complete(T),
     Partial(&'a str),
+}
+
+impl<'a, T: AsRef<str> + ?Sized> Autocomplete<'a, &'a T> {
+    #[must_use]
+    pub fn into_str(self) -> &'a str {
+        match self {
+            Autocomplete::Complete(s) => s.as_ref(),
+            Autocomplete::Partial(s) => s,
+        }
+    }
 }
 
 #[derive(Debug)]

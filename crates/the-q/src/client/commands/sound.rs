@@ -19,11 +19,55 @@ pub struct SoundCommand {
     _notify_handle: RwLock<Option<oneshot::Sender<()>>>,
 }
 
-#[derive(DeserializeCommand)]
-#[deserialize(cx = HandlerCx)]
+// #[derive(DeserializeCommand)]
+// #[deserialize(cx = HandlerCx)]
 pub enum SoundArgs<'a> {
     Play(PlayArgs<'a>),
     Board,
+}
+
+pub enum SoundCompletion<'a> {
+    Play {
+        path: Option<Autocomplete<'a, &'a str>>,
+    },
+}
+
+impl<'a> DeserializeCommand<'a, HandlerCx> for SoundArgs<'a> {
+    type Completion = SoundCompletion<'a>;
+
+    fn register_global(cx: &HandlerCx) -> CommandInfo {
+        CommandInfo::build_slash(cx.opts.command_name("sound"), ";)", |a| {
+            a.build_subcmd("play", "Play a single file", |a| {
+                a.string("path", "Path to the file to play", true, ..)
+                    .autocomplete(true, ["path"])
+            })
+            .build_subcmd("board", "Create a soundboard message", |a| a)
+        })
+        .unwrap()
+    }
+
+    fn deserialize_completion(
+        visitor: &mut CompletionVisitor<'a>,
+    ) -> Result<Self::Completion, visitor::Error> {
+        Ok(match *visitor.visit_subcmd()? {
+            ["play"] => SoundCompletion::Play {
+                path: visitor.visit_string_autocomplete("path")?.optional(),
+            },
+            _ => return Err(visitor::Error::Malformed("Unexpected subcommand")),
+        })
+    }
+
+    fn deserialize(visitor: &mut CommandVisitor<'a>) -> Result<Self, visitor::Error> {
+        Ok(match *visitor.visit_subcmd()? {
+            ["play"] => Self::Play(PlayArgs {
+                gid: visitor.guild()?.required()?.0,
+                user: visitor.user(),
+                path: visitor.visit_string("path")?.required()?,
+            }),
+            ["board"] => Self::Board,
+            _ => return Err(visitor::Error::Malformed("Unexpected subcommand")),
+        })
+    }
 }
 
 pub struct PlayArgs<'a> {
@@ -32,11 +76,24 @@ pub struct PlayArgs<'a> {
     path: &'a str,
 }
 
-#[derive(DeserializeRpc)]
-#[deserialize(key = ComponentKey, cx = HandlerCx)]
+// #[derive(DeserializeRpc)]
+// #[deserialize(key = ComponentKey, cx = HandlerCx)]
 pub struct SoundComponentArgs<'a> {
     gid: GuildId,
     user: &'a User,
+}
+
+impl<'a> DeserializeRpc<'a, ComponentKey, HandlerCx> for SoundComponentArgs<'a> {
+    fn register_keys(_cx: &HandlerCx) -> &[ComponentKey] { &[ComponentKey::Soundboard] }
+
+    fn deserialize(
+        visitor: &mut visitor::BasicVisitor<'a, <ComponentKey as rpc::Key>::Interaction>,
+    ) -> Result<Self, visitor::Error> {
+        Ok(Self {
+            gid: visitor.guild()?.required()?.0,
+            user: visitor.user(),
+        })
+    }
 }
 
 impl SoundCommand {
@@ -304,72 +361,48 @@ impl SoundCommand {
 impl CommandHandler<Schema, HandlerCx> for SoundCommand {
     type Data<'a> = SoundArgs<'a>;
 
-    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
-    //     CommandInfo::build_slash(cx.opts.command_name("sound"), ";)", |a| {
-    //         a.build_subcmd("play", "Play a single file", |a| {
-    //             a.string("path", "Path to the file to play", true, ..)
-    //                 .autocomplete(true, ["path"])
-    //         })
-    //         .build_subcmd("board", "Create a soundboard message", id)
-    //     })
-    //     .unwrap()
-    // }
-
     async fn complete<'a>(
         &'a self,
         _serenity_cx: &'a Context,
-        _cx: &'a HandlerCx,
+        cx: &'a HandlerCx,
         data: <Self::Data<'a> as DeserializeCommand<'a, HandlerCx>>::Completion,
     ) -> CompletionResult {
-        // match *visitor.visit_subcmd()? {
-        //     ["play"] => {
-        //         // TODO: unicase?
-        //         let path = visitor
-        //             .visit_string_autocomplete("path")?
-        //             .optional()
-        //             .map(|a| {
-        //                 // TODO 2: okay now this really sucks
-        //                 match a {
-        //                     Autocomplete::Complete(s) | Autocomplete::Partial(s) => s,
-        //                 }
-        //                 .to_lowercase()
-        //             });
-        //         let path = path.as_deref().unwrap_or("");
-        //         let files = self.files().await?;
-        //         let files = files.files.read().await;
+        match data {
+            SoundCompletion::Play { path } => {
+                let path = path.map_or("", Autocomplete::into_str);
+                let files = self.files(&cx.opts.sample_dir).await?;
+                let files = files.files.read().await;
 
-        //         let mut heap: BinaryHeap<_> = {
-        //             let all = once_cell::unsync::OnceCell::new();
-        //             files
-        //                 .keys()
-        //                 .map(|s| {
-        //                     (
-        //                         OrderedFloat(strsim::normalized_damerau_levenshtein(
-        //                             path,
-        //                             &s.to_lowercase(),
-        //                         )),
-        //                         s,
-        //                     )
-        //                 })
-        //                 .filter(|(s, _)| {
-        //                     let matching = s.0 >= 0.07;
-        //                     *all.get_or_init(|| !matching) || matching
-        //                 })
-        //                 .collect()
-        //         };
+                let mut heap: BinaryHeap<_> = {
+                    let all = once_cell::unsync::OnceCell::new();
+                    files
+                        .keys()
+                        .map(|s| {
+                            (
+                                OrderedFloat(strsim::normalized_damerau_levenshtein(
+                                    path,
+                                    &s.to_lowercase(),
+                                )),
+                                s,
+                            )
+                        })
+                        .filter(|(s, _)| {
+                            let matching = s.0 >= 0.07;
+                            *all.get_or_init(|| !matching) || matching
+                        })
+                        .collect()
+                };
 
-        //         debug!(?heap, "File completion list accumulated");
+                debug!(?heap, "File completion list accumulated");
 
-        //         Ok(std::iter::from_fn(move || heap.pop())
-        //             .map(|(_, s)| Completion {
-        //                 name: s.into(),
-        //                 value: s.into(),
-        //             })
-        //             .collect())
-        //     },
-        //     ref s => Err(anyhow!("Unexpected subcommand {s:?}").into()),
-        // }
-        match data {}
+                Ok(std::iter::from_fn(move || heap.pop())
+                    .map(|(_, s)| Completion {
+                        name: s.into(),
+                        value: s.into(),
+                    })
+                    .collect())
+            },
+        }
     }
 
     async fn respond<'a, 'r>(
@@ -388,10 +421,6 @@ impl CommandHandler<Schema, HandlerCx> for SoundCommand {
 
 impl RpcHandler<Schema, ComponentKey, HandlerCx> for SoundCommand {
     type Data<'a> = SoundComponentArgs<'a>;
-
-    // fn register_keys(&self, _cx: &HandlerCx) -> &'static [ComponentKey] {
-    //     &[ComponentKey::Soundboard]
-    // }
 
     async fn respond<'a, 'r>(
         &'a self,

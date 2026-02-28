@@ -9,13 +9,13 @@ mod prelude {
     #![expect(unused_imports, reason = "Some exports may not yet be used")]
 
     pub use paracord::interaction::{
-        command::{prelude::*, Args, CommandInfo},
+        command::{prelude::*, Args, Choice, CommandInfo},
         completion::Completion,
         handler,
         handler::{
             CommandHandler, CommandVisitor, CompletionError, CompletionResult, CompletionVisitor,
             ComponentVisitor, DeserializeCommand, DeserializeRpc, HandlerError, IntoErr,
-            ModalVisitor, RpcHandler,
+            ModalVisitor, NoCompletion, RpcHandler,
         },
         response,
         response::{

@@ -5,23 +5,34 @@ use super::prelude::*;
 #[derive(Debug, Default)]
 pub struct SayCommand;
 
-#[derive(DeserializeCommand)]
-#[deserialize(cx = HandlerCx)]
+// #[derive(DeserializeCommand)]
+// #[deserialize(cx = HandlerCx)]
 pub struct SayArgs<'a> {
     message: &'a str,
 
     member: Option<&'a Member>,
 }
 
+impl<'a> DeserializeCommand<'a, HandlerCx> for SayArgs<'a> {
+    type Completion = NoCompletion;
+
+    fn register_global(cx: &HandlerCx) -> CommandInfo {
+        CommandInfo::build_slash(cx.opts.command_name("say"), "Say something!", |a| {
+            a.string("message", "The message to send", true, ..)
+        })
+        .unwrap()
+    }
+
+    fn deserialize(visitor: &mut CommandVisitor<'a>) -> Result<Self, visitor::Error> {
+        Ok(Self {
+            message: visitor.visit_string("message")?.required()?,
+            member: visitor.guild()?.optional().map(|(_, m)| m),
+        })
+    }
+}
+
 impl CommandHandler<Schema, HandlerCx> for SayCommand {
     type Data<'a> = SayArgs<'a>;
-
-    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
-    //     CommandInfo::build_slash(cx.opts.command_name("say"), "Say something!", |a| {
-    //         a.string("message", "The message to send", true, ..)
-    //     })
-    //     .unwrap()
-    // }
 
     async fn respond<'a, 'r>(
         &'a self,

@@ -42,14 +42,13 @@ impl Kind for Command {
         _attr: &Self::Attr,
         mut f: F,
     ) {
+        #![expect(unreachable_code)]
         f(
             "global",
             Punctuated::new(),
             parse_quote! { __deserialize_cx },
             parse_quote! { ::paracord::interaction::command::CommandInfo },
-            parse_quote! {{
-                todo!()
-            }},
+            todo!(),
         );
 
         f(
@@ -59,9 +58,7 @@ impl Kind for Command {
                 .collect(),
             parse_quote! { __deserialize_cx },
             parse_quote! { Option<::paracord::interaction::command::CommandInfo> },
-            parse_quote! {{
-                todo!()
-            }},
+            todo!(),
         );
     }
 
@@ -70,15 +67,14 @@ impl Kind for Command {
         lt: &Lifetime,
         mut f: F,
     ) {
+        #![expect(unreachable_code)]
         f(
             "completion",
             parse_quote! {
                 __visitor: &mut ::paracord::interaction::handler::CommandVisitor<#lt>
             },
             parse_quote! { Self::Completion },
-            parse_quote! {{
-                todo!()
-            }},
+            todo!(),
         );
 
         f(
@@ -87,9 +83,7 @@ impl Kind for Command {
                 __visitor: &mut ::paracord::interaction::handler::CommandVisitor<#lt>
             },
             parse_quote! { Self },
-            parse_quote! {{
-                todo!()
-            }},
+            todo!(),
         );
     }
 

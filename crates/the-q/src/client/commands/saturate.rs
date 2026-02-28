@@ -3,8 +3,8 @@ use jpeggr::image::{self, DynamicImage};
 use super::prelude::*;
 use crate::util::{self, image::tonemap};
 
-// const MIN_PERCENT: f64 = 0.0;
-// const MAX_PERCENT: f64 = 1_000.0;
+const MIN_PERCENT: f64 = 0.0;
+const MAX_PERCENT: f64 = 1_000.0;
 
 #[derive(Clone, Copy)]
 struct Params {
@@ -94,31 +94,45 @@ fn saturate(image: DynamicImage, params: Params) -> Result<DynamicImage, jpeggr:
 #[derive(Debug, Default)]
 pub struct SaturateCommand;
 
-#[derive(DeserializeCommand)]
-#[deserialize(cx = HandlerCx)]
+// #[derive(DeserializeCommand)]
+// #[deserialize(cx = HandlerCx)]
 pub struct SaturateArgs<'a> {
     image: &'a Attachment,
     percent: f64,
 }
 
+impl<'a> DeserializeCommand<'a, HandlerCx> for SaturateArgs<'a> {
+    type Completion = NoCompletion;
+
+    fn register_global(cx: &HandlerCx) -> CommandInfo {
+        CommandInfo::build_slash(
+            cx.opts.command_name("saturate"),
+            "Adjusts the saturation of an image",
+            |a| {
+                a.attachment("image", "The input image", true).real(
+                    "percent",
+                    "Saturation percentage (defaults to 400%)",
+                    false,
+                    MIN_PERCENT..=MAX_PERCENT,
+                )
+            },
+        )
+        .unwrap()
+    }
+
+    fn deserialize(visitor: &mut CommandVisitor<'a>) -> Result<Self, visitor::Error> {
+        Ok(Self {
+            image: visitor.visit_attachment("image")?.required()?,
+            percent: visitor
+                .visit_number("percent")?
+                .optional()
+                .unwrap_or(DEFAULT_PARAMS.percent),
+        })
+    }
+}
+
 impl CommandHandler<Schema, HandlerCx> for SaturateCommand {
     type Data<'a> = SaturateArgs<'a>;
-
-    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
-    //     CommandInfo::build_slash(
-    //         cx.opts.command_name("saturate"),
-    //         "Adjusts the saturation of an image",
-    //         |a| {
-    //             a.attachment("image", "The input image", true).real(
-    //                 "percent",
-    //                 "Saturation percentage (defaults to 400%)",
-    //                 false,
-    //                 MIN_PERCENT..=MAX_PERCENT,
-    //             )
-    //         },
-    //     )
-    //     .unwrap()
-    // }
 
     async fn respond<'a, 'r>(
         &'a self,
@@ -144,18 +158,28 @@ impl CommandHandler<Schema, HandlerCx> for SaturateCommand {
 #[derive(Debug, Default)]
 pub struct SaturateMessageCommand;
 
-#[derive(DeserializeCommand)]
-#[deserialize(cx = HandlerCx)]
+// #[derive(DeserializeCommand)]
+// #[deserialize(cx = HandlerCx)]
 pub struct SaturateMessageArgs<'a> {
     message: &'a MessageBase,
 }
 
+impl<'a> DeserializeCommand<'a, HandlerCx> for SaturateMessageArgs<'a> {
+    type Completion = NoCompletion;
+
+    fn register_global(cx: &HandlerCx) -> CommandInfo {
+        CommandInfo::message(cx.opts.menu_name("Saturate This"))
+    }
+
+    fn deserialize(visitor: &mut CommandVisitor<'a>) -> Result<Self, visitor::Error> {
+        Ok(Self {
+            message: visitor.target().message()?,
+        })
+    }
+}
+
 impl CommandHandler<Schema, HandlerCx> for SaturateMessageCommand {
     type Data<'a> = SaturateMessageArgs<'a>;
-
-    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
-    //     CommandInfo::message(cx.opts.menu_name("Saturate This"))
-    // }
 
     async fn respond<'a, 'r>(
         &'a self,
@@ -181,18 +205,28 @@ impl CommandHandler<Schema, HandlerCx> for SaturateMessageCommand {
 #[derive(Debug, Default)]
 pub struct SaturateUserCommand;
 
-#[derive(DeserializeCommand)]
-#[deserialize(cx = HandlerCx)]
+// #[derive(DeserializeCommand)]
+// #[deserialize(cx = HandlerCx)]
 pub struct SaturateUserArgs<'a> {
     user: &'a User,
 }
 
+impl<'a> DeserializeCommand<'a, HandlerCx> for SaturateUserArgs<'a> {
+    type Completion = NoCompletion;
+
+    fn register_global(cx: &HandlerCx) -> CommandInfo {
+        CommandInfo::user(cx.opts.menu_name("Saturate This User"))
+    }
+
+    fn deserialize(visitor: &mut CommandVisitor<'a>) -> Result<Self, visitor::Error> {
+        Ok(Self {
+            user: visitor.target().user()?.0,
+        })
+    }
+}
+
 impl CommandHandler<Schema, HandlerCx> for SaturateUserCommand {
     type Data<'a> = SaturateUserArgs<'a>;
-
-    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
-    //     CommandInfo::user(cx.opts.menu_name("Saturate This User"))
-    // }
 
     async fn respond<'a, 'r>(
         &'a self,

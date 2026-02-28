@@ -90,23 +90,33 @@ async fn graph_re(dir: &tempfile::TempDir, i: usize, re: Regex<'_>) -> Result<Cr
 #[derive(Debug, Default)]
 pub struct ReCommand;
 
-#[derive(DeserializeCommand)]
-#[deserialize(cx = HandlerCx)]
+// #[derive(DeserializeCommand)]
+// #[deserialize(cx = HandlerCx)]
 pub struct ReArgs<'a> {
     regex: &'a str,
 }
 
+impl<'a> DeserializeCommand<'a, HandlerCx> for ReArgs<'a> {
+    type Completion = NoCompletion;
+
+    fn register_global(cx: &HandlerCx) -> CommandInfo {
+        CommandInfo::build_slash(
+            cx.opts.command_name("regex"),
+            "Compiles and visualizes a regular expression",
+            |a| a.string("regex", "The regular expression to compile", true, ..),
+        )
+        .unwrap()
+    }
+
+    fn deserialize(visitor: &mut CommandVisitor<'a>) -> Result<Self, visitor::Error> {
+        Ok(Self {
+            regex: visitor.visit_string("regex")?.required()?,
+        })
+    }
+}
+
 impl CommandHandler<Schema, HandlerCx> for ReCommand {
     type Data<'a> = ReArgs<'a>;
-
-    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
-    //     CommandInfo::build_slash(
-    //         cx.opts.command_name("regex"),
-    //         "Compiles and visualizes a regular expression",
-    //         |a| a.string("regex", "The regular expression to compile", true, ..),
-    //     )
-    //     .unwrap()
-    // }
 
     async fn respond<'a, 'r>(
         &'a self,
@@ -146,18 +156,28 @@ impl CommandHandler<Schema, HandlerCx> for ReCommand {
 #[derive(Debug, Default)]
 pub struct ReMessageCommand;
 
-#[derive(DeserializeCommand)]
-#[deserialize(cx = HandlerCx)]
+// #[derive(DeserializeCommand)]
+// #[deserialize(cx = HandlerCx)]
 pub struct ReMessageArgs<'a> {
     message: &'a MessageBase,
 }
 
+impl<'a> DeserializeCommand<'a, HandlerCx> for ReMessageArgs<'a> {
+    type Completion = NoCompletion;
+
+    fn register_global(cx: &HandlerCx) -> CommandInfo {
+        CommandInfo::message(cx.opts.menu_name("Compile Regexes"))
+    }
+
+    fn deserialize(visitor: &mut CommandVisitor<'a>) -> Result<Self, visitor::Error> {
+        Ok(Self {
+            message: visitor.target().message()?,
+        })
+    }
+}
+
 impl CommandHandler<Schema, HandlerCx> for ReMessageCommand {
     type Data<'a> = ReMessageArgs<'a>;
-
-    // fn register_global(&self, cx: &HandlerCx) -> CommandInfo {
-    //     CommandInfo::message(cx.opts.menu_name("Compile Regexes"))
-    // }
 
     async fn respond<'a, 'r>(
         &'a self,

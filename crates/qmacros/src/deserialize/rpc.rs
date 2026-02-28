@@ -57,15 +57,14 @@ impl Kind for Rpc {
         attr: &Self::Attr,
         mut f: F,
     ) {
+        #![expect(unreachable_code)]
         let key_ty = attr.key.as_ref().unwrap();
         f(
             "keys",
             Punctuated::new(),
             parse_quote! { __deserialize_cx },
             parse_quote! { &[#key_ty] },
-            parse_quote! {{
-                todo!()
-            }},
+            todo!(),
         );
     }
 
@@ -74,6 +73,7 @@ impl Kind for Rpc {
         lt: &Lifetime,
         mut f: F,
     ) {
+        #![expect(unreachable_code)]
         let key_ty = attr.key.as_ref().unwrap();
         f(
             "",
@@ -84,9 +84,7 @@ impl Kind for Rpc {
                 >
             },
             parse_quote! { Self },
-            parse_quote! {{
-                todo!()
-            }},
+            todo!(),
         );
     }
 
