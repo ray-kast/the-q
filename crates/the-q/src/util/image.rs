@@ -293,18 +293,16 @@ async fn process<
     lossless_out: bool,
     f: F,
 ) -> CommandResult<'a> {
-    if !tokio::task::spawn_local(
-        rate_limit.check(
+    if !rate_limit
+        .check(
             "image_manip",
             redis
                 .get_multiplexed_async_connection()
                 .await
                 .context("Error connecting to RESP-compatible database")?,
-        ),
-    )
-    .await
-    .context("Rate limit check panicked")?
-    .context("Error checking rate limit")?
+        )
+        .await
+        .context("Error checking rate limit")?
     {
         return Ok(responder
             .delete_and_followup(

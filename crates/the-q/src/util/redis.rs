@@ -1,4 +1,6 @@
-use redis::{aio::ConnectionLike, cmd, pipe, Pipeline, RedisResult, ToRedisArgs};
+use redis::{
+    aio::ConnectionLike, cmd, pipe, FromRedisValue, Pipeline, RedisResult, ToRedisArgs, Value,
+};
 
 /// Hacked together from [`redis::transaction`] to make it async
 pub async fn transaction_async<

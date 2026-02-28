@@ -2,7 +2,7 @@ use std::num::NonZeroU8;
 
 use redis::aio::MultiplexedConnection;
 
-use crate::{prelude::*, util::redis::transaction_async};
+use crate::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RateLimitParams {
@@ -61,24 +61,37 @@ impl RateLimitParams {
             .unwrap()..=curr_bucket)
             .map(|i| format!("rate_limit:{key}:{}min:{i:x}", self.bucket_mins))
             .collect();
+
         let curr_key = keys.len().checked_sub(1).unwrap_or_else(|| unreachable!());
 
-        let (last, prev): (u32, Vec<u32>) =
-            transaction_async(&mut conn, &keys, async |conn, pipe| {
-                pipe.incr(&keys[curr_key], 1)
-                    .expire_at(
-                        &keys[curr_key],
-                        curr_bucket
-                            .saturating_add_unsigned(u64::from(self.window_buckets.get()))
-                            .saturating_mul(bucket_secs),
-                    )
-                    .mget(&keys[..curr_key])
-                    .query_async(conn)
-                    .await
-            })
-            .await
-            .context("Error running ratelimit transaction")?;
+        // HACK: manually inlining transaction_async because of AsyncFnMut fuckery
+        let (all,): (Vec<u32>,) = loop {
+            redis::cmd("WATCH").arg(&keys).exec_async(&mut conn).await?;
+            let mut pipe = redis::pipe();
 
-        Ok(last + prev.into_iter().sum::<u32>() <= u32::from(self.window_limit))
+            let response: Option<_> = pipe
+                .atomic()
+                .incr(&keys[curr_key], 1)
+                .ignore()
+                .expire_at(
+                    &keys[curr_key],
+                    curr_bucket
+                        .saturating_add_unsigned(u64::from(self.window_buckets.get()))
+                        .saturating_mul(bucket_secs),
+                )
+                .ignore()
+                .mget(keys.as_slice())
+                .query_async(&mut conn)
+                .await?;
+
+            if let Some(response) = response {
+                // make sure no watch is left in the connection, even if
+                // someone forgot to use the pipeline.
+                redis::cmd("UNWATCH").exec_async(&mut conn).await?;
+                break response;
+            }
+        };
+
+        Ok(all.into_iter().sum::<u32>() <= u32::from(self.window_limit))
     }
 }

@@ -2,7 +2,7 @@ version: '3.6'
 
 services:
   grafana:
-    image: grafana/grafana:9.3.2
+    image: docker.io/grafana/grafana:9.3.2
     environment:
       - GF_PATHS_PROVISIONING=/grafana
       - GF_SECURITY_ADMIN_USER=${GF_USER}
@@ -19,7 +19,7 @@ services:
         target: /var/lib/grafana
 
   loki:
-    image: grafana/loki:2.7.1
+    image: docker.io/grafana/loki:2.7.1
     command: -config.file=/etc/loki/local-config.yaml -print-config-stderr
     volumes:
       - type: bind
@@ -30,6 +30,11 @@ services:
         source: loki-data
         target: /loki
         read_only: false
+
+  valkey:
+    image: docker.io/valkey/valkey:9-alpine
+    ports:
+      - 6999:6379
 
   bot:
     build:
