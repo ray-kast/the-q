@@ -234,7 +234,7 @@ impl<'a> DeserializeCommand<'a, HandlerCx> for LiquidMessageArgs<'a> {
     type Completion = NoCompletion;
 
     fn register_global(cx: &HandlerCx) -> CommandInfo {
-        CommandInfo::message(cx.opts.command_name("Liquefy This"))
+        CommandInfo::message(cx.opts.menu_name("Liquefy This"))
     }
 
     fn deserialize(visitor: &mut CommandVisitor<'a>) -> Result<Self, visitor::Error> {
