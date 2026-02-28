@@ -278,6 +278,7 @@ use std::{future::Future, marker::PhantomData, mem};
 use private::{Interaction, ResponderCore};
 use qcore::build_with::BuildDefault;
 use serenity::{builder::CreateInteractionResponse, http::Http};
+use tracing::warn;
 
 use super::{
     super::rpc::Schema, id, Message, MessageBody, MessageOpts, Modal, ModalSourceHandle, Prepare,
@@ -621,18 +622,21 @@ impl<'a, S, I> BorrowedResponder<'a, S, I> {
 }
 
 impl<S: Schema, I: private::Interaction> BorrowedResponder<'_, S, I> {
-    /// Create a response message if this responder is in its initial state, or
-    /// create a followup message if a response has already been created
+    /// Post a message indicating an error handling the interaction
+    ///
+    /// This will create a response message if this responder is in its initial
+    /// state, or attempt to delete an existing response and create a followup
+    /// message if a response has already been created.
     ///
     /// # Errors
     /// This method returns an error if the message contains errors or an API
-    /// error is received.
+    /// error is received while posting the message.
     ///
     /// # Panics
     /// This method panics if the responder has entered a poisoned state.  This
     /// should not happen unless a thread panicked in the middle of a state
     /// update.
-    pub async fn create_or_followup(
+    pub async fn error_followup(
         &mut self,
         msg: Message<S::Component, id::Error>,
     ) -> Result<Option<Followup>, ResponseError> {
@@ -647,7 +651,12 @@ impl<S: Schema, I: private::Interaction> BorrowedResponder<'_, S, I> {
 
                 Ok(None)
             },
-            Self::Void(v) => v.create_followup(msg).await.map(Some),
+            Self::Void(v) => {
+                () = v.0.int.delete_response(v.0.http).await.unwrap_or_else(
+                    |err| warn!(%err, "Error deleting failed interaction response"),
+                );
+                v.create_followup(msg).await.map(Some)
+            },
             Self::Poison => panic!("Attempt to use poisoned responder"),
         }
     }

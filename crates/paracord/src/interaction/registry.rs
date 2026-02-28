@@ -642,7 +642,7 @@ impl<S: Schema, C: fmt::Debug + Sync> Registry<S, C> {
             .err()
             .and_then(|e| Self::pretty_handler_error(e, "command"))
         {
-            responder.create_or_followup(msg).await?;
+            responder.error_followup(msg).await?;
         }
 
         Ok(())
@@ -695,7 +695,7 @@ impl<S: Schema, C: fmt::Debug + Sync> Registry<S, C> {
             .err()
             .and_then(|e| Self::pretty_handler_error(e, "component"))
         {
-            responder.create_or_followup(msg).await?;
+            responder.error_followup(msg).await?;
         }
 
         Ok(())
@@ -795,7 +795,7 @@ impl<S: Schema, C: fmt::Debug + Sync> Registry<S, C> {
             .err()
             .and_then(|e| Self::pretty_handler_error(e, "modal"))
         {
-            responder.create_or_followup(msg).await?;
+            responder.error_followup(msg).await?;
         }
 
         Ok(())
