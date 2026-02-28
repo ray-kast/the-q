@@ -65,7 +65,7 @@ impl RateLimitParams {
         let curr_key = keys.len().checked_sub(1).unwrap_or_else(|| unreachable!());
 
         // HACK: manually inlining transaction_async because of AsyncFnMut fuckery
-        let (all,): (Vec<u32>,) = loop {
+        let (all,): (Vec<Option<u32>>,) = loop {
             redis::cmd("WATCH").arg(&keys).exec_async(&mut conn).await?;
             let mut pipe = redis::pipe();
 
@@ -92,6 +92,6 @@ impl RateLimitParams {
             }
         };
 
-        Ok(all.into_iter().sum::<u32>() <= u32::from(self.window_limit))
+        Ok(all.into_iter().flatten().sum::<u32>() <= u32::from(self.window_limit))
     }
 }
