@@ -6,7 +6,7 @@ resolver = "2"
 [workspace.dependencies]
 futures-util = "0.3.31"
 hashbrown = "0.16.1"
-marten = "0.1.0"
+marten = "0.2.0"
 proptest = "1.9.0"
 thiserror = "2.0.17"
 tracing = "0.1.44"

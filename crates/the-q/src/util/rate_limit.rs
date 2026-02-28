@@ -1,6 +1,6 @@
 use std::num::NonZeroU8;
 
-use redis::aio::MultiplexedConnection;
+use redis::{aio::MultiplexedConnection, AsyncCommands};
 
 use crate::prelude::*;
 
@@ -47,11 +47,12 @@ impl FromStr for RateLimitParams {
 }
 
 impl RateLimitParams {
-    pub async fn check<K: fmt::Display + ?Sized>(
+    #[instrument(level = "debug", fields(%key), skip(conn))]
+    pub async fn acquire<K: fmt::Display + ?Sized>(
         self,
         key: &K,
         mut conn: MultiplexedConnection,
-    ) -> Result<bool> {
+    ) -> Result<Option<RateLimitLock>, redis::RedisError> {
         let bucket_secs = 60 * i64::from(self.bucket_mins.get());
         let now = jiff::Timestamp::now();
         let curr_bucket = now.as_second() / bucket_secs;
@@ -65,14 +66,13 @@ impl RateLimitParams {
         let curr_key = keys.len().checked_sub(1).unwrap_or_else(|| unreachable!());
 
         // HACK: manually inlining transaction_async because of AsyncFnMut fuckery
-        let (all,): (Vec<Option<u32>>,) = loop {
+        let (last, mut all): (u32, Vec<Option<u32>>) = loop {
             redis::cmd("WATCH").arg(&keys).exec_async(&mut conn).await?;
             let mut pipe = redis::pipe();
 
             let response: Option<_> = pipe
                 .atomic()
                 .incr(&keys[curr_key], 1)
-                .ignore()
                 .expire_at(
                     &keys[curr_key],
                     curr_bucket
@@ -92,6 +92,43 @@ impl RateLimitParams {
             }
         };
 
-        Ok(all.into_iter().flatten().sum::<u32>() <= u32::from(self.window_limit))
+        debug!(%last, ?all, "Summing rate limit check");
+
+        let mut keys = keys;
+        let key = keys.pop();
+        Ok(
+            if last + all.drain(..curr_key).flatten().sum::<u32>() <= u32::from(self.window_limit) {
+                Some(RateLimitLock { conn, key })
+            } else {
+                if let Some(key) = key {
+                    () = conn.decr(key, 1).await?;
+                }
+                None
+            },
+        )
     }
+}
+
+#[must_use = ".confirm() must be called to prevent decrementing the request count"]
+pub struct RateLimitLock {
+    conn: MultiplexedConnection,
+    key: Option<String>,
+}
+
+impl Drop for RateLimitLock {
+    fn drop(&mut self) {
+        if let Some(key) = self.key.take() {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(self.conn.decr(key, 1))
+                .unwrap_or_else(|err| warn!(%err, "Error releasing RateLimitLock"));
+        }
+    }
+}
+
+impl RateLimitLock {
+    #[inline]
+    pub fn confirm(&mut self) { self.key.take(); }
 }

@@ -52,6 +52,15 @@ impl marten::CliOpts for Opts {
 
     const CRATE: &str = env!("CARGO_PKG_NAME");
 
+    fn tracing_subscriber<
+        L: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync,
+    >(
+        layer: L,
+    ) -> impl tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync
+    {
+        tracing_subscriber::Layer::with_subscriber(tracing_subscriber::fmt::layer().pretty(), layer)
+    }
+
     fn into_parts(self) -> (tracing_subscriber::EnvFilter, Self::Command) {
         let Self {
             log_filter,

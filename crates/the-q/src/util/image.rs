@@ -293,8 +293,8 @@ async fn process<
     lossless_out: bool,
     f: F,
 ) -> CommandResult<'a> {
-    if !rate_limit
-        .check(
+    let Some(mut lock) = rate_limit
+        .acquire(
             "image_manip",
             redis
                 .get_multiplexed_async_connection()
@@ -303,7 +303,7 @@ async fn process<
         )
         .await
         .context("Error checking rate limit")?
-    {
+    else {
         return Ok(responder
             .delete_and_followup(
                 Message::plain("Too many requests!  Try again later.").ephemeral(true),
@@ -312,7 +312,7 @@ async fn process<
             .context("Error sending ratelimit message")?
             .0
             .into());
-    }
+    };
 
     let image_data;
     let content_type;
@@ -363,6 +363,7 @@ async fn process<
     .await
     .context("Error running image task")??;
 
+    lock.confirm();
     post_response(responder, bytes).await
 }
 

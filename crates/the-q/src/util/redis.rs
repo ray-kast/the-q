@@ -1,7 +1,6 @@
-use redis::{
-    aio::ConnectionLike, cmd, pipe, FromRedisValue, Pipeline, RedisResult, ToRedisArgs, Value,
-};
+use redis::{aio::ConnectionLike, cmd, pipe, Pipeline, RedisResult, ToRedisArgs};
 
+#[expect(dead_code, reason = "Doesn't work right due to AsyncFn issues")]
 /// Hacked together from [`redis::transaction`] to make it async
 pub async fn transaction_async<
     C: ConnectionLike,
