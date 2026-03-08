@@ -4,14 +4,14 @@ use std::{
 };
 
 use crate::{
-    lqr_carver_destroy, lqr_carver_get_channels, lqr_carver_get_height, lqr_carver_get_width,
-    lqr_carver_init, lqr_carver_new_ext, lqr_carver_resize, lqr_carver_scan_by_row,
-    lqr_carver_scan_line_ext, lqr_carver_scan_reset, lqr_carver_set_image_type,
-    lqr_carver_set_preserve_input_image, Error, LqrCarver, _LqrColDepth,
-    _LqrColDepth_LQR_COLDEPTH_16I, _LqrColDepth_LQR_COLDEPTH_32F, _LqrColDepth_LQR_COLDEPTH_64F,
-    _LqrColDepth_LQR_COLDEPTH_8I, _LqrImageType_LQR_CMYKA_IMAGE, _LqrImageType_LQR_CMYK_IMAGE,
-    _LqrImageType_LQR_CMY_IMAGE, _LqrImageType_LQR_CUSTOM_IMAGE, _LqrImageType_LQR_GREYA_IMAGE,
-    _LqrImageType_LQR_GREY_IMAGE, _LqrImageType_LQR_RGBA_IMAGE, _LqrImageType_LQR_RGB_IMAGE,
+    _LqrColDepth, _LqrColDepth_LQR_COLDEPTH_16I, _LqrColDepth_LQR_COLDEPTH_32F,
+    _LqrColDepth_LQR_COLDEPTH_64F, _LqrColDepth_LQR_COLDEPTH_8I, _LqrImageType_LQR_CMYKA_IMAGE,
+    _LqrImageType_LQR_CMYK_IMAGE, _LqrImageType_LQR_CMY_IMAGE, _LqrImageType_LQR_CUSTOM_IMAGE,
+    _LqrImageType_LQR_GREYA_IMAGE, _LqrImageType_LQR_GREY_IMAGE, _LqrImageType_LQR_RGBA_IMAGE,
+    _LqrImageType_LQR_RGB_IMAGE, lqr_carver_destroy, lqr_carver_get_channels,
+    lqr_carver_get_height, lqr_carver_get_width, lqr_carver_init, lqr_carver_new_ext,
+    lqr_carver_resize, lqr_carver_scan_by_row, lqr_carver_scan_line_ext, lqr_carver_scan_reset,
+    lqr_carver_set_image_type, lqr_carver_set_preserve_input_image, Error, LqrCarver,
 };
 
 mod imp {

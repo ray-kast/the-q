@@ -118,12 +118,24 @@ pub struct RateLimitLock {
 impl Drop for RateLimitLock {
     fn drop(&mut self) {
         if let Some(key) = self.key.take() {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(self.conn.decr(key, 1))
-                .unwrap_or_else(|err| warn!(%err, "Error releasing RateLimitLock"));
+            std::thread::scope(|scope| {
+                let res = std::thread::Builder::new()
+                    .name("gay baby async drop thread".into())
+                    .spawn_scoped(scope, || {
+                        tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap()
+                            .block_on(self.conn.decr(key, 1))
+                            .unwrap_or_else(|err| warn!(%err, "Error releasing RateLimitLock"));
+                    });
+
+                match res {
+                    // Don't log error, custom panic handler does that
+                    Ok(h) => h.join().unwrap_or(()),
+                    Err(err) => warn!(%err, "Error spawning drop thread for RateLimitLock"),
+                }
+            });
         }
     }
 }

@@ -183,7 +183,14 @@ async fn process_video<F: FnMut(DynamicImage) -> FR, FR: anyhow::Context<Dynamic
     {
         Some("video/mp4") => {
             gstreamer::init().context("Error initializing GStreamer")?;
-            todo!()
+            return Ok(responder
+                .delete_and_followup(
+                    Message::plain("Video processing is still a work in progress!").ephemeral(true),
+                )
+                .await
+                .context("Couldn't post video error")?
+                .0
+                .into());
         },
         _ => {
             return Ok(responder
